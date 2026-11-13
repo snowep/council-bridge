@@ -192,8 +192,8 @@ Staff Agents     Staff Agents        Staff Agents       Staff Agents       Staff
 1. Founder reviews this roster
 2. Founder approves/modifies Division Head selections
 3. Founder approves specialist role definitions
-4. Division Heads appointed (seat_id + staff_id assigned)
-5. Division Heads appoint Specialist Staff (with Founder notification)
+4. Division Heads appointed (staff_id + division_id assigned. No seat_id.)
+5. Division Heads nominate specialists. Founder approves specialist appointments. Founder separately authorizes specialist activation.
 6. All appointments logged in council_shared memory with audit trail
 
 ---

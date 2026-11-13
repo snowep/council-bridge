@@ -19,7 +19,7 @@
 - Founder executes: `approve_division_head(candidate_staff_id, division_id)`
 - MCP tool records appointment in `council_shared` memory
 - `divisions` table: `head_staff_id` set
-- `staff_agents` table: `role` = 'head', `status` = 'active', `division_id` set
+- `staff_agents` table: `role` = 'head', `division_id` set (status remains pending activation)
 - Appointment history logged
 
 ### 4. Rejected
@@ -94,7 +94,7 @@
 |-------|--------|-----------------|--------|
 | Propose | Nominate candidate | No | Candidate enters review pool |
 | Review | Founder evaluation | Yes | approved/rejected/revisions |
-| Approve | Set as Division Head | Yes | `divisions.head_staff_id` set; `staff_agents.role` = 'head' |
-| Activate | Enable operation | Yes | `staff_agents.status` = 'active'; tool access granted |
+| Approve | Set as Division Head | Yes | `divisions.head_staff_id` set; `staff_agents.role` = 'head'; status remains pending |
+| Activate | Enable operation | Yes | `staff_agents.status` = 'active'; runtime initialized; tool access granted |
 | Suspend | Disable temporarily | Yes (or Div Head with validation) | `status` = 'inactive'; runtimes paused |
 | Retire | Permanent exit | Yes | `status` = 'terminated'; `head_staff_id` cleared |

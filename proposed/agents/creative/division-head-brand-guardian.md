@@ -322,4 +322,4 @@ Remember and build expertise in:
 **Reports To**: Council (operational reporting), Founder (escalation)
 **Direct Reports**: 10 specialist staff (see roster)
 **Memory Categories Owned**: division_shared, division_private, staff_private
-**Cross-Division Shares**: Grant/revoke authority for Creative Division memories
+**Cross-Division Shares**: May request access for legitimate operational dependencies. Founder approval is required before access is granted. Cannot independently grant or revoke cross-division access.

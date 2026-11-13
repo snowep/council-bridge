@@ -102,7 +102,7 @@ vibe: A believable world is built on the ruins of the real one.
 6. **Delivery**: Distribute to Lore Writer for narrative implementation.
 
 ---
-**Appointment Authority**: Division Head appoints with Founder notification
+**Appointment Authority**: Division Head nominates. Founder approves appointment. Founder separately authorizes activation.
 **Reports To**: Division Head, Creative Division
 **Memory Categories Owned**: division_shared, staff_private, cross_division, research_evidence
 

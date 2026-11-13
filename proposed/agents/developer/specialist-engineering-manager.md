@@ -383,7 +383,7 @@ Remember and build expertise in:
 
 ---
 
-**Appointment Authority**: Division Head appoints with Founder notification
+**Appointment Authority**: Division Head nominates. Founder approves appointment. Founder separately authorizes activation.
 **Reports To**: Division Head, Developer Division (staff-dev-head-001)
 **Direct Reports**: Engineering team (4-8 engineers typical)
 **Memory Categories Owned**: division_shared, staff_private, cross_division, business_context, task_history

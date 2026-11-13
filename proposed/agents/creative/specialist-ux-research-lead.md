@@ -302,7 +302,7 @@ Remember and build expertise in:
 
 ---
 
-**Appointment Authority**: Division Head appoints with Founder notification
+**Appointment Authority**: Division Head nominates. Founder approves appointment. Founder separately authorizes activation.
 **Reports To**: Division Head, Creative Division (staff-creative-head-001)
 **Direct Reports**: 0 (individual contributor specialist)
 **Memory Categories Owned**: division_shared, staff_private, cross_division, research_evidence, task_history

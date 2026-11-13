@@ -276,7 +276,7 @@ Remember and build expertise in:
 
 ---
 
-**Appointment Authority**: Division Head appoints with Founder notification
+**Appointment Authority**: Division Head nominates. Founder approves appointment. Founder separately authorizes activation.
 **Reports To**: Division Head, Finance Division (staff-finance-head-001)
 **Direct Reports**: 0 (individual contributor specialist)
 **Memory Categories Owned**: division_private, staff_private, cross_division, business_context

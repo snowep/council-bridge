@@ -60,7 +60,7 @@ Division Heads **cannot**:
 - `createDivisionHead(staff_id)` — Founder-only MCP tool
 - `assignSpecialist(staff_id, division_id)` — Division Head–only, Founder-validated
 - `updateTaskStatus(task_id, status)` — Division Head–only for their division's tasks
-- `createCrossDivisionShare(memory_id, division_id, granted_by)` — Founder or division-granted
+- `createCrossDivisionShare(memory_id, division_id, granted_by)` — Founder-granted only. Division Heads may request; Founder approves.
 - All tools validate: "Is this user a Division Head of the target division?"
 
 #### 3. Runtime Identity

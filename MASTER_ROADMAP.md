@@ -5,7 +5,7 @@
 
 ---
 ## Executive Summary
-This roadmap consolidates the 8-phase Council Bridge architecture with the 6-stage Agency Agents research process into a unified execution plan. Phases 1–4 are **COMPLETE**. Phase 5 (Dashboard and Chat) is **READY** — implementation plan prepared, awaiting Founder approval to begin. Phases 6–8 are **PLANNED**.
+This roadmap consolidates the 8-phase Council Bridge architecture with the 6-stage Agency Agents research process into a unified execution plan. Phases 1–4 are **COMPLETE**. Phase 5 (Dashboard and Chat) is ✅ **Formally Accepted** — implementation complete; Founder accepted. Phases 6–8 are **PLANNED** — Phase 6 planning complete pending Founder authorization; implementation not started.
 
 | Phase | Name | Status | Key Deliverable |
 |-------|------|--------|-----------------|
@@ -63,7 +63,7 @@ This roadmap consolidates the 8-phase Council Bridge architecture with the 6-sta
 ### Agent Communication
 - MCP tool shortcuts: `/create-memory`, `/search-memory`, `/link-memory`, `/get-related`, `/cross-division-shares`
 - Agent roster dropdown with search, status badges (online/idle/away)
-- Dual-runtime toggle (Claude Code ↔ Hermes Agent) with shared `seat_id`/`staff_id` indicator
+- Dual-runtime toggle (Claude Code ↔ Hermes Agent) with shared `staff_id` indicator
 
 ### Council Overview
 - 11-seat grid with permanent/replaceable indicators
@@ -142,7 +142,9 @@ This roadmap consolidates the 8-phase Council Bridge architecture with the 6-sta
    - Configure cross-division shares for known dependencies
 
 4. **Specialist Onboarding**
-   - Each Division Head appoints their 5–7 specialists
+   - Each Division Head nominates their 5–7 specialists
+   - Founder approves specialist appointments
+   - Founder separately authorizes specialist activation
    - Staff agents receive `staff_id`, `division_id`, `runtime_instances`
    - Initialize `staff_private` memory for each
 
@@ -237,8 +239,8 @@ Phase 5 Stage 5/6 complete ──► Phase 6 (Division Management, Staff Agents 
 1. ✅ MASTER_ROADMAP.md updated (this document)
 2. ✅ `council-bridge-roster.md` updated to v2.2 (45/45 specialists complete)
 3. ✅ Phase 4 memory verification: 130 tests passing, 100% coverage
-4. ✅ Phase 5 implementation plan prepared (Dashboard and Chat)
-5. **PART 5**: Founder Review → Approve roster → begin Phase 5 Dashboard/Chat implementation → Phase 6 appointment ceremony
+4. ✅ Phase 5 implementation complete; Founder formally accepted
+5. **NEXT**: Founder Review → Approve roster → Phase 6 appointment ceremony (pending authorization)
 
 ---
 **END OF MASTER ROADMAP**
