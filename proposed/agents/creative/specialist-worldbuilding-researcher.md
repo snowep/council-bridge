@@ -106,3 +106,5 @@ vibe: A believable world is built on the ruins of the real one.
 **Reports To**: Division Head, Creative Division
 **Memory Categories Owned**: division_shared, staff_private, cross_division, research_evidence
 
+**Cross-Division Shares**: May request access for legitimate operational dependencies. Founder approval is required before access is granted. Cannot independently grant or revoke cross-division access.
+

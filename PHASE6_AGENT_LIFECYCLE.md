@@ -17,9 +17,14 @@
 
 ### 3. Approved
 - Founder executes: `approve_division_head(candidate_staff_id, division_id)`
-- MCP tool records appointment in `council_shared` memory with `memory_type: 'division_head_approval'`
+- MCP tool records appointment in `council_shared` memory with:
+  - `memory_type: 'division_head_approval'`
+  - `candidate_staff_id`, `division_id`
+  - `approved_by: 'founder'`, `approved_at: <timestamp>`
+  - `activation_authorized: false`
+  - `approval_reference: <unique_id>`
 - `divisions` table: `head_staff_id` set
-- `staff_agents` table: `role` = 'head', `division_id` set, `status` = 'inactive' (default)
+- `staff_agents` table: `role` = 'head', `division_id` set, `status` = 'inactive' (after migration; currently 'active' in DB)
 - Appointment history logged
 
 ### 4. Rejected
@@ -36,6 +41,11 @@
 **Separate from approval.** Approval does not auto-activate.
 
 - Founder executes: `authorize_division_head_activation(staff_id, division_id)`
+- **Service-layer verification**:
+  1. Query `council_shared` memory for `memory_type: 'division_head_approval'` matching `staff_id` and `division_id`
+  2. Verify `approved_by = 'founder'` and `activation_authorized = false`
+  3. Update approval record: `activation_authorized = true`, `activated_at = <timestamp>`
+  4. Only then proceed
 - `staff_agents.status` set to 'active'
 - Runtime instances initialized: `runtime_instances` = ['claude', 'hermes']
 - Division Head gains tool access: `manage_specialists`, `create_task`, `update_task`, `create_deliverable`

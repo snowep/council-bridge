@@ -118,15 +118,21 @@ This roadmap consolidates the 8-phase Council Bridge architecture with the 6-sta
 ### Prerequisites
 - Phase 5 complete (Dashboard and Chat formally accepted)
 - Phase 4 future tables exist (empty, ready)
+- **Database migration plan reviewed and approved** (`PHASE6_DATABASE_MIGRATION_PLAN.md`)
 
 ### Execution (Do Not Execute Without Founder Approval)
-1. **Founder Appointment Ceremony**
+1. **Database Migration** (Prerequisite for all steps)
+   - Execute `PHASE6_DATABASE_MIGRATION_PLAN.md` migrations 1-2
+   - Verify `staff_agents.status` default = 'inactive'
+   - Verify `cross_division_shares.granted_by_type` = 'founder' only
+
+2. **Founder Appointment Ceremony**
    - Review `council-bridge-roster.md` v2.2
    - Approve/modify Division Heads → assign `staff_id`
    - Approve specialist role definitions
    - Log appointments in `council_shared` memory
 
-2. **Database Population**
+3. **Database Population**
    ```sql
    -- Divisions (6)
    INSERT INTO divisions (division_id, name, description, head_staff_id, budget_limit, permissions, strategic_objectives)
@@ -136,12 +142,12 @@ This roadmap consolidates the 8-phase Council Bridge architecture with the 6-sta
    INSERT INTO division_members (division_id, staff_id, role)
    ```
 
-3. **Division Head Onboarding**
+4. **Division Head Onboarding**
    - Initialize `division_shared` memories (policies, standards, calendars)
    - Set up `division_private` for sensitive planning
-   - Configure cross-division shares for known dependencies
+   - **Request** cross-division shares for known dependencies (Founder approval required)
 
-4. **Specialist Onboarding**
+5. **Specialist Onboarding**
    - Each Division Head nominates their 5–7 specialists
    - Founder approves specialist appointments
    - Founder separately authorizes specialist activation
@@ -149,6 +155,7 @@ This roadmap consolidates the 8-phase Council Bridge architecture with the 6-sta
    - Initialize `staff_private` memory for each
 
 ### Deliverables (When Triggered by Founder)
+- Executed database migrations (verification tests passing)
 - Populated `divisions`, `staff_agents`, `division_members` tables
 - Division initialization memories in `division_shared`/`division_private`
 - Updated `council-bridge-roster.md` with appointment dates

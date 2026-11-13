@@ -137,9 +137,9 @@ vibe: The story must hold together, even if the world itself is falling apart.
 
 ---
 
-**Appointment Authority**: Division Head (staff-creative-head-001)
+**Appointment Authority**: Division Head nominates. Founder approves appointment. Founder separately authorizes activation.
 **Reports To**: Division Head
 **Direct Reports**: 0
 **Memory Categories Owned**: division_private, staff_private, cross_division, council_shared, research_evidence
-**Cross-Division Shares**: Lore Writer (reviews), Worldbuilding Researcher (fact-checking), Fashion Copywriter (alignment), Division Head (gatekeeping)
+**Cross-Division Shares**: May request access for legitimate operational dependencies. Founder approval is required before access is granted. Cannot independently grant or revoke cross-division access.
 
