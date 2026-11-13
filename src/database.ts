@@ -1159,7 +1159,7 @@ function createDatabase(dbPath: string): DatabaseInstance {
     `) as PreparedStatement,
     getDeliverableById: db.prepare('SELECT * FROM deliverables WHERE deliverable_id = ?') as PreparedStatement,
     listDeliverablesByTask: db.prepare('SELECT * FROM deliverables WHERE task_id = ? ORDER BY created_at DESC') as PreparedStatement,
-    updateDeliverable: db.prepare('UPDATE deliverables SET status = ?, reviewed_by_type = ?, reviewed_by_id = ?, reviewed_at = ? WHERE deliverable_id = ?') as PreparedStatement,
+    updateDeliverable: db.prepare('UPDATE deliverables SET content = ?, status = ?, reviewed_by_type = ?, reviewed_by_id = ?, reviewed_at = ? WHERE deliverable_id = ?') as PreparedStatement,
 
     // Phase 7: Autonomy, Permissions and Execution
     insertTaskAutonomyLevel: db.prepare(`

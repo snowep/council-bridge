@@ -255,6 +255,7 @@ export const MemoryCategorySchema = z.enum([
   'task_history',
   'cross_division',
 ]);
+export type MemoryCategory = z.infer<typeof MemoryCategorySchema>;
 
 export const MemoryOwnerTypeSchema = z.enum(['seat', 'division', 'staff', 'founder']);
 export type MemoryOwnerType = z.infer<typeof MemoryOwnerTypeSchema>;

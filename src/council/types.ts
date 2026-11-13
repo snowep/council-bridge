@@ -3,6 +3,42 @@
 
 import { z } from 'zod/v4';
 
+// Re-export Phase 1-6 types from core-types
+export {
+  SeatStatusSchema, type SeatStatus,
+  CouncilSeatSchema, type CouncilSeat,
+  PersonaSchema, type Persona,
+  ConstitutionSchema, type Constitution,
+  FounderApprovalSchema, type FounderApproval,
+  MemoryOwnerTypeSchema, type MemoryOwnerType,
+  MemoryEntrySchema, type MemoryEntry,
+  CrossDivisionShareSchema, type CrossDivisionShare,
+  DivisionSchema, type Division,
+  StaffAgentSchema, type StaffAgent,
+  DivisionMemberSchema, type DivisionMember,
+  TaskSchema, type Task,
+  DeliverableSchema, type Deliverable,
+  MeetingSchema, type Meeting,
+  CandidateSchema, type Candidate,
+  FounderDeliberationSchema, type FounderDeliberation,
+  FounderVoteSchema, type FounderVote,
+  MeetingPhaseSchema, type MeetingPhase,
+  PrimaryIdeaSchema, type PrimaryIdea,
+  BrainstormRecordSchema, type BrainstormRecord,
+  ChallengeSchema, type Challenge,
+  DefenseSchema, type Defense,
+  SynthesisSchema, type Synthesis,
+  ReassessmentSchema, type Reassessment,
+  EvaluationSchema, type Evaluation,
+  AnonymousEvaluationSchema, type AnonymousEvaluation,
+  EvaluationCriteriaSchema, type EvaluationCriteria,
+  MemoryCategorySchema, type MemoryCategory,
+  MemoryLinkTypeSchema, type MemoryLinkType,
+  MemoryLinkSchema, type MemoryLink,
+  MemoryVersionSchema, type MemoryVersion,
+  MemoryAccessSchema, type MemoryAccess,
+} from './core-types.js';
+
 // Phase 7: Autonomy and Execution Types
 export const AutonomyLevelSchema = z.union([z.literal(1), z.literal(2), z.literal(3)]);
 export type AutonomyLevel = z.infer<typeof AutonomyLevelSchema>;
@@ -15,9 +51,6 @@ export type ExecutionStatus = z.infer<typeof ExecutionStatusSchema>;
 
 export const ApprovalStatusSchema = z.enum(['pending', 'approved', 'rejected', 'expired', 'cancelled']);
 export type ApprovalStatus = z.infer<typeof ApprovalStatusSchema>;
-
-// Re-export from core-types
-export { MemoryOwnerTypeSchema, type MemoryOwnerType } from './core-types.js';
 
 // Phase 7 Execution Types
 export const TaskAutonomyLevelSchema = z.object({

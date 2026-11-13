@@ -7,6 +7,9 @@ import {
   MemoryLinkTypeSchema,
   MemoryOwnerTypeSchema
 } from './core-types.js';
+import type { EvaluationCriteria } from './core-types.js';
+
+export type CreateEvaluationCriteriaInput = Omit<EvaluationCriteria, 'created_at'>;
 
 // Phase 4: Memory Input Schemas
 export const CreateMemoryInputSchema = z.object({
@@ -79,8 +82,10 @@ export type RevokeCrossDivisionAccessInput = z.infer<typeof RevokeCrossDivisionA
 
 // Phase 6: Division & Staff Input Schemas
 export const CreateDivisionInputSchema = z.object({
+  division_id: z.string().min(1).max(255),
   name: z.string().min(1).max(255),
   description: z.string().optional(),
+  head_staff_id: z.string().optional(),
   budget_limit: z.number().optional(),
   strategic_objectives: z.array(z.string()).optional(),
   permissions: z.array(z.string()).optional(),
@@ -95,6 +100,8 @@ export type AssignDivisionHeadInput = z.infer<typeof AssignDivisionHeadInputSche
 
 export const UpdateDivisionInputSchema = z.object({
   division_id: z.string().min(1).max(255),
+  name: z.string().optional(),
+  description: z.string().optional(),
   head_staff_id: z.string().optional(),
   budget_limit: z.number().optional(),
   strategic_objectives: z.array(z.string()).optional(),
@@ -114,6 +121,7 @@ export const RegisterStaffAgentInputSchema = z.object({
   division_id: z.string().min(1).max(255),
   runtime_instances: z.array(z.enum(['claude', 'hermes'])).min(1),
   permissions: z.array(z.string()).default([]),
+  status: z.enum(['active', 'inactive', 'terminated']).optional(),
 });
 export type RegisterStaffAgentInput = z.infer<typeof RegisterStaffAgentInputSchema>;
 
@@ -122,6 +130,17 @@ export const UpdateStaffStatusInputSchema = z.object({
   status: z.enum(['active', 'inactive', 'terminated']),
 });
 export type UpdateStaffStatusInput = z.infer<typeof UpdateStaffStatusInputSchema>;
+
+export const UpdateStaffAgentInputSchema = z.object({
+  staff_id: z.string().min(1).max(255),
+  name: z.string().optional(),
+  role: z.string().optional(),
+  division_id: z.string().optional(),
+  runtime_instances: z.array(z.enum(['claude', 'hermes'])).optional(),
+  permissions: z.array(z.string()).optional(),
+  status: z.enum(['active', 'inactive', 'terminated']).optional(),
+});
+export type UpdateStaffAgentInput = z.infer<typeof UpdateStaffAgentInputSchema>;
 
 export const UpdateStaffPermissionsInputSchema = z.object({
   staff_id: z.string().min(1).max(255),
@@ -138,6 +157,13 @@ export const RetireStaffAgentInputSchema = z.object({
   staff_id: z.string().min(1).max(255),
 });
 export type RetireStaffAgentInput = z.infer<typeof RetireStaffAgentInputSchema>;
+
+export const AddDivisionMemberInputSchema = z.object({
+  division_id: z.string().min(1).max(255),
+  staff_id: z.string().min(1).max(255),
+  role: z.enum(['head', 'member', 'specialist']).default('specialist'),
+});
+export type AddDivisionMemberInput = z.infer<typeof AddDivisionMemberInputSchema>;
 
 export const CreateTaskInputSchema = z.object({
   title: z.string().min(1).max(500),
@@ -159,9 +185,15 @@ export const UpdateTaskInputSchema = z.object({
   task_id: z.string().min(1).max(255),
   title: z.string().optional(),
   description: z.string().optional(),
+  assigned_to_type: z.enum(['division', 'staff']).optional(),
+  assigned_to_id: z.string().optional(),
   status: z.enum(['pending', 'in_progress', 'review', 'completed', 'cancelled']).optional(),
   priority: z.enum(['low', 'medium', 'high', 'critical']).optional(),
+  budget_allocated: z.number().optional(),
   due_at: z.string().optional(),
+  completed_at: z.string().optional(),
+  dependencies: z.array(z.string()).optional(),
+  deliverable_id: z.string().optional(),
 });
 export type UpdateTaskInput = z.infer<typeof UpdateTaskInputSchema>;
 
@@ -181,19 +213,29 @@ export const CompleteTaskInputSchema = z.object({
 export type CompleteTaskInput = z.infer<typeof CompleteTaskInputSchema>;
 
 export const CreateDeliverableInputSchema = z.object({
+  deliverable_id: z.string().min(1).max(255),
   task_id: z.string().min(1).max(255),
-  content: z.record(z.string(), z.any()),
   submitted_by_type: z.enum(['staff', 'division']),
   submitted_by_id: z.string().min(1).max(255),
+  content: z.string(),
+  status: z.enum(['submitted', 'accepted', 'rejected', 'revision_requested']).optional(),
+  reviewed_by_type: z.enum(['founder', 'council', 'division_head']).optional(),
+  reviewed_by_id: z.string().optional(),
+  file_references: z.array(z.string()).optional(),
+  task_relationships: z.array(z.string()).optional(),
+  audit_log: z.array(z.string()).optional(),
 });
 export type CreateDeliverableInput = z.infer<typeof CreateDeliverableInputSchema>;
 
 export const UpdateDeliverableInputSchema = z.object({
   deliverable_id: z.string().min(1).max(255),
+  content: z.string().optional(),
   status: z.enum(['submitted', 'accepted', 'rejected', 'revision_requested']).optional(),
   reviewed_by_type: z.enum(['founder', 'council', 'division_head']).optional(),
   reviewed_by_id: z.string().optional(),
-  reviewed_at: z.string().optional(),
+  file_references: z.array(z.string()).optional(),
+  task_relationships: z.array(z.string()).optional(),
+  audit_log: z.array(z.string()).optional(),
 });
 export type UpdateDeliverableInput = z.infer<typeof UpdateDeliverableInputSchema>;
 

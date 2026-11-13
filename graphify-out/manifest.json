@@ -1,0 +1,1010 @@
+{
+  "check-phase7.ts": {
+    "mtime": 1794552968.1000185,
+    "seen": 1794582096.4176714,
+    "ast_hash": "98cf9277c7c36354dd03a0d5851362ff",
+    "semantic_hash": "98cf9277c7c36354dd03a0d5851362ff"
+  },
+  "check-schemas.ts": {
+    "mtime": 1794552885.7201996,
+    "seen": 1794582096.4176776,
+    "ast_hash": "d8274cc53a2d46c4800119d38ca8590f",
+    "semantic_hash": "d8274cc53a2d46c4800119d38ca8590f"
+  },
+  "check-tables.ts": {
+    "mtime": 1794552867.620185,
+    "seen": 1794582096.4176805,
+    "ast_hash": "37db22855fffe1f4c84d6917fd4358ae",
+    "semantic_hash": "37db22855fffe1f4c84d6917fd4358ae"
+  },
+  "debug-canonical.ts": {
+    "mtime": 1794565181.1310434,
+    "seen": 1794582096.417682,
+    "ast_hash": "98880b62e0a500fa5e935ddde0dd5c10",
+    "semantic_hash": "98880b62e0a500fa5e935ddde0dd5c10"
+  },
+  "debug-test.ts": {
+    "mtime": 1794576396.4000807,
+    "seen": 1794582096.4176831,
+    "ast_hash": "01f2b21ce24957347950fb081d1ad284",
+    "semantic_hash": "01f2b21ce24957347950fb081d1ad284"
+  },
+  "debug-test2.ts": {
+    "mtime": 1794576153.972877,
+    "seen": 1794582096.4176846,
+    "ast_hash": "99c436a48e5d6aef0fddb4a0cd797be4",
+    "semantic_hash": "99c436a48e5d6aef0fddb4a0cd797be4"
+  },
+  "debug-test3.ts": {
+    "mtime": 1794576176.8471396,
+    "seen": 1794582096.417686,
+    "ast_hash": "47716b871d22f2c08d88b474967fb5b4",
+    "semantic_hash": "47716b871d22f2c08d88b474967fb5b4"
+  },
+  "debug-test4.ts": {
+    "mtime": 1794576279.0040257,
+    "seen": 1794582096.4176872,
+    "ast_hash": "d821a44db747382e587d010bfb4132e6",
+    "semantic_hash": "d821a44db747382e587d010bfb4132e6"
+  },
+  "debug.ts": {
+    "mtime": 1794555359.802397,
+    "seen": 1794582096.4176886,
+    "ast_hash": "b5308f363ce836d7f457e7d6748a6590",
+    "semantic_hash": "b5308f363ce836d7f457e7d6748a6590"
+  },
+  "debug2.ts": {
+    "mtime": 1794555380.9593358,
+    "seen": 1794582096.4176898,
+    "ast_hash": "1dc0b42f8191a4115cc5c273c104276d",
+    "semantic_hash": "1dc0b42f8191a4115cc5c273c104276d"
+  },
+  "debug3.ts": {
+    "mtime": 1794555403.779311,
+    "seen": 1794582096.4176912,
+    "ast_hash": "9997387e28451798b5bc5a204faf46cc",
+    "semantic_hash": "9997387e28451798b5bc5a204faf46cc"
+  },
+  "debug4.ts": {
+    "mtime": 1794555423.2632244,
+    "seen": 1794582096.4176927,
+    "ast_hash": "d71252c2baf10036bef86696bda40f45",
+    "semantic_hash": "d71252c2baf10036bef86696bda40f45"
+  },
+  "package.json": {
+    "mtime": 1794549351.0803783,
+    "seen": 1794582096.4176939,
+    "ast_hash": "46cc54614b48cbf4d3983c7adb727c48",
+    "semantic_hash": "46cc54614b48cbf4d3983c7adb727c48"
+  },
+  "src/agents.ts": {
+    "mtime": 1794389833.6810532,
+    "seen": 1794582096.4176953,
+    "ast_hash": "5707581734fb87b137cbd211eae6b862",
+    "semantic_hash": "5707581734fb87b137cbd211eae6b862"
+  },
+  "src/auth/config.ts": {
+    "mtime": 1794564570.1182072,
+    "seen": 1794582096.4176965,
+    "ast_hash": "dd5e9fba6f6cf71c8d65bc1850a52e9b",
+    "semantic_hash": "dd5e9fba6f6cf71c8d65bc1850a52e9b"
+  },
+  "src/auth/founder.ts": {
+    "mtime": 1794565201.294779,
+    "seen": 1794582096.417698,
+    "ast_hash": "92aa0f26d2a19a0853bd6d6253b2a518",
+    "semantic_hash": "92aa0f26d2a19a0853bd6d6253b2a518"
+  },
+  "src/auth/index.ts": {
+    "mtime": 1794566274.359388,
+    "seen": 1794582096.417699,
+    "ast_hash": "c21861ec6ab91223b029d90f2137ef31",
+    "semantic_hash": "c21861ec6ab91223b029d90f2137ef31"
+  },
+  "src/auth/session.ts": {
+    "mtime": 1794564599.6872296,
+    "seen": 1794582096.4177003,
+    "ast_hash": "93ad3f92041d9986e14a8a55f8400fae",
+    "semantic_hash": "93ad3f92041d9986e14a8a55f8400fae"
+  },
+  "src/council.ts": {
+    "mtime": 1794573254.445124,
+    "seen": 1794582096.4177017,
+    "ast_hash": "9dc3406be41dd978c02974a1bb2c830e",
+    "semantic_hash": "9dc3406be41dd978c02974a1bb2c830e"
+  },
+  "src/council/core-types.ts": {
+    "mtime": 1794571752.6751523,
+    "seen": 1794582096.417703,
+    "ast_hash": "68f83ff3e5bfe5542e4cdd6d85e2e9dd",
+    "semantic_hash": "68f83ff3e5bfe5542e4cdd6d85e2e9dd"
+  },
+  "src/council/divisions.ts": {
+    "mtime": 1794581317.9614642,
+    "seen": 1794582096.417704,
+    "ast_hash": "debe8c3b79082f5883bef93cb19ed2ee",
+    "semantic_hash": "debe8c3b79082f5883bef93cb19ed2ee"
+  },
+  "src/council/index.ts": {
+    "mtime": 1794572047.1335368,
+    "seen": 1794582096.4177055,
+    "ast_hash": "05ffbeecbdf188adaef6b42edb405a90",
+    "semantic_hash": "05ffbeecbdf188adaef6b42edb405a90"
+  },
+  "src/council/inputs.ts": {
+    "mtime": 1794580980.8831315,
+    "seen": 1794582096.4177072,
+    "ast_hash": "bd2d1d337fb51faf65a9027e48238843",
+    "semantic_hash": "bd2d1d337fb51faf65a9027e48238843"
+  },
+  "src/council/legacy.ts": {
+    "mtime": 1794581265.5859332,
+    "seen": 1794582096.4177084,
+    "ast_hash": "2982c43bf44dfc4f22c567d878dfa8bc",
+    "semantic_hash": "2982c43bf44dfc4f22c567d878dfa8bc"
+  },
+  "src/council/meetings.ts": {
+    "mtime": 1794578087.865842,
+    "seen": 1794582096.4177098,
+    "ast_hash": "f110f4f4a8cc90a6eace2df5c886e661",
+    "semantic_hash": "f110f4f4a8cc90a6eace2df5c886e661"
+  },
+  "src/council/memory.ts": {
+    "mtime": 1794581193.6159875,
+    "seen": 1794582096.417711,
+    "ast_hash": "7c129b2e167f72707dc4baa455363900",
+    "semantic_hash": "7c129b2e167f72707dc4baa455363900"
+  },
+  "src/council/operations.ts": {
+    "mtime": 1794581414.1345842,
+    "seen": 1794582096.4177125,
+    "ast_hash": "9989451e93245b3c2939de66397bc304",
+    "semantic_hash": "9989451e93245b3c2939de66397bc304"
+  },
+  "src/council/types.ts": {
+    "mtime": 1794578400.2343333,
+    "seen": 1794582096.4177134,
+    "ast_hash": "9d05534aa995174a8194ca9ebee5f954",
+    "semantic_hash": "9d05534aa995174a8194ca9ebee5f954"
+  },
+  "src/database.ts": {
+    "mtime": 1794581317.9472837,
+    "seen": 1794582096.4177146,
+    "ast_hash": "edeb7349fbf89f2b3f10a2888616be1a",
+    "semantic_hash": "edeb7349fbf89f2b3f10a2888616be1a"
+  },
+  "src/globals.d.ts": {
+    "mtime": 1794505211.168929,
+    "seen": 1794582096.4177163,
+    "ast_hash": "2d62b41051436d4a3d382f1f6c117a9c",
+    "semantic_hash": "2d62b41051436d4a3d382f1f6c117a9c"
+  },
+  "src/init-council.ts": {
+    "mtime": 1794477567.0812979,
+    "seen": 1794582096.4177175,
+    "ast_hash": "13b4ba1fce04db8b94df752c4070d94c",
+    "semantic_hash": "13b4ba1fce04db8b94df752c4070d94c"
+  },
+  "src/messages.ts": {
+    "mtime": 1794389878.664827,
+    "seen": 1794582096.417719,
+    "ast_hash": "b9667a8e44db99265cabf506778889a3",
+    "semantic_hash": "b9667a8e44db99265cabf506778889a3"
+  },
+  "src/migration-runner/backup.ts": {
+    "mtime": 1794550501.7139845,
+    "seen": 1794582096.41772,
+    "ast_hash": "35c8c7f1ce96db6cc257fe3b316c052b",
+    "semantic_hash": "35c8c7f1ce96db6cc257fe3b316c052b"
+  },
+  "src/migration-runner/cli.ts": {
+    "mtime": 1794550526.3424065,
+    "seen": 1794582096.417721,
+    "ast_hash": "a1bac2be08e7ae48cd2c9b172e8744f7",
+    "semantic_hash": "a1bac2be08e7ae48cd2c9b172e8744f7"
+  },
+  "src/migration-runner/executor.ts": {
+    "mtime": 1794550139.89023,
+    "seen": 1794582096.4177225,
+    "ast_hash": "d0ef1b1ab18a3667e4306d0e52140343",
+    "semantic_hash": "d0ef1b1ab18a3667e4306d0e52140343"
+  },
+  "src/migration-runner/ledger.ts": {
+    "mtime": 1794550171.9868166,
+    "seen": 1794582096.4177237,
+    "ast_hash": "d65ad61fd4a5350a464a691f89c9d992",
+    "semantic_hash": "d65ad61fd4a5350a464a691f89c9d992"
+  },
+  "src/migration-runner/registry.ts": {
+    "mtime": 1794549485.028625,
+    "seen": 1794582096.4177248,
+    "ast_hash": "d8cf78b4f08857d8f5cbc19efe8b1986",
+    "semantic_hash": "d8cf78b4f08857d8f5cbc19efe8b1986"
+  },
+  "src/migration-runner/validator.ts": {
+    "mtime": 1794549685.053013,
+    "seen": 1794582096.4177263,
+    "ast_hash": "c29ebe2245d2344a1a6f60792f679870",
+    "semantic_hash": "c29ebe2245d2344a1a6f60792f679870"
+  },
+  "src/server.ts": {
+    "mtime": 1794580761.0449488,
+    "seen": 1794582096.4177272,
+    "ast_hash": "4c54f8b581b6814552c94d7a8998f0aa",
+    "semantic_hash": "4c54f8b581b6814552c94d7a8998f0aa"
+  },
+  "src/ui.ts": {
+    "mtime": 1794505619.6822786,
+    "seen": 1794582096.4177284,
+    "ast_hash": "5c26048997380ec36f22bd1fc7977c81",
+    "semantic_hash": "5c26048997380ec36f22bd1fc7977c81"
+  },
+  "test-connect.ts": {
+    "mtime": 1794394797.9620714,
+    "seen": 1794582096.4177299,
+    "ast_hash": "1c95ad8948286097143c6a664f07b0eb",
+    "semantic_hash": "1c95ad8948286097143c6a664f07b0eb"
+  },
+  "tests/agents.test.ts": {
+    "mtime": 1794551579.8830853,
+    "seen": 1794582096.417731,
+    "ast_hash": "c1beb71079a30889ee9f9f3b2dd287d8",
+    "semantic_hash": "c1beb71079a30889ee9f9f3b2dd287d8"
+  },
+  "tests/council.test.ts": {
+    "mtime": 1794551625.1162782,
+    "seen": 1794582096.4177322,
+    "ast_hash": "c0d100fdc0a781190121a5c0d238df62",
+    "semantic_hash": "c0d100fdc0a781190121a5c0d238df62"
+  },
+  "tests/phase6_migration_verification.test.ts": {
+    "mtime": 1794543820.8265736,
+    "seen": 1794582096.4177341,
+    "ast_hash": "00173651ee91283b4d284b800e887fb9",
+    "semantic_hash": "00173651ee91283b4d284b800e887fb9"
+  },
+  "tests/phase7_autonomy_execution.test.ts": {
+    "mtime": 1794559610.9754624,
+    "seen": 1794582096.4177353,
+    "ast_hash": "b58a0584545ff9f0afb95991fb575309",
+    "semantic_hash": "b58a0584545ff9f0afb95991fb575309"
+  },
+  "tests/phase8_auth.test.ts": {
+    "mtime": 1794564877.6557727,
+    "seen": 1794582096.4177368,
+    "ast_hash": "4884c1bfc98f8bd76d8f7bd5aeac31ea",
+    "semantic_hash": "4884c1bfc98f8bd76d8f7bd5aeac31ea"
+  },
+  "tests/phase8_security.test.ts": {
+    "mtime": 1794567158.4758236,
+    "seen": 1794582096.417738,
+    "ast_hash": "46cd017207eb94b4a3d71e5a2e72ebbc",
+    "semantic_hash": "46cd017207eb94b4a3d71e5a2e72ebbc"
+  },
+  "tests/server.test.ts": {
+    "mtime": 1794390965.456962,
+    "seen": 1794582096.4177399,
+    "ast_hash": "51770dd552400d5a70f825ef88e8455e",
+    "semantic_hash": "51770dd552400d5a70f825ef88e8455e"
+  },
+  "tests/service_authorization.test.ts": {
+    "mtime": 1794581427.7106018,
+    "seen": 1794582096.4177408,
+    "ast_hash": "ea47f2bdc765b6b4d8965c24a49de116",
+    "semantic_hash": "ea47f2bdc765b6b4d8965c24a49de116"
+  },
+  "tsconfig.json": {
+    "mtime": 1794388492.974554,
+    "seen": 1794582096.417742,
+    "ast_hash": "13c8f6d23d3dea835b284cda10ed984a",
+    "semantic_hash": "13c8f6d23d3dea835b284cda10ed984a"
+  },
+  ".playwright-mcp/page-2026-11-12T16-54-02-366Z.yml": {
+    "mtime": 1794502442.3869188,
+    "seen": 1794582334.4482257,
+    "ast_hash": "5a057fcc0e52fa415e95bc602f29fcde",
+    "semantic_hash": ""
+  },
+  "BATCH3A_DEBUG_CLEANUP_REPORT.md": {
+    "mtime": 1794572633.6140008,
+    "seen": 1794582334.4482293,
+    "ast_hash": "fefcdd1d4abf6c8d2e8ee32ae45bc289",
+    "semantic_hash": ""
+  },
+  "BATCH3A_FINAL_VERIFICATION_REPORT.md": {
+    "mtime": 1794572675.567045,
+    "seen": 1794582334.4482317,
+    "ast_hash": "6e6f129dd430520f3822f18a23e2191c",
+    "semantic_hash": ""
+  },
+  "BATCH3A_MODULARIZATION_COMPLETION_REPORT.md": {
+    "mtime": 1794572621.2793431,
+    "seen": 1794582334.4482334,
+    "ast_hash": "ddb5ce791aa9864b57d0b0b701b29bc1",
+    "semantic_hash": ""
+  },
+  "BATCH3A_SERVICE_AUTH_REPORT.md": {
+    "mtime": 1794572561.4609997,
+    "seen": 1794582334.4482353,
+    "ast_hash": "eaee2b90150ef930c819303838162b87",
+    "semantic_hash": ""
+  },
+  "BATCH3A_TRANSACTION_PARITY_REPORT.md": {
+    "mtime": 1794572592.427704,
+    "seen": 1794582334.448237,
+    "ast_hash": "241d006ef7eb361fac778bec91af3cc6",
+    "semantic_hash": ""
+  },
+  "BATCH3_FINAL_VERIFICATION_REPORT.md": {
+    "mtime": 1794569872.9156342,
+    "seen": 1794582334.448239,
+    "ast_hash": "28d7bec11dc1fa15ac544c30856e228e",
+    "semantic_hash": ""
+  },
+  "CODEBASE_SIMPLIFICATION_AUDIT.md": {
+    "mtime": 1794560111.075466,
+    "seen": 1794582334.4482417,
+    "ast_hash": "7a6b1cf11beacc678bf6007a820c90cb",
+    "semantic_hash": ""
+  },
+  "CODEBASE_SIMPLIFICATION_REPORT.md": {
+    "mtime": 1794569821.9375017,
+    "seen": 1794582334.4482434,
+    "ast_hash": "d29ea4387bd477b59764d8fdfe2c1b9f",
+    "semantic_hash": ""
+  },
+  "COUNCIL_MODULARIZATION_INTEGRATION_REPORT.md": {
+    "mtime": 1794569786.0910048,
+    "seen": 1794582334.4482453,
+    "ast_hash": "466f1d7e24c438e44dda7d9acf652fef",
+    "semantic_hash": ""
+  },
+  "COUNCIL_PERSONA_RESEARCH_REPORT.md": {
+    "mtime": 1794503575.6751373,
+    "seen": 1794582334.448247,
+    "ast_hash": "dabd6cb64903de089a11540ce8e482a7",
+    "semantic_hash": ""
+  },
+  "DIVISION_HEAD_REVISION_REPORT.md": {
+    "mtime": 1794537486.3761106,
+    "seen": 1794582334.4482489,
+    "ast_hash": "e36ca998e720ca2f71befcca98a57394",
+    "semantic_hash": ""
+  },
+  "MASTER_ROADMAP.md": {
+    "mtime": 1794540312.2395337,
+    "seen": 1794582334.4482505,
+    "ast_hash": "f2fafaf22c83e35771031726024cc74e",
+    "semantic_hash": ""
+  },
+  "PHASE4_ARCHITECTURE.md": {
+    "mtime": 1794486570.3261354,
+    "seen": 1794582334.4482524,
+    "ast_hash": "4e7cf05e0021bc3fbc0d673f0ac5777b",
+    "semantic_hash": ""
+  },
+  "PHASE4_MEMORY_RULES.md": {
+    "mtime": 1794539185.3851721,
+    "seen": 1794582334.4482539,
+    "ast_hash": "9daa59379387f103a8184bb25520d06c",
+    "semantic_hash": ""
+  },
+  "PHASE4_RETRIEVAL.md": {
+    "mtime": 1794539195.7247133,
+    "seen": 1794582334.4482558,
+    "ast_hash": "431c684e9db05ab5244f80c55bd976dd",
+    "semantic_hash": ""
+  },
+  "PHASE4_SCHEMA.md": {
+    "mtime": 1794486535.4511817,
+    "seen": 1794582334.4482574,
+    "ast_hash": "45606b0409417a0097e56e9e6d13edf6",
+    "semantic_hash": ""
+  },
+  "PHASE4_TEST_PLAN.md": {
+    "mtime": 1794486873.6000154,
+    "seen": 1794582334.448259,
+    "ast_hash": "efdbbae01f58db5f167819881bccb3c7",
+    "semantic_hash": ""
+  },
+  "PHASE5_FINAL_ACCEPTANCE_AUDIT.md": {
+    "mtime": 1794506334.6062937,
+    "seen": 1794582334.4482608,
+    "ast_hash": "8265e73a3dc0fca6f66efa1a47115647",
+    "semantic_hash": ""
+  },
+  "PHASE6_ACCEPTANCE_TEST_MATRIX.md": {
+    "mtime": 1794548216.0588896,
+    "seen": 1794582334.4482627,
+    "ast_hash": "370702f58c9f36629678db881c78d749",
+    "semantic_hash": ""
+  },
+  "PHASE6_AGENT_APPOINTMENT_PLAN.md": {
+    "mtime": 1794548488.7591486,
+    "seen": 1794582334.4482644,
+    "ast_hash": "df147117258838f39f0f83e69fc95ffc",
+    "semantic_hash": ""
+  },
+  "PHASE6_AGENT_LIFECYCLE.md": {
+    "mtime": 1794540285.4504862,
+    "seen": 1794582334.4482663,
+    "ast_hash": "a24d3c37297752bab71e09fc39ad5308",
+    "semantic_hash": ""
+  },
+  "PHASE6_ARCHITECTURE.md": {
+    "mtime": 1794539112.4167442,
+    "seen": 1794582334.4482677,
+    "ast_hash": "d6fd35b11d7f008e9f1f6f604bd35e9a",
+    "semantic_hash": ""
+  },
+  "PHASE6_BASELINE_VERIFICATION_REPORT.md": {
+    "mtime": 1794547952.6520586,
+    "seen": 1794582334.4482694,
+    "ast_hash": "2ee778e60b6b9643550a285f81eeee11",
+    "semantic_hash": ""
+  },
+  "PHASE6_DATABASE_MIGRATION_PLAN.md": {
+    "mtime": 1794544769.14261,
+    "seen": 1794582334.448271,
+    "ast_hash": "ba38695bdd78c4d4fc91d4406daf3aed",
+    "semantic_hash": ""
+  },
+  "PHASE6_EXECUTION_SEQUENCE.md": {
+    "mtime": 1794548147.2986712,
+    "seen": 1794582334.448273,
+    "ast_hash": "f6c5574f2819eadd734ada9f2b325396",
+    "semantic_hash": ""
+  },
+  "PHASE6_FINAL_ACCEPTANCE_AUDIT.md": {
+    "mtime": 1794552644.5840025,
+    "seen": 1794582334.4482744,
+    "ast_hash": "41ecd8014b6e7106cbf88f9cbcf7dfcf",
+    "semantic_hash": ""
+  },
+  "PHASE6_FINAL_PLANNING_CORRECTION_REPORT.md": {
+    "mtime": 1794538616.3134742,
+    "seen": 1794582334.4482765,
+    "ast_hash": "6aec45c7b3dad3aaa6fa6dab024231dd",
+    "semantic_hash": ""
+  },
+  "PHASE6_FINAL_PLANNING_CORRECTION_REPORT_V2.md": {
+    "mtime": 1794539426.7965908,
+    "seen": 1794582334.4482784,
+    "ast_hash": "68c416a6076d6956c7fdcafbcb5c726e",
+    "semantic_hash": ""
+  },
+  "PHASE6_FINAL_PLANNING_CORRECTION_REPORT_V3.md": {
+    "mtime": 1794542088.1013904,
+    "seen": 1794582334.4482803,
+    "ast_hash": "efb8d97de97074293300e202b7861770",
+    "semantic_hash": ""
+  },
+  "PHASE6_FOUNDER_AUTHORIZATION_PACKAGE.md": {
+    "mtime": 1794544660.289556,
+    "seen": 1794582334.448282,
+    "ast_hash": "50f6fabdf38477e02d4a5d9dde27b07c",
+    "semantic_hash": ""
+  },
+  "PHASE6_FOUNDER_DECISION_REGISTER.md": {
+    "mtime": 1794548506.437669,
+    "seen": 1794582334.448284,
+    "ast_hash": "f1bbf3ea95ead5b36cbf317445261ab6",
+    "semantic_hash": ""
+  },
+  "PHASE6_IMPLEMENTATION_BLUEPRINT.md": {
+    "mtime": 1794548215.6417592,
+    "seen": 1794582334.4482856,
+    "ast_hash": "e2725b3ed69fc9828ec0cba1f5018591",
+    "semantic_hash": ""
+  },
+  "PHASE6_IMPLEMENTATION_ROADMAP.md": {
+    "mtime": 1794541983.3190107,
+    "seen": 1794582334.4482875,
+    "ast_hash": "ebe7bef01d6485b91532afb8705058c5",
+    "semantic_hash": ""
+  },
+  "PHASE6_MIGRATION_FINALIZATION_REPORT.md": {
+    "mtime": 1794544726.5450072,
+    "seen": 1794582334.4482894,
+    "ast_hash": "8aeb1df3b6ac84ea021f24f8e5e58037",
+    "semantic_hash": ""
+  },
+  "PHASE6_MIGRATION_RUNNER_SPEC.md": {
+    "mtime": 1794548220.486398,
+    "seen": 1794582334.448291,
+    "ast_hash": "9a8f8ea64aa0c51698221dbed055165a",
+    "semantic_hash": ""
+  },
+  "PHASE6_OPERATIONS_GUIDE.md": {
+    "mtime": 1794548459.1634393,
+    "seen": 1794582334.4482958,
+    "ast_hash": "2681564687a839e29e6b86bc5f48024e",
+    "semantic_hash": ""
+  },
+  "PHASE6_PERMISSION_IMPLEMENTATION_SPEC.md": {
+    "mtime": 1794548281.6754649,
+    "seen": 1794582334.448298,
+    "ast_hash": "0fa8447f0a83577fad59ecee869216c9",
+    "semantic_hash": ""
+  },
+  "PHASE6_PERMISSION_MODEL.md": {
+    "mtime": 1794538821.3410683,
+    "seen": 1794582334.4483,
+    "ast_hash": "7034f99a683c30de86a45bf469d03f79",
+    "semantic_hash": ""
+  },
+  "PHASE6_PLANNING_REVIEW.md": {
+    "mtime": 1794507679.4896493,
+    "seen": 1794582334.4483016,
+    "ast_hash": "1d3a9b449039a4e3e0c6761e09fabe8e",
+    "semantic_hash": ""
+  },
+  "PHASE6_PRODUCTION_MIGRATION_RUNBOOK.md": {
+    "mtime": 1794548136.249417,
+    "seen": 1794582334.4483037,
+    "ast_hash": "61cd7d63eb3910348d91eb613a1ac8fb",
+    "semantic_hash": ""
+  },
+  "PHASE6_READINESS_AUDIT.md": {
+    "mtime": 1794548064.9027627,
+    "seen": 1794582334.4483054,
+    "ast_hash": "3aeeba20d5472ca86f3f9fe3355514e9",
+    "semantic_hash": ""
+  },
+  "PHASE6_SCHEMA_PLAN.md": {
+    "mtime": 1794541961.8130803,
+    "seen": 1794582334.448307,
+    "ast_hash": "06412ccf981c0290097886b1b77f54c4",
+    "semantic_hash": ""
+  },
+  "PHASE6_TASK_DELEGATION.md": {
+    "mtime": 1794539134.9979994,
+    "seen": 1794582334.4483087,
+    "ast_hash": "4f29218bfc45e1d99f20bbf8ab7e1938",
+    "semantic_hash": ""
+  },
+  "PHASE6_TEST_PLAN.md": {
+    "mtime": 1794539164.9943395,
+    "seen": 1794582334.4483106,
+    "ast_hash": "2ea6f8b74c9f194739d3dd6e79eda47d",
+    "semantic_hash": ""
+  },
+  "PHASE7_FINAL_ACCEPTANCE_AUDIT.md": {
+    "mtime": 1794561244.6228142,
+    "seen": 1794582334.4483123,
+    "ast_hash": "e879a0be33d7afc7ea26605891761d10",
+    "semantic_hash": ""
+  },
+  "PHASE7_IMPLEMENTATION_REPORT.md": {
+    "mtime": 1794561210.6588478,
+    "seen": 1794582334.448314,
+    "ast_hash": "b6996e02a7e1cd1e3f99aa932a62dd6d",
+    "semantic_hash": ""
+  },
+  "PHASE7_TEST_REPORT.md": {
+    "mtime": 1794559811.2445922,
+    "seen": 1794582334.4483156,
+    "ast_hash": "c14558b6a53f17fe16002bd90eafcb7e",
+    "semantic_hash": ""
+  },
+  "PHASE8_AUTHENTICATION_PLAN.md": {
+    "mtime": 1794561509.053872,
+    "seen": 1794582334.4483173,
+    "ast_hash": "05c38928b86f2b946a508dbdfe2aec3c",
+    "semantic_hash": ""
+  },
+  "PHASE8_AUTH_STATE.md": {
+    "mtime": 1794564062.6039793,
+    "seen": 1794582334.448319,
+    "ast_hash": "23ee078bf04c552a8f6820228c2a0f6d",
+    "semantic_hash": ""
+  },
+  "PHASE8_EXECUTION_SECURITY_PLAN.md": {
+    "mtime": 1794561561.8418207,
+    "seen": 1794582334.4483209,
+    "ast_hash": "c338fa90e5ca4ea6d9748fcced6fbf24",
+    "semantic_hash": ""
+  },
+  "PHASE8_IMPLEMENTATION_ROADMAP.md": {
+    "mtime": 1794561719.666449,
+    "seen": 1794582334.4483225,
+    "ast_hash": "f81dbfa8bab4ab2f646d871e5f422976",
+    "semantic_hash": ""
+  },
+  "PHASE8_PLANNING_AUDIT.md": {
+    "mtime": 1794561773.0140831,
+    "seen": 1794582334.4483242,
+    "ast_hash": "c8679ac992624c9dd6c8815832d78478",
+    "semantic_hash": ""
+  },
+  "PHASE8_RELIABILITY_PLAN.md": {
+    "mtime": 1794561614.7265286,
+    "seen": 1794582334.4483256,
+    "ast_hash": "79662f8b4983ea6f111fea10fb0db4fa",
+    "semantic_hash": ""
+  },
+  "PHASE8_SECURITY_ARCHITECTURE.md": {
+    "mtime": 1794561401.3314364,
+    "seen": 1794582334.4483278,
+    "ast_hash": "eb73c13f672cfa73aef262b20ee1cd7c",
+    "semantic_hash": ""
+  },
+  "PHASE8_SECURITY_VERIFICATION_REPORT.md": {
+    "mtime": 1794569744.3343613,
+    "seen": 1794582334.4483292,
+    "ast_hash": "9a3740a910940ee174773d1936a78e42",
+    "semantic_hash": ""
+  },
+  "PHASE8_TEST_PLAN.md": {
+    "mtime": 1794561664.729324,
+    "seen": 1794582334.448331,
+    "ast_hash": "66514fb89cb1ac0eb812b4f2f50b3389",
+    "semantic_hash": ""
+  },
+  "PHASE8_THREAT_MODEL.md": {
+    "mtime": 1794561457.1836288,
+    "seen": 1794582334.4483325,
+    "ast_hash": "2cde5b0810e960d915147d7120604646",
+    "semantic_hash": ""
+  },
+  "README.md": {
+    "mtime": 1794389433.6013975,
+    "seen": 1794582334.4483342,
+    "ast_hash": "94440ed1fbaee947ccdd82711a3629cb",
+    "semantic_hash": ""
+  },
+  "agency-agents-audit-report.md": {
+    "mtime": 1794491351.505429,
+    "seen": 1794582334.4483373,
+    "ast_hash": "79c2d7a3b2f91fb328828e7d2419b826",
+    "semantic_hash": ""
+  },
+  "council-bridge-roster.md": {
+    "mtime": 1794538110.9374614,
+    "seen": 1794582334.4483392,
+    "ast_hash": "4b040bda6501f8b2157a17f9a6909d93",
+    "semantic_hash": ""
+  },
+  "migrations/MIGRATION_MANIFEST.md": {
+    "mtime": 1794544741.3731284,
+    "seen": 1794582334.4483423,
+    "ast_hash": "50e5bda2a862bc19d998d50a00b1b91a",
+    "semantic_hash": ""
+  },
+  "proposed/agents/creative/division-head-brand-guardian.md": {
+    "mtime": 1794538336.8786426,
+    "seen": 1794582334.4483445,
+    "ast_hash": "6e7c69588bb5ff91b3cdb03100f582c7",
+    "semantic_hash": ""
+  },
+  "proposed/agents/creative/specialist-brand-storyteller-lore-writer.md": {
+    "mtime": 1794539062.1280982,
+    "seen": 1794582334.4483466,
+    "ast_hash": "5d7ca02807f7e5d675eb575c9a1c99ae",
+    "semantic_hash": ""
+  },
+  "proposed/agents/creative/specialist-copywriter-verbal-identity.md": {
+    "mtime": 1794539062.1835527,
+    "seen": 1794582334.4483485,
+    "ast_hash": "b5681ebf1c464f2dd511a03cbc5311ac",
+    "semantic_hash": ""
+  },
+  "proposed/agents/creative/specialist-creative-content-lead.md": {
+    "mtime": 1794539062.230868,
+    "seen": 1794582334.44835,
+    "ast_hash": "1719faeced12e42ffc4ee555a9dd3eb1",
+    "semantic_hash": ""
+  },
+  "proposed/agents/creative/specialist-creative-operations.md": {
+    "mtime": 1794539062.2756763,
+    "seen": 1794582334.4483519,
+    "ast_hash": "eeb51fbe6c9a4ca859ad6938b32dcf12",
+    "semantic_hash": ""
+  },
+  "proposed/agents/creative/specialist-design-systems-lead.md": {
+    "mtime": 1794539062.323651,
+    "seen": 1794582334.4483533,
+    "ast_hash": "b33249dcb563284204b47b51223425bd",
+    "semantic_hash": ""
+  },
+  "proposed/agents/creative/specialist-fashion-copywriter.md": {
+    "mtime": 1794539062.3766441,
+    "seen": 1794582334.448355,
+    "ast_hash": "f0f5f8ed857b83e27cde43ff169bc643",
+    "semantic_hash": ""
+  },
+  "proposed/agents/creative/specialist-lore-editor.md": {
+    "mtime": 1794540736.839198,
+    "seen": 1794582334.4483566,
+    "ast_hash": "5e8a4b87d6908281fef70aa5ff9aee83",
+    "semantic_hash": ""
+  },
+  "proposed/agents/creative/specialist-motion-video.md": {
+    "mtime": 1794539062.503228,
+    "seen": 1794582334.4483583,
+    "ast_hash": "419f45f476868cf1a6120c3202d5e450",
+    "semantic_hash": ""
+  },
+  "proposed/agents/creative/specialist-ux-research-lead.md": {
+    "mtime": 1794539062.5726223,
+    "seen": 1794582334.4483602,
+    "ast_hash": "83e557393e6527ce2a9545114067eaed",
+    "semantic_hash": ""
+  },
+  "proposed/agents/creative/specialist-worldbuilding-researcher.md": {
+    "mtime": 1794540398.1999514,
+    "seen": 1794582334.4483616,
+    "ast_hash": "27bb7e75d21b43472c784d2b0353e0d2",
+    "semantic_hash": ""
+  },
+  "proposed/agents/developer/division-head-software-architect.md": {
+    "mtime": 1794540348.0195434,
+    "seen": 1794582334.4483635,
+    "ast_hash": "d9414c2fdf2f42fa65e8f39879478968",
+    "semantic_hash": ""
+  },
+  "proposed/agents/developer/specialist-data-ml-engineering.md": {
+    "mtime": 1794539062.6494093,
+    "seen": 1794582334.4483652,
+    "ast_hash": "481bb215197b37b36c00519b5f1fd259",
+    "semantic_hash": ""
+  },
+  "proposed/agents/developer/specialist-developer-experience.md": {
+    "mtime": 1794539062.7311287,
+    "seen": 1794582334.448367,
+    "ast_hash": "2edc19c6a074983e293787f72aa2441c",
+    "semantic_hash": ""
+  },
+  "proposed/agents/developer/specialist-devops.md": {
+    "mtime": 1794539062.7813773,
+    "seen": 1794582334.4483685,
+    "ast_hash": "424b191d763211f71b77852a7250d0e5",
+    "semantic_hash": ""
+  },
+  "proposed/agents/developer/specialist-engineering-manager.md": {
+    "mtime": 1794539062.827159,
+    "seen": 1794582334.4483705,
+    "ast_hash": "f59b3ca4e6220d31c6cd6077793adcd4",
+    "semantic_hash": ""
+  },
+  "proposed/agents/developer/specialist-multiagent.md": {
+    "mtime": 1794539062.8980937,
+    "seen": 1794582334.4483721,
+    "ast_hash": "78cff8fbe84c75fd0179d7ab5a349583",
+    "semantic_hash": ""
+  },
+  "proposed/agents/developer/specialist-platform-engineer.md": {
+    "mtime": 1794539062.9424822,
+    "seen": 1794582334.4483736,
+    "ast_hash": "0ec2c432fde043f0af5a63bf3d68af0a",
+    "semantic_hash": ""
+  },
+  "proposed/agents/developer/specialist-security-architect.md": {
+    "mtime": 1794539063.0052915,
+    "seen": 1794582334.4483752,
+    "ast_hash": "351f1a00349ab9dbf64165db7b168345",
+    "semantic_hash": ""
+  },
+  "proposed/agents/developer/specialist-senior-staff-engineer.md": {
+    "mtime": 1794539063.0494506,
+    "seen": 1794582334.4483771,
+    "ast_hash": "055a91598642be1e009916ae70486dd3",
+    "semantic_hash": ""
+  },
+  "proposed/agents/developer/specialist-technical-writer.md": {
+    "mtime": 1794539063.100616,
+    "seen": 1794582334.4483786,
+    "ast_hash": "a1b3c3f77ccb0bc241dbadd7d6753005",
+    "semantic_hash": ""
+  },
+  "proposed/agents/finance/division-head-fpa-analyst.md": {
+    "mtime": 1794538333.225281,
+    "seen": 1794582334.4483802,
+    "ast_hash": "bc6b7b20fa3489dac550bdc10f2d447e",
+    "semantic_hash": ""
+  },
+  "proposed/agents/finance/specialist-controller-accounting.md": {
+    "mtime": 1794539063.1461687,
+    "seen": 1794582334.4483817,
+    "ast_hash": "78cb075e368dd2e0cf23ab55700d2ffd",
+    "semantic_hash": ""
+  },
+  "proposed/agents/finance/specialist-corporate-finance-valuation.md": {
+    "mtime": 1794539063.2202578,
+    "seen": 1794582334.4483833,
+    "ast_hash": "7b67e3c7021b9fdfce03d5971da5f6b0",
+    "semantic_hash": ""
+  },
+  "proposed/agents/finance/specialist-investment-analyst.md": {
+    "mtime": 1794539063.2840962,
+    "seen": 1794582334.448385,
+    "ast_hash": "ddce714b16e0da644b5cb481728033ba",
+    "semantic_hash": ""
+  },
+  "proposed/agents/finance/specialist-investor-relations.md": {
+    "mtime": 1794539063.3292348,
+    "seen": 1794582334.4483862,
+    "ast_hash": "d9cdf39c315082f9c7e86cb41bf499c0",
+    "semantic_hash": ""
+  },
+  "proposed/agents/finance/specialist-senior-fpanda-manager.md": {
+    "mtime": 1794539063.3709764,
+    "seen": 1794582334.448388,
+    "ast_hash": "3db78088408fa036b65e3777c3aa0f44",
+    "semantic_hash": ""
+  },
+  "proposed/agents/finance/specialist-tax-director.md": {
+    "mtime": 1794539063.4154084,
+    "seen": 1794582334.4483893,
+    "ast_hash": "d6bfad895a5c7eba17c76916194d3529",
+    "semantic_hash": ""
+  },
+  "proposed/agents/finance/specialist-treasury-cash-management.md": {
+    "mtime": 1794539063.4725754,
+    "seen": 1794582334.448391,
+    "ast_hash": "025a807a04a3a44b10d7cedfdc7a7f45",
+    "semantic_hash": ""
+  },
+  "proposed/agents/marketing/division-head-pr-communications.md": {
+    "mtime": 1794538329.4803736,
+    "seen": 1794582334.4483926,
+    "ast_hash": "ab3b379a86e2da5ee829d6f823f1650c",
+    "semantic_hash": ""
+  },
+  "proposed/agents/marketing/specialist-brand-deputy.md": {
+    "mtime": 1794539063.5278864,
+    "seen": 1794582334.4483943,
+    "ast_hash": "a7e70a781c3da6a138d77df6dd22b101",
+    "semantic_hash": ""
+  },
+  "proposed/agents/marketing/specialist-content.md": {
+    "mtime": 1794539063.5700524,
+    "seen": 1794582334.4483957,
+    "ast_hash": "4f65ff2fda1b85bbdbfc7cff3217b808",
+    "semantic_hash": ""
+  },
+  "proposed/agents/marketing/specialist-events-field-marketing.md": {
+    "mtime": 1794539063.6197798,
+    "seen": 1794582334.4483976,
+    "ast_hash": "984a97bef67234e11db4aa5070e435cb",
+    "semantic_hash": ""
+  },
+  "proposed/agents/marketing/specialist-growth.md": {
+    "mtime": 1794539063.6635866,
+    "seen": 1794582334.448399,
+    "ast_hash": "1c12d99aab4b451e1f1ad1094f739a14",
+    "semantic_hash": ""
+  },
+  "proposed/agents/marketing/specialist-marketing-analytics.md": {
+    "mtime": 1794539063.7081046,
+    "seen": 1794582334.448401,
+    "ast_hash": "ef9708d87669591503a3d7338d238609",
+    "semantic_hash": ""
+  },
+  "proposed/agents/marketing/specialist-product-marketing.md": {
+    "mtime": 1794539063.7610664,
+    "seen": 1794582334.4484022,
+    "ast_hash": "7578da86a825af7aa5a835514da3fb02",
+    "semantic_hash": ""
+  },
+  "proposed/agents/marketing/specialist-social.md": {
+    "mtime": 1794539063.8014038,
+    "seen": 1794582334.448404,
+    "ast_hash": "23f65d27fe0bcba60c912c682dcebfa4",
+    "semantic_hash": ""
+  },
+  "proposed/agents/operations/division-head-chief-of-staff.md": {
+    "mtime": 1794538447.4919608,
+    "seen": 1794582334.4484055,
+    "ast_hash": "382ed5d8d6f2d887ce8d072f95cf2718",
+    "semantic_hash": ""
+  },
+  "proposed/agents/operations/specialist-creative-operations-lead.md": {
+    "mtime": 1794539063.8897665,
+    "seen": 1794582334.4484074,
+    "ast_hash": "39b99c0d833ec6b3ec52270299479712",
+    "semantic_hash": ""
+  },
+  "proposed/agents/operations/specialist-facilities-workspace.md": {
+    "mtime": 1794539063.9372072,
+    "seen": 1794582334.448409,
+    "ast_hash": "72a0cbfa6f6830d87f77e8e9cd5b715f",
+    "semantic_hash": ""
+  },
+  "proposed/agents/operations/specialist-legal-compliance.md": {
+    "mtime": 1794539063.9953127,
+    "seen": 1794582334.448411,
+    "ast_hash": "8be038d3ad0715a9695d33d4019770c5",
+    "semantic_hash": ""
+  },
+  "proposed/agents/operations/specialist-operations-process-lead.md": {
+    "mtime": 1794539064.0413258,
+    "seen": 1794582334.4484127,
+    "ast_hash": "acc58f127d2904dac8b13f2ebe6f6d36",
+    "semantic_hash": ""
+  },
+  "proposed/agents/operations/specialist-people-operations-lead.md": {
+    "mtime": 1794539064.1113489,
+    "seen": 1794582334.4484146,
+    "ast_hash": "4dbe5f59a6dd591e577990980025dc7b",
+    "semantic_hash": ""
+  },
+  "proposed/agents/operations/specialist-procurement-vendor.md": {
+    "mtime": 1794539064.1852255,
+    "seen": 1794582334.4484162,
+    "ast_hash": "a279e0792e0bf3e4c7e7cf6d9608d962",
+    "semantic_hash": ""
+  },
+  "proposed/agents/operations/specialist-senior-program-manager.md": {
+    "mtime": 1794539064.2576914,
+    "seen": 1794582334.4484181,
+    "ast_hash": "7cc5c9f1ce46a041b53a8370d434fec2",
+    "semantic_hash": ""
+  },
+  "proposed/agents/research/division-head-research-synthesist.md": {
+    "mtime": 1794538341.1445875,
+    "seen": 1794582334.4484196,
+    "ast_hash": "7f4859c1033164a7d7f8542dcbaa577e",
+    "semantic_hash": ""
+  },
+  "proposed/agents/research/specialist-competitive-intelligence.md": {
+    "mtime": 1794539064.3220122,
+    "seen": 1794582334.4484215,
+    "ast_hash": "009af34d756871f29c6bf224fd8ba186",
+    "semantic_hash": ""
+  },
+  "proposed/agents/research/specialist-data-quantitative.md": {
+    "mtime": 1794539064.36506,
+    "seen": 1794582334.4484239,
+    "ast_hash": "4dd2dca1224e982f90dc5139d51af217",
+    "semantic_hash": ""
+  },
+  "proposed/agents/research/specialist-market-research.md": {
+    "mtime": 1794539064.4112074,
+    "seen": 1794582334.4484262,
+    "ast_hash": "f4e5e6046216ca9ecae3d65cadcd0d5a",
+    "semantic_hash": ""
+  },
+  "proposed/agents/research/specialist-osint.md": {
+    "mtime": 1794539064.4680712,
+    "seen": 1794582334.4484293,
+    "ast_hash": "fb7b8ff0bb8314888645aaf89a842b43",
+    "semantic_hash": ""
+  },
+  "proposed/agents/research/specialist-synthesis-methodology-deputy.md": {
+    "mtime": 1794539064.5130477,
+    "seen": 1794582334.4484322,
+    "ast_hash": "b5864ffd566cb1c43e35c1b175c84324",
+    "semantic_hash": ""
+  },
+  "proposed/personas/council-member-g-dragon.md": {
+    "mtime": 1794502280.4186776,
+    "seen": 1794582334.448434,
+    "ast_hash": "f2916b2f685730ac965baad14fb6850a",
+    "semantic_hash": ""
+  },
+  "proposed/personas/council-member-shawn-stussy.md": {
+    "mtime": 1794502201.4785488,
+    "seen": 1794582334.4484367,
+    "ast_hash": "79251cd39f09dd70f4119b50aeac7012",
+    "semantic_hash": ""
+  },
+  "proposed/personas/council-member-steve-jobs.md": {
+    "mtime": 1794502041.100821,
+    "seen": 1794582334.4484386,
+    "ast_hash": "beec51cd5d82a0ffd5e6de0b76d4a38f",
+    "semantic_hash": ""
+  },
+  "proposed/personas/council-member-virgil-abloh.md": {
+    "mtime": 1794502134.1228502,
+    "seen": 1794582334.4484403,
+    "ast_hash": "960e874ebc1f8ca3452379129ec1e0b1",
+    "semantic_hash": ""
+  },
+  "steve_jobs_philosophy_evidence.md": {
+    "mtime": 1794500839.7995472,
+    "seen": 1794582334.448443,
+    "ast_hash": "e806d44ec0b127fa726e134fa78249f2",
+    "semantic_hash": ""
+  }
+}

@@ -42,6 +42,7 @@ import {
 } from './auth/index.js';
 
 import {
+  createTaskAutonomyLevel,
   listTaskAutonomyLevels,
   getTaskAutonomyLevel,
   requestExecution,
@@ -49,10 +50,9 @@ import {
   getExecutionRequest,
   getExecutionHistory,
   listExecutionRequests,
-  listApprovalRequests
+  listApprovalRequests,
+  setCryptoModule
 } from './council/operations.js';
-
-import { setCryptoModule } from './council/operations.js';
 
 // Initialize crypto module for operations
 setCryptoModule(crypto);
@@ -227,7 +227,7 @@ app.post('/api/task-autonomy', authMiddleware, async (req, res) => {
       return res.status(403).json({ error: 'Founder authorization required' });
     }
 
-    const result = await listTaskAutonomyLevels(db);
+    const result = createTaskAutonomyLevel(db, ctx, input);
     res.json(result);
   } catch (error) {
     res.status(400).json({ error: error instanceof Error ? error.message : 'Unknown error' });
@@ -249,13 +249,7 @@ app.post('/api/execution/request', authMiddleware, async (req, res) => {
     const input = RequestExecutionInputSchema.parse(req.body);
     const ctx = getAuthContext(req);
 
-    const result = await requestExecution(
-      db,
-      input,
-      ctx.owner_type === 'founder' ? 'founder' :
-      ctx.owner_type === 'division' ? 'division' : 'staff',
-      ctx.owner_id
-    );
+    const result = await requestExecution(db, ctx, input);
 
     res.status(201).json(result);
   } catch (error) {
@@ -267,7 +261,7 @@ app.get('/api/execution/:id', authMiddleware, async (req, res) => {
   try {
     const executionId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
     const input = { execution_id: executionId };
-    const result = await getExecutionRequest(db, input);
+    const result = await getExecutionRequest(db, getAuthContext(req), input);
 
     if (!result) {
       return res.status(404).json({ error: 'Execution request not found' });
@@ -281,17 +275,18 @@ app.get('/api/execution/:id', authMiddleware, async (req, res) => {
 
 app.get('/api/execution', authMiddleware, async (req, res) => {
   try {
+    const ctx = getAuthContext(req);
     const input: any = {
       status: req.query.status as any,
       autonomy_level: req.query.autonomy_level ? parseInt(req.query.autonomy_level as string) : undefined,
-      requested_by_type: req.query.requested_by_type as any,
-      requested_by_id: req.query.requested_by_id as string | undefined,
+      requested_by_type: ctx.owner_type === 'founder' ? req.query.requested_by_type as any : undefined,
+      requested_by_id: ctx.owner_type === 'founder' ? req.query.requested_by_id as string | undefined : undefined,
       task_id: req.query.task_id as string | undefined,
       limit: req.query.limit ? parseInt(req.query.limit as string) : 50,
       offset: req.query.offset ? parseInt(req.query.offset as string) : 0
     };
 
-    const result = await listExecutionRequests(db, input);
+    const result = await listExecutionRequests(db, ctx, input);
     res.json(result);
   } catch (error) {
     res.status(500).json({ error: 'Failed to list execution requests' });
@@ -307,13 +302,7 @@ app.post('/api/execution/approve',
     const input = ApproveExecutionInputSchema.parse(req.body);
     const ctx = getAuthContext(req);
 
-    const result = await approveExecution(
-      db,
-      input,
-      ctx.owner_type === 'founder' ? 'founder' :
-      ctx.owner_type === 'division' ? 'division' : 'staff',
-      ctx.owner_id
-    );
+    const result = await approveExecution(db, ctx, input);
 
     res.json(result);
   } catch (error) {
@@ -324,15 +313,16 @@ app.post('/api/execution/approve',
 // Phase 7: Approval Requests
 app.get('/api/approvals', authMiddleware, async (req, res) => {
   try {
+    const ctx = getAuthContext(req);
     const input: any = {
       status: req.query.status as any,
-      requested_by_type: req.query.requested_by_type as any,
-      requested_by_id: req.query.requested_by_id as string | undefined,
+      requested_by_type: ctx.owner_type === 'founder' ? req.query.requested_by_type as any : undefined,
+      requested_by_id: ctx.owner_type === 'founder' ? req.query.requested_by_id as string | undefined : undefined,
       limit: req.query.limit ? parseInt(req.query.limit as string) : 50,
       offset: req.query.offset ? parseInt(req.query.offset as string) : 0
     };
 
-    const result = await listApprovalRequests(db, input);
+    const result = await listApprovalRequests(db, ctx, input);
     res.json(result);
   } catch (error) {
     res.status(500).json({ error: 'Failed to list approval requests' });
@@ -344,7 +334,7 @@ app.get('/api/execution/:id/history', authMiddleware, async (req, res) => {
   try {
     const executionId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
     const input = { execution_id: executionId };
-    const result = await getExecutionHistory(db, input);
+    const result = await getExecutionHistory(db, getAuthContext(req), input);
     res.json(result);
   } catch (error) {
     res.status(400).json({ error: error instanceof Error ? error.message : 'Unknown error' });
