@@ -347,7 +347,7 @@ SELECT cds.* FROM cross_division_shares cds LEFT JOIN divisions d ON cds.divisio
 - ✅ Indexes recreated after table rebuilds (standard indexes documented in migration SQL)
 - ✅ Dependent records survive table rebuilds (division_members → staff_agents FK)
 - ✅ Backup restoration tested against file-backed temporary database (file copy method)
-- ✅ Duplicate migration execution prevented via migration_ledger table with SHA-256 checksums
+- ✅ Migration ledger design validated (SHA-256 checksums, transaction boundaries); **proposed mechanism — no production runner implemented**
 - ✅ Tests distinguish: actual SQL file execution, full sequence integration, backup/rollback integration, application-layer (NOT tested here)
 
 **Run Command**:

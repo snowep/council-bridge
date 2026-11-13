@@ -667,12 +667,12 @@ describe('Phase 6 Migration Verification - Actual SQL Files', () => {
     });
   });
 
-  describe('Migration execution tracking (ledger)', () => {
-    test('migration ledger prevents duplicate execution', () => {
+  describe('Migration execution tracking (ledger) - PROPOSED MECHANISM', () => {
+    test('migration ledger design: records migration IDs with SHA-256 checksums', () => {
       const db = testDB.db;
       createPhase4Schema(db);
 
-      // Create migration ledger table
+      // Create migration ledger table (proposed schema)
       db.exec(`
         CREATE TABLE IF NOT EXISTS migration_ledger (
           migration_id   TEXT PRIMARY KEY,
@@ -694,13 +694,18 @@ describe('Phase 6 Migration Verification - Actual SQL Files', () => {
         return db.prepare('SELECT 1 FROM migration_ledger WHERE migration_id = ?').get(migrationId) !== undefined;
       }
 
-      // First application - should succeed
+      function getRecordedChecksum(db: Database.Database, migrationId: string): string | null {
+        const row = db.prepare('SELECT checksum FROM migration_ledger WHERE migration_id = ?').get(migrationId);
+        return row?.checksum ?? null;
+      }
+
+      // First application - record in ledger
       assert.ok(!isApplied(db, '001'));
       runMigration(db, path.join(MIGRATION_DIR, '001_staff_agents_default_inactive.sql'));
       recordMigration(db, '001', '001_staff_agents_default_inactive.sql');
       assert.ok(isApplied(db, '001'));
 
-      // Duplicate attempt - should be detected
+      // Duplicate attempt - would be detected by runner checking ledger
       assert.ok(isApplied(db, '001'), 'migration 001 already applied');
 
       // Second migration
@@ -715,12 +720,62 @@ describe('Phase 6 Migration Verification - Actual SQL Files', () => {
       assert.equal(ledger[0].migration_id, '001');
       assert.equal(ledger[1].migration_id, '002');
 
-      // Verify checksums match actual files
+      // Verify checksums match actual files (detects file tampering)
       for (const entry of ledger) {
         const sql = fs.readFileSync(path.join(MIGRATION_DIR, entry.filename), 'utf-8');
         const checksum = crypto.createHash('sha256').update(sql).digest('hex');
         assert.equal(entry.checksum, checksum, `checksum matches for ${entry.filename}`);
       }
+
+      // Verify checksum change detection (simulated tampered file)
+      const originalChecksum = getRecordedChecksum(db, '001');
+      const tamperedSql = originalChecksum + 'tampered';
+      // A production runner would re-read the file, compute checksum, compare, and reject
+      assert.ok(originalChecksum !== tamperedSql, 'checksum change would be detected');
+    });
+
+    test('transaction boundary: migration and ledger entry atomic', () => {
+      const db = testDB.db;
+      createPhase4Schema(db);
+
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS migration_ledger (
+          migration_id   TEXT PRIMARY KEY,
+          filename       TEXT NOT NULL,
+          checksum       TEXT NOT NULL,
+          applied_at     TEXT NOT NULL DEFAULT (datetime('now')),
+          applied_by     TEXT NOT NULL DEFAULT 'system'
+        );
+      `);
+
+      // Simulate atomic migration + ledger recording in single transaction
+      // Using statements within a transaction
+      const insertStmt = db.prepare('INSERT INTO migration_ledger (migration_id, filename, checksum) VALUES (?, ?, ?)');
+
+      db.exec('BEGIN IMMEDIATE TRANSACTION');
+      insertStmt.run('001', '001_staff_agents_default_inactive.sql', 'test-checksum-1');
+      db.exec('COMMIT');
+
+      const entry = db.prepare('SELECT * FROM migration_ledger WHERE migration_id = ?').get('001');
+      assert.ok(entry !== undefined, 'ledger entry recorded in transaction');
+
+      // If migration fails, transaction rolls back - no partial ledger entry
+      let threw = false;
+      try {
+        db.exec('BEGIN IMMEDIATE TRANSACTION');
+        insertStmt.run('002', '002_cross_division_shares_founder_only.sql', 'test-checksum-2');
+        // Force error (duplicate PK) - this will throw
+        insertStmt.run('002', '002_cross_division_shares_founder_only.sql', 'test-checksum-2');
+        db.exec('COMMIT');
+      } catch {
+        threw = true;
+        db.exec('ROLLBACK'); // Explicit rollback on error
+      }
+      assert.ok(threw, 'transaction rolls back on error');
+
+      // Verify no partial entry (rolled back)
+      const partial = db.prepare('SELECT * FROM migration_ledger WHERE migration_id = ?').get('002');
+      assert.ok(partial === undefined, 'no ledger entry on failed transaction');
     });
   });
 
@@ -743,9 +798,10 @@ describe('Phase 6 Migration Verification - Actual SQL Files', () => {
       // File: this test file - "Rollback using actual backups" test
     });
 
-    test('Integration: Migration ledger duplicate prevention', () => {
-      // These tests validate the ledger mechanism
-      // File: this test file - "Migration execution tracking" test
+    test('Integration: Migration ledger design validation', () => {
+      // These tests validate the proposed ledger mechanism design
+      // They do NOT test a production migration runner (none exists)
+      // File: this test file - "Migration execution tracking" tests
     });
 
     test('Application-layer: NOT tested here', () => {

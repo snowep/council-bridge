@@ -161,7 +161,7 @@ npx tsx --test tests/phase6_migration_verification.test.ts
 | Full sequence integration | 1 | All 5 migrations in order on same DB |
 | Table rebuild preservation | 2 | Indexes, FK records, dependent tables |
 | Backup & rollback (file-backed) | 1 | File copy backup, migration, restore, FK check |
-| Migration ledger (duplicate prevention) | 1 | SHA-256 checksum tracking in migration_ledger |
+| Migration ledger design validation | 1 | SHA-256 checksum tracking, transaction boundaries (proposed mechanism) |
 | Test classification | 5 | Unit, integration, application-layer distinction |
 
 **Verification Scope**:
@@ -171,7 +171,7 @@ npx tsx --test tests/phase6_migration_verification.test.ts
 - Standard indexes recreated after table rebuilds
 - Dependent records survive table rebuilds
 - Backup restoration tested against file-backed temporary database
-- Duplicate migration execution prevented via migration_ledger with SHA-256 checksums
+- Migration ledger design validated (SHA-256 checksums, transaction boundaries); **proposed mechanism — no production runner implemented**
 - Clear distinction: SQL file tests, integration tests, application-layer (not tested here)
 
 ---
