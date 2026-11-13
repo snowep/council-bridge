@@ -145,8 +145,9 @@ export interface DatabaseInstance {
     getCrossDivisionShares: PreparedStatement;
     getSharesByDivision: PreparedStatement;
     revokeCrossDivisionShare: PreparedStatement;
+    updateCrossDivisionShare: PreparedStatement;
 
-    // Future Tables (Phase 6/7)
+    // Phase 6: Division & Staff Management
     insertDivision: PreparedStatement;
     getDivisionById: PreparedStatement;
     listDivisions: PreparedStatement;
@@ -162,6 +163,7 @@ export interface DatabaseInstance {
     getDivisionMembers: PreparedStatement;
     getStaffDivisions: PreparedStatement;
 
+    // Phase 6: Task & Deliverable Management
     insertTask: PreparedStatement;
     getTaskById: PreparedStatement;
     listTasks: PreparedStatement;
@@ -675,7 +677,7 @@ function createDatabase(dbPath: string): DatabaseInstance {
       division_id       TEXT NOT NULL,                     -- Division membership
       runtime_instances TEXT NOT NULL DEFAULT '[]',        -- JSON: ['claude', 'hermes']
       permissions       TEXT NOT NULL DEFAULT '[]',        -- JSON array of permission strings
-      status            TEXT NOT NULL DEFAULT 'active'
+      status            TEXT NOT NULL DEFAULT 'inactive'
         CHECK (status IN ('active', 'inactive', 'terminated')),
       created_at        TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at        TEXT NOT NULL DEFAULT (datetime('now')),
@@ -699,11 +701,23 @@ function createDatabase(dbPath: string): DatabaseInstance {
       share_id        TEXT PRIMARY KEY,
       memory_id       TEXT NOT NULL,
       division_id     TEXT NOT NULL,                       -- Division granted access
-      granted_by_type TEXT NOT NULL                        -- 'division' | 'founder'
-        CHECK (granted_by_type IN ('division', 'founder')),
-      granted_by_id   TEXT NOT NULL,                       -- division_id | 'founder'
+      granted_by_type TEXT NOT NULL                        -- 'founder' only (Migration 002)
+        CHECK (granted_by_type IN ('founder')),
+      granted_by_id   TEXT NOT NULL,                       -- 'founder'
       granted_at      TEXT NOT NULL DEFAULT (datetime('now')),
       revoked_at      TEXT,                                -- NULL = active
+      -- Migration 005: Cross-division request tracking
+      request_type    TEXT                                 -- 'task_delegate' | 'deliverable_share' | 'memory_access' | 'resource_request'
+        CHECK (request_type IN ('task_delegate', 'deliverable_share', 'memory_access', 'resource_request')),
+      status          TEXT NOT NULL DEFAULT 'approved'     -- 'pending' | 'approved' | 'rejected'
+        CHECK (status IN ('pending', 'approved', 'rejected')),
+      justification     TEXT,
+      priority          TEXT NOT NULL DEFAULT 'medium'
+        CHECK (priority IN ('low', 'medium', 'high', 'critical')),
+      deadline          TEXT,                              -- ISO datetime, nullable
+      approved_by_type  TEXT,                              -- always 'founder' when approved
+      approved_by_id    TEXT,                              -- founder's staff_id
+      approved_at       TEXT,                              -- approval timestamp
       FOREIGN KEY (memory_id) REFERENCES memory_entries(memory_id) ON DELETE CASCADE,
       FOREIGN KEY (division_id) REFERENCES divisions(division_id) ON DELETE CASCADE,
       UNIQUE(memory_id, division_id)
@@ -730,7 +744,9 @@ function createDatabase(dbPath: string): DatabaseInstance {
       due_at            TEXT,
       completed_at      TEXT,
       created_at        TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at        TEXT NOT NULL DEFAULT (datetime('now'))
+      updated_at        TEXT NOT NULL DEFAULT (datetime('now')),
+      dependencies      TEXT NOT NULL DEFAULT '[]',        -- JSON array of task_ids
+      deliverable_id    TEXT                               -- App-level reference to deliverable (not FK)
     );
 
     CREATE INDEX IF NOT EXISTS idx_tasks_assigned ON tasks(assigned_to_type, assigned_to_id);
@@ -987,53 +1003,54 @@ function createDatabase(dbPath: string): DatabaseInstance {
 
     // Cross-Division Shares
     insertCrossDivisionShare: db.prepare(`
-      INSERT INTO cross_division_shares (share_id, memory_id, division_id, granted_by_type, granted_by_id, granted_at)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `),
-    getCrossDivisionShares: db.prepare('SELECT * FROM cross_division_shares WHERE memory_id = ? AND revoked_at IS NULL'),
-    getSharesByDivision: db.prepare('SELECT * FROM cross_division_shares WHERE division_id = ? AND revoked_at IS NULL'),
-    revokeCrossDivisionShare: db.prepare('UPDATE cross_division_shares SET revoked_at = datetime(\'now\') WHERE memory_id = ? AND division_id = ?'),
+      INSERT INTO cross_division_shares (share_id, memory_id, division_id, granted_by_type, granted_by_id, granted_at, revoked_at, request_type, status, justification, priority, deadline, approved_by_type, approved_by_id, approved_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `) as PreparedStatement,
+    getCrossDivisionShares: db.prepare('SELECT * FROM cross_division_shares WHERE memory_id = ? AND revoked_at IS NULL') as PreparedStatement,
+    getSharesByDivision: db.prepare('SELECT * FROM cross_division_shares WHERE division_id = ? AND revoked_at IS NULL') as PreparedStatement,
+    revokeCrossDivisionShare: db.prepare('UPDATE cross_division_shares SET revoked_at = datetime(\'now\') WHERE memory_id = ? AND division_id = ?') as PreparedStatement,
+    updateCrossDivisionShare: db.prepare('UPDATE cross_division_shares SET status = ?, approved_at = ?, approved_by_type = ?, approved_by_id = ?, granted_by_type = ?, granted_by_id = ? WHERE share_id = ?') as PreparedStatement,
 
-    // Future Tables (Phase 6/7) - Empty placeholder statements
+    // Phase 6: Division & Staff Management
     insertDivision: db.prepare(`
       INSERT INTO divisions (division_id, name, description, head_staff_id, budget_limit, permissions, strategic_objectives)
       VALUES (?, ?, ?, ?, ?, ?, ?)
-    `),
-    getDivisionById: db.prepare('SELECT * FROM divisions WHERE division_id = ?'),
-    listDivisions: db.prepare('SELECT * FROM divisions ORDER BY created_at DESC'),
-    updateDivision: db.prepare('UPDATE divisions SET name = ?, description = ?, head_staff_id = ?, budget_limit = ?, permissions = ?, strategic_objectives = ?, updated_at = datetime(\'now\') WHERE division_id = ?'),
+    `) as PreparedStatement,
+    getDivisionById: db.prepare('SELECT * FROM divisions WHERE division_id = ?') as PreparedStatement,
+    listDivisions: db.prepare('SELECT * FROM divisions ORDER BY created_at DESC') as PreparedStatement,
+    updateDivision: db.prepare('UPDATE divisions SET name = ?, description = ?, head_staff_id = ?, budget_limit = ?, permissions = ?, strategic_objectives = ?, updated_at = datetime(\'now\') WHERE division_id = ?') as PreparedStatement,
 
     insertStaffAgent: db.prepare(`
       INSERT INTO staff_agents (staff_id, name, role, division_id, runtime_instances, permissions, status)
       VALUES (?, ?, ?, ?, ?, ?, ?)
-    `),
-    getStaffAgentById: db.prepare('SELECT * FROM staff_agents WHERE staff_id = ?'),
-    listStaffAgents: db.prepare('SELECT * FROM staff_agents ORDER BY created_at DESC'),
-    listStaffAgentsByDivision: db.prepare('SELECT * FROM staff_agents WHERE division_id = ? ORDER BY created_at DESC'),
-    updateStaffAgent: db.prepare('UPDATE staff_agents SET name = ?, role = ?, division_id = ?, runtime_instances = ?, permissions = ?, status = ?, updated_at = datetime(\'now\') WHERE staff_id = ?'),
+    `) as PreparedStatement,
+    getStaffAgentById: db.prepare('SELECT * FROM staff_agents WHERE staff_id = ?') as PreparedStatement,
+    listStaffAgents: db.prepare('SELECT * FROM staff_agents ORDER BY created_at DESC') as PreparedStatement,
+    listStaffAgentsByDivision: db.prepare('SELECT * FROM staff_agents WHERE division_id = ? ORDER BY created_at DESC') as PreparedStatement,
+    updateStaffAgent: db.prepare('UPDATE staff_agents SET name = ?, role = ?, division_id = ?, runtime_instances = ?, permissions = ?, status = ?, updated_at = datetime(\'now\') WHERE staff_id = ?') as PreparedStatement,
 
     insertDivisionMember: db.prepare(`
       INSERT INTO division_members (division_id, staff_id, role)
       VALUES (?, ?, ?)
-    `),
-    getDivisionMembers: db.prepare('SELECT * FROM division_members WHERE division_id = ?'),
-    getStaffDivisions: db.prepare('SELECT * FROM division_members WHERE staff_id = ?'),
+    `) as PreparedStatement,
+    getDivisionMembers: db.prepare('SELECT * FROM division_members WHERE division_id = ?') as PreparedStatement,
+    getStaffDivisions: db.prepare('SELECT * FROM division_members WHERE staff_id = ?') as PreparedStatement,
 
     insertTask: db.prepare(`
-      INSERT INTO tasks (task_id, title, description, assigned_to_type, assigned_to_id, created_by_type, created_by_id, status, priority, budget_allocated, due_at, completed_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `),
-    getTaskById: db.prepare('SELECT * FROM tasks WHERE task_id = ?'),
-    listTasks: db.prepare('SELECT * FROM tasks ORDER BY created_at DESC'),
-    updateTask: db.prepare('UPDATE tasks SET title = ?, description = ?, assigned_to_type = ?, assigned_to_id = ?, created_by_type = ?, created_by_id = ?, status = ?, priority = ?, budget_allocated = ?, due_at = ?, completed_at = ?, updated_at = datetime(\'now\') WHERE task_id = ?'),
+      INSERT INTO tasks (task_id, title, description, assigned_to_type, assigned_to_id, created_by_type, created_by_id, status, priority, budget_allocated, due_at, completed_at, created_at, updated_at, dependencies, deliverable_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `) as PreparedStatement,
+    getTaskById: db.prepare('SELECT * FROM tasks WHERE task_id = ?') as PreparedStatement,
+    listTasks: db.prepare('SELECT * FROM tasks ORDER BY created_at DESC') as PreparedStatement,
+    updateTask: db.prepare('UPDATE tasks SET title = ?, description = ?, assigned_to_type = ?, assigned_to_id = ?, created_by_type = ?, created_by_id = ?, status = ?, priority = ?, budget_allocated = ?, due_at = ?, completed_at = ?, updated_at = datetime(\'now\') WHERE task_id = ?') as PreparedStatement,
 
     insertDeliverable: db.prepare(`
-      INSERT INTO deliverables (deliverable_id, task_id, submitted_by_type, submitted_by_id, content, status, reviewed_by_type, reviewed_by_id, reviewed_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `),
-    getDeliverableById: db.prepare('SELECT * FROM deliverables WHERE deliverable_id = ?'),
-    listDeliverablesByTask: db.prepare('SELECT * FROM deliverables WHERE task_id = ? ORDER BY created_at DESC'),
-    updateDeliverable: db.prepare('UPDATE deliverables SET status = ?, reviewed_by_type = ?, reviewed_by_id = ?, reviewed_at = ? WHERE deliverable_id = ?'),
+      INSERT INTO deliverables (deliverable_id, task_id, submitted_by_type, submitted_by_id, content, status, reviewed_by_type, reviewed_by_id, reviewed_at, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `) as PreparedStatement,
+    getDeliverableById: db.prepare('SELECT * FROM deliverables WHERE deliverable_id = ?') as PreparedStatement,
+    listDeliverablesByTask: db.prepare('SELECT * FROM deliverables WHERE task_id = ? ORDER BY created_at DESC') as PreparedStatement,
+    updateDeliverable: db.prepare('UPDATE deliverables SET status = ?, reviewed_by_type = ?, reviewed_by_id = ?, reviewed_at = ? WHERE deliverable_id = ?') as PreparedStatement,
   };
 
   // Stamp the schema version so migrations can detect the current schema.

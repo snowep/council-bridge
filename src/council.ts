@@ -344,6 +344,14 @@ export const CrossDivisionShareSchema = z.object({
   granted_by_id: z.string().min(1).max(255),
   granted_at: z.string(),
   revoked_at: z.string().nullable().optional(),
+  request_type: z.enum(['task_delegate', 'deliverable_share', 'memory_access', 'resource_request']).optional(),
+  status: z.enum(['pending', 'approved', 'rejected']).optional(),
+  justification: z.string().optional(),
+  priority: z.enum(['low', 'medium', 'high', 'critical']).optional(),
+  deadline: z.string().optional(),
+  approved_by_type: z.string().optional(),
+  approved_by_id: z.string().optional(),
+  approved_at: z.string().optional(),
 });
 export type CrossDivisionShare = z.infer<typeof CrossDivisionShareSchema> & {
   created_at: string;
@@ -417,6 +425,228 @@ export const RevokeCrossDivisionAccessInputSchema = z.object({
   division_id: z.string().min(1).max(255),
 });
 export type RevokeCrossDivisionAccessInput = z.infer<typeof RevokeCrossDivisionAccessInputSchema>;
+
+// Phase 6: Permission Enforcement Schemas
+
+export const DivisionSchema = z.object({
+  division_id: z.string().min(1).max(255),
+  name: z.string().min(1).max(255),
+  description: z.string().default(''),
+  head_staff_id: z.string().nullable().optional(),
+  budget_limit: z.number().default(0),
+  permissions: z.string().default('[]'),
+  strategic_objectives: z.string().default('[]'),
+});
+export type Division = z.infer<typeof DivisionSchema> & {
+  created_at: string;
+  updated_at: string;
+};
+
+export const StaffAgentSchema = z.object({
+  staff_id: z.string().min(1).max(255),
+  name: z.string().min(1).max(255),
+  role: z.string().min(1).max(255),
+  division_id: z.string().min(1).max(255),
+  runtime_instances: z.string().default('[]'),
+  permissions: z.string().default('[]'),
+  status: z.enum(['active', 'inactive', 'terminated']).default('inactive'),
+});
+export type StaffAgent = z.infer<typeof StaffAgentSchema> & {
+  created_at: string;
+  updated_at: string;
+};
+
+export const DivisionMemberSchema = z.object({
+  division_id: z.string().min(1).max(255),
+  staff_id: z.string().min(1).max(255),
+  role: z.enum(['head', 'member', 'specialist']).default('specialist'),
+  joined_at: z.string(),
+});
+export type DivisionMember = z.infer<typeof DivisionMemberSchema>;
+
+export const TaskSchema = z.object({
+  task_id: z.string().min(1).max(255),
+  title: z.string().min(1).max(500),
+  description: z.string().default(''),
+  assigned_to_type: z.enum(['division', 'staff']),
+  assigned_to_id: z.string().min(1).max(255),
+  created_by_type: z.enum(['founder', 'council', 'division_head']),
+  created_by_id: z.string().min(1).max(255),
+  status: z.enum(['pending', 'in_progress', 'review', 'completed', 'cancelled']).default('pending'),
+  priority: z.enum(['low', 'medium', 'high', 'critical']).default('medium'),
+  budget_allocated: z.number().default(0),
+  due_at: z.string().nullable().optional(),
+  completed_at: z.string().nullable().optional(),
+  dependencies: z.string().default('[]'),
+  deliverable_id: z.string().nullable().optional(),
+});
+export type Task = z.infer<typeof TaskSchema> & {
+  created_at: string;
+  updated_at: string;
+};
+
+export const DeliverableSchema = z.object({
+  deliverable_id: z.string().min(1).max(255),
+  task_id: z.string().min(1).max(255),
+  submitted_by_type: z.enum(['staff', 'division']),
+  submitted_by_id: z.string().min(1).max(255),
+  content: z.string(),
+  status: z.enum(['submitted', 'accepted', 'rejected', 'revision_requested']).default('submitted'),
+  reviewed_by_type: z.enum(['founder', 'council', 'division_head']).nullable().optional(),
+  reviewed_by_id: z.string().nullable().optional(),
+  reviewed_at: z.string().nullable().optional(),
+  file_references: z.string().default('[]'),
+  task_relationships: z.string().default('[]'),
+  audit_log: z.string().default('[]'),
+});
+export type Deliverable = z.infer<typeof DeliverableSchema> & {
+  created_at: string;
+  updated_at: string;
+};
+
+// Input schemas for MCP tools
+export const CreateDivisionInputSchema = z.object({
+  name: z.string().min(1).max(255),
+  description: z.string().optional(),
+  budget_limit: z.number().optional(),
+  strategic_objectives: z.array(z.string()).optional(),
+  permissions: z.array(z.string()).optional(),
+});
+export type CreateDivisionInput = z.infer<typeof CreateDivisionInputSchema>;
+
+export const AssignDivisionHeadInputSchema = z.object({
+  staff_id: z.string().min(1).max(255),
+  division_id: z.string().min(1).max(255),
+});
+export type AssignDivisionHeadInput = z.infer<typeof AssignDivisionHeadInputSchema>;
+
+export const UpdateDivisionInputSchema = z.object({
+  division_id: z.string().min(1).max(255),
+  head_staff_id: z.string().optional(),
+  budget_limit: z.number().optional(),
+  strategic_objectives: z.array(z.string()).optional(),
+  permissions: z.array(z.string()).optional(),
+});
+export type UpdateDivisionInput = z.infer<typeof UpdateDivisionInputSchema>;
+
+export const ListSpecialistsInputSchema = z.object({
+  division_id: z.string().min(1).max(255),
+});
+export type ListSpecialistsInput = z.infer<typeof ListSpecialistsInputSchema>;
+
+export const RegisterStaffAgentInputSchema = z.object({
+  staff_id: z.string().min(1).max(255),
+  name: z.string().min(1).max(255),
+  role: z.string().min(1).max(255),
+  division_id: z.string().min(1).max(255),
+  runtime_instances: z.array(z.enum(['claude', 'hermes'])).min(1),
+  permissions: z.array(z.string()).default([]),
+});
+export type RegisterStaffAgentInput = z.infer<typeof RegisterStaffAgentInputSchema>;
+
+export const UpdateStaffStatusInputSchema = z.object({
+  staff_id: z.string().min(1).max(255),
+  status: z.enum(['active', 'inactive', 'terminated']),
+});
+export type UpdateStaffStatusInput = z.infer<typeof UpdateStaffStatusInputSchema>;
+
+export const UpdateStaffPermissionsInputSchema = z.object({
+  staff_id: z.string().min(1).max(255),
+  permissions: z.array(z.string()),
+});
+export type UpdateStaffPermissionsInput = z.infer<typeof UpdateStaffPermissionsInputSchema>;
+
+export const SuspendStaffAgentInputSchema = z.object({
+  staff_id: z.string().min(1).max(255),
+});
+export type SuspendStaffAgentInput = z.infer<typeof SuspendStaffAgentInputSchema>;
+
+export const RetireStaffAgentInputSchema = z.object({
+  staff_id: z.string().min(1).max(255),
+});
+export type RetireStaffAgentInput = z.infer<typeof RetireStaffAgentInputSchema>;
+
+export const CreateTaskInputSchema = z.object({
+  title: z.string().min(1).max(500),
+  description: z.string().optional(),
+  assigned_to_type: z.enum(['division', 'staff']),
+  assigned_to_id: z.string().min(1).max(255),
+  created_by_type: z.enum(['founder', 'council', 'division_head']),
+  created_by_id: z.string().min(1).max(255),
+  status: z.enum(['pending', 'in_progress', 'review', 'completed', 'cancelled']).optional(),
+  priority: z.enum(['low', 'medium', 'high', 'critical']).optional(),
+  budget_allocated: z.number().optional(),
+  due_at: z.string().optional(),
+  dependencies: z.array(z.string()).optional(),
+  deliverable_id: z.string().optional(),
+});
+export type CreateTaskInput = z.infer<typeof CreateTaskInputSchema>;
+
+export const UpdateTaskInputSchema = z.object({
+  task_id: z.string().min(1).max(255),
+  title: z.string().optional(),
+  description: z.string().optional(),
+  status: z.enum(['pending', 'in_progress', 'review', 'completed', 'cancelled']).optional(),
+  priority: z.enum(['low', 'medium', 'high', 'critical']).optional(),
+  due_at: z.string().optional(),
+});
+export type UpdateTaskInput = z.infer<typeof UpdateTaskInputSchema>;
+
+export const ListTasksInputSchema = z.object({
+  assigned_to_type: z.enum(['division', 'staff']).optional(),
+  assigned_to_id: z.string().optional(),
+  status: z.enum(['pending', 'in_progress', 'review', 'completed', 'cancelled']).optional(),
+  priority: z.enum(['low', 'medium', 'high', 'critical']).optional(),
+});
+export type ListTasksInput = z.infer<typeof ListTasksInputSchema>;
+
+export const CompleteTaskInputSchema = z.object({
+  task_id: z.string().min(1).max(255),
+});
+export type CompleteTaskInput = z.infer<typeof CompleteTaskInputSchema>;
+
+export const CreateDeliverableInputSchema = z.object({
+  task_id: z.string().min(1).max(255),
+  content: z.record(z.string(), z.any()),
+  submitted_by_type: z.enum(['staff', 'division']),
+  submitted_by_id: z.string().min(1).max(255),
+});
+export type CreateDeliverableInput = z.infer<typeof CreateDeliverableInputSchema>;
+
+export const UpdateDeliverableInputSchema = z.object({
+  deliverable_id: z.string().min(1).max(255),
+  status: z.enum(['submitted', 'accepted', 'rejected', 'revision_requested']).optional(),
+  reviewed_by_type: z.enum(['founder', 'council', 'division_head']).optional(),
+  reviewed_by_id: z.string().optional(),
+  reviewed_at: z.string().optional(),
+});
+export type UpdateDeliverableInput = z.infer<typeof UpdateDeliverableInputSchema>;
+
+export const ListDeliverablesByTaskInputSchema = z.object({
+  task_id: z.string().min(1).max(255),
+});
+export type ListDeliverablesByTaskInput = z.infer<typeof ListDeliverablesByTaskInputSchema>;
+
+export const RequestCrossDivisionAccessInputSchema = z.object({
+  from_division: z.string().min(1).max(255),
+  to_division: z.string().min(1).max(255),
+  memory_id: z.string().optional(),
+  justification: z.string().min(1),
+  priority: z.enum(['low', 'medium', 'high', 'critical']).default('medium'),
+  deadline: z.string().optional(),
+  request_type: z.enum(['task_delegate', 'deliverable_share', 'memory_access', 'resource_request']),
+});
+export type RequestCrossDivisionAccessInput = z.infer<typeof RequestCrossDivisionAccessInputSchema>;
+
+export const ApproveCrossDivisionAccessInputSchema = z.object({
+  request_id: z.string().min(1).max(255),
+});
+export type ApproveCrossDivisionAccessInput = z.infer<typeof ApproveCrossDivisionAccessInputSchema>;
+
+export const ListPendingCrossDivisionRequestsInputSchema = z.object({
+  division_id: z.string().min(1).max(255),
+});
+export type ListPendingCrossDivisionRequestsInput = z.infer<typeof ListPendingCrossDivisionRequestsInputSchema>;
 
 function toCouncilSeat(row: any): CouncilSeat {
   return {
@@ -515,6 +745,26 @@ function toMemoryAccess(row: any): MemoryAccess {
 }
 
 function toCrossDivisionShare(row: any): CrossDivisionShare {
+  return row;
+}
+
+function toDivision(row: any): Division {
+  return row;
+}
+
+function toStaffAgent(row: any): StaffAgent {
+  return row;
+}
+
+function toDivisionMember(row: any): DivisionMember {
+  return row;
+}
+
+function toTask(row: any): Task {
+  return row;
+}
+
+function toDeliverable(row: any): Deliverable {
   return row;
 }
 
@@ -2380,6 +2630,859 @@ export function createCouncilService(dbInstance: DatabaseInstance) {
       }
 
       return (dbInstance.stmt.getMemoryAccessLog.all(memoryId, limit) as any[]).map(toMemoryAccess);
+    },
+
+    // --- Permission Validation Functions ---
+
+    isFounder(ctx: { owner_type: MemoryOwnerType; owner_id: string }): boolean {
+      return ctx.owner_type === 'founder';
+    },
+
+    isDivisionHead(ctx: { owner_type: MemoryOwnerType; owner_id: string }, divisionId: string): boolean {
+      if (ctx.owner_type !== 'division') return false;
+      const division = dbInstance.stmt.getDivisionById.get(divisionId) as Division | undefined;
+      return division?.head_staff_id === ctx.owner_id;
+    },
+
+    isDivisionMember(ctx: { owner_type: MemoryOwnerType; owner_id: string }, divisionId: string): boolean {
+      if (ctx.owner_type === 'founder') return true;
+      if (ctx.owner_type === 'division') return ctx.owner_id === divisionId;
+      if (ctx.owner_type === 'staff') {
+        const members = dbInstance.stmt.getDivisionMembers.all(divisionId) as DivisionMember[];
+        const member = members.find((m) => m.staff_id === ctx.owner_id);
+        return !!member;
+      }
+      return false;
+    },
+
+    isStaffAgent(ctx: { owner_type: MemoryOwnerType; owner_id: string }, staffId: string): boolean {
+      if (ctx.owner_type === 'founder') return true;
+      return ctx.owner_type === 'staff' && ctx.owner_id === staffId;
+    },
+
+    validateStaffRuntime(staffId: string, runtime: 'claude' | 'hermes'): boolean {
+      const staff = dbInstance.stmt.getStaffAgentById.get(staffId) as StaffAgent | undefined;
+      if (!staff || staff.status !== 'active') return false;
+      const instances = JSON.parse(staff.runtime_instances || '[]') as string[];
+      return instances.includes(runtime);
+    },
+
+    validateDivisionHead(staffId: string, divisionId: string): boolean {
+      const division = dbInstance.stmt.getDivisionById.get(divisionId) as Division | undefined;
+      return division?.head_staff_id === staffId;
+    },
+
+    validateSeatOccupation(seatId: string, runtime: 'claude' | 'hermes'): boolean {
+      const seat = dbInstance.stmt.getSeatById.get(seatId) as CouncilSeat | undefined;
+      if (!seat || seat.status === 'vacant') return false;
+      const personas = dbInstance.stmt.getRuntimePersonas.all(runtime) as { seat_id: string }[];
+      return personas.some((p) => p.seat_id === seatId);
+    },
+
+    // --- Division Management ---
+
+    createDivision(
+      ctx: { owner_type: MemoryOwnerType; owner_id: string; runtime: 'claude' | 'hermes' },
+      input: z.infer<typeof CreateDivisionInputSchema>
+    ): Division {
+      if (!this.isFounder(ctx)) {
+        throw new Error('Only Founder can create divisions');
+      }
+
+      const divisionId = dbInstance.generateId();
+      const now = new Date().toISOString();
+
+      dbInstance.stmt.insertDivision.run(
+        divisionId,
+        input.name,
+        input.description ?? '',
+        null,
+        input.budget_limit ?? 0,
+        JSON.stringify(input.permissions ?? []),
+        JSON.stringify(input.strategic_objectives ?? []),
+        now,
+        now
+      );
+
+      // Log access
+      dbInstance.stmt.insertMemoryAccess.run(
+        dbInstance.generateId(), divisionId, null,
+        ctx.owner_type, ctx.owner_id, ctx.runtime, 'create', now
+      );
+
+      return toDivision(dbInstance.stmt.getDivisionById.get(divisionId) as any);
+    },
+
+    assignDivisionHead(
+      ctx: { owner_type: MemoryOwnerType; owner_id: string; runtime: 'claude' | 'hermes' },
+      input: z.infer<typeof AssignDivisionHeadInputSchema>
+    ): Division {
+      if (!this.isFounder(ctx)) {
+        throw new Error('Only Founder can assign division heads');
+      }
+
+      const division = dbInstance.stmt.getDivisionById.get(input.division_id) as Division | undefined;
+      if (!division) {
+        throw new Error(`Division '${input.division_id}' not found`);
+      }
+
+      const staff = dbInstance.stmt.getStaffAgentById.get(input.staff_id) as StaffAgent | undefined;
+      if (!staff) {
+        throw new Error(`Staff agent '${input.staff_id}' not found`);
+      }
+
+      if (staff.division_id !== input.division_id) {
+        throw new Error(`Staff agent '${input.staff_id}' is not a member of division '${input.division_id}'`);
+      }
+
+      if (staff.status !== 'active') {
+        throw new Error(`Staff agent '${input.staff_id}' is not active`);
+      }
+
+      const now = new Date().toISOString();
+      dbInstance.stmt.updateDivision.run(
+        input.division_id,
+        division.name,
+        division.description,
+        input.staff_id,
+        division.budget_limit,
+        division.permissions,
+        division.strategic_objectives,
+        now
+      );
+
+      // Update division_members role to 'head'
+      dbInstance.stmt.insertDivisionMember.run(input.division_id, input.staff_id, 'head');
+
+      // Log access
+      dbInstance.stmt.insertMemoryAccess.run(
+        dbInstance.generateId(), input.division_id, null,
+        ctx.owner_type, ctx.owner_id, ctx.runtime, 'update', now
+      );
+
+      return toDivision(dbInstance.stmt.getDivisionById.get(input.division_id) as any);
+    },
+
+    updateDivision(
+      ctx: { owner_type: MemoryOwnerType; owner_id: string; runtime: 'claude' | 'hermes' },
+      input: z.infer<typeof UpdateDivisionInputSchema>
+    ): Division {
+      const division = dbInstance.stmt.getDivisionById.get(input.division_id) as Division | undefined;
+      if (!division) {
+        throw new Error(`Division '${input.division_id}' not found`);
+      }
+
+      // Only Founder or Division Head of this division can update
+      if (!this.isFounder(ctx) && !this.isDivisionHead(ctx, input.division_id)) {
+        throw new Error('Only Founder or Division Head can update division');
+      }
+
+      const now = new Date().toISOString();
+      dbInstance.stmt.updateDivision.run(
+        input.division_id,
+        division.name,
+        division.description,
+        input.head_staff_id ?? division.head_staff_id,
+        input.budget_limit ?? division.budget_limit,
+        input.permissions ? JSON.stringify(input.permissions) : division.permissions,
+        input.strategic_objectives ? JSON.stringify(input.strategic_objectives) : division.strategic_objectives,
+        now
+      );
+
+      // Log access
+      dbInstance.stmt.insertMemoryAccess.run(
+        dbInstance.generateId(), input.division_id, null,
+        ctx.owner_type, ctx.owner_id, ctx.runtime, 'update', now
+      );
+
+      return toDivision(dbInstance.stmt.getDivisionById.get(input.division_id) as any);
+    },
+
+    listDivisions(
+      ctx: { owner_type: MemoryOwnerType; owner_id: string; runtime: 'claude' | 'hermes' }
+    ): Division[] {
+      if (!this.isFounder(ctx)) {
+        throw new Error('Only Founder can list all divisions');
+      }
+      return (dbInstance.stmt.listDivisions.all() as any[]).map(toDivision);
+    },
+
+    getDivision(
+      ctx: { owner_type: MemoryOwnerType; owner_id: string; runtime: 'claude' | 'hermes' },
+      divisionId: string
+    ): Division | undefined {
+      const division = dbInstance.stmt.getDivisionById.get(divisionId) as Division | undefined;
+      if (!division) return undefined;
+
+      if (!this.isFounder(ctx) && !this.isDivisionMember(ctx, divisionId)) {
+        return undefined;
+      }
+
+      return toDivision(division);
+    },
+
+    listSpecialists(
+      ctx: { owner_type: MemoryOwnerType; owner_id: string; runtime: 'claude' | 'hermes' },
+      input: z.infer<typeof ListSpecialistsInputSchema>
+    ): StaffAgent[] {
+      if (!this.isFounder(ctx) && !this.isDivisionMember(ctx, input.division_id)) {
+        throw new Error('Access denied to division specialists');
+      }
+
+      return (dbInstance.stmt.listStaffAgentsByDivision.all(input.division_id) as any[]).map(toStaffAgent);
+    },
+
+    // --- Staff Agent Management ---
+
+    registerStaffAgent(
+      ctx: { owner_type: MemoryOwnerType; owner_id: string; runtime: 'claude' | 'hermes' },
+      input: z.infer<typeof RegisterStaffAgentInputSchema>
+    ): StaffAgent {
+      if (!this.isFounder(ctx)) {
+        throw new Error('Only Founder can register staff agents');
+      }
+
+      const division = dbInstance.stmt.getDivisionById.get(input.division_id) as Division | undefined;
+      if (!division) {
+        throw new Error(`Division '${input.division_id}' not found`);
+      }
+
+      // Check division doesn't already have too many specialists
+      const count = dbInstance.stmt.listStaffAgentsByDivision.all(input.division_id).length;
+      if (count >= 7) {
+        throw new Error(`Division '${input.division_id}' max specialists reached`);
+      }
+
+      // Check not already registered
+      const existing = dbInstance.stmt.getStaffAgentById.get(input.staff_id) as StaffAgent | undefined;
+      if (existing) {
+        throw new Error(`Staff agent '${input.staff_id}' already exists`);
+      }
+
+      const now = new Date().toISOString();
+      // Insert with 'inactive' status (default per Migration 001)
+      dbInstance.stmt.insertStaffAgent.run(
+        input.staff_id,
+        input.name,
+        input.role,
+        input.division_id,
+        JSON.stringify(input.runtime_instances),
+        JSON.stringify(input.permissions),
+        'inactive'
+      );
+
+      // Insert into division_members (role: specialist)
+      dbInstance.stmt.insertDivisionMember.run(input.division_id, input.staff_id, 'specialist');
+
+      // Log access
+      dbInstance.stmt.insertMemoryAccess.run(
+        dbInstance.generateId(), input.staff_id, null,
+        ctx.owner_type, ctx.owner_id, ctx.runtime, 'create', now
+      );
+
+      return toStaffAgent(dbInstance.stmt.getStaffAgentById.get(input.staff_id) as any);
+    },
+
+    updateStaffStatus(
+      ctx: { owner_type: MemoryOwnerType; owner_id: string; runtime: 'claude' | 'hermes' },
+      input: z.infer<typeof UpdateStaffStatusInputSchema>
+    ): StaffAgent {
+      if (!this.isFounder(ctx)) {
+        throw new Error('Only Founder can update staff status');
+      }
+
+      const staff = dbInstance.stmt.getStaffAgentById.get(input.staff_id) as StaffAgent | undefined;
+      if (!staff) {
+        throw new Error(`Staff agent '${input.staff_id}' not found`);
+      }
+
+      const now = new Date().toISOString();
+      dbInstance.stmt.updateStaffAgent.run(
+        staff.name,
+        staff.role,
+        staff.division_id,
+        staff.runtime_instances,
+        staff.permissions,
+        input.status,
+        now,
+        input.staff_id
+      );
+
+      // Log access
+      dbInstance.stmt.insertMemoryAccess.run(
+        dbInstance.generateId(), input.staff_id, null,
+        ctx.owner_type, ctx.owner_id, ctx.runtime, 'update', now
+      );
+
+      return toStaffAgent(dbInstance.stmt.getStaffAgentById.get(input.staff_id) as any);
+    },
+
+    updateStaffPermissions(
+      ctx: { owner_type: MemoryOwnerType; owner_id: string; runtime: 'claude' | 'hermes' },
+      input: z.infer<typeof UpdateStaffPermissionsInputSchema>
+    ): StaffAgent {
+      if (!this.isFounder(ctx)) {
+        throw new Error('Only Founder can update staff permissions');
+      }
+
+      const staff = dbInstance.stmt.getStaffAgentById.get(input.staff_id) as StaffAgent | undefined;
+      if (!staff) {
+        throw new Error(`Staff agent '${input.staff_id}' not found`);
+      }
+
+      const now = new Date().toISOString();
+      dbInstance.stmt.updateStaffAgent.run(
+        staff.name,
+        staff.role,
+        staff.division_id,
+        staff.runtime_instances,
+        JSON.stringify(input.permissions),
+        staff.status,
+        now,
+        input.staff_id
+      );
+
+      // Log access
+      dbInstance.stmt.insertMemoryAccess.run(
+        dbInstance.generateId(), input.staff_id, null,
+        ctx.owner_type, ctx.owner_id, ctx.runtime, 'update', now
+      );
+
+      return toStaffAgent(dbInstance.stmt.getStaffAgentById.get(input.staff_id) as any);
+    },
+
+    suspendStaffAgent(
+      ctx: { owner_type: MemoryOwnerType; owner_id: string; runtime: 'claude' | 'hermes' },
+      input: z.infer<typeof SuspendStaffAgentInputSchema>
+    ): StaffAgent {
+      return this.updateStaffStatus(ctx, { staff_id: input.staff_id, status: 'inactive' });
+    },
+
+    retireStaffAgent(
+      ctx: { owner_type: MemoryOwnerType; owner_id: string; runtime: 'claude' | 'hermes' },
+      input: z.infer<typeof RetireStaffAgentInputSchema>
+    ): StaffAgent {
+      if (!this.isFounder(ctx)) {
+        throw new Error('Only Founder can retire staff agents');
+      }
+
+      const staff = dbInstance.stmt.getStaffAgentById.get(input.staff_id) as StaffAgent | undefined;
+      if (!staff) {
+        throw new Error(`Staff agent '${input.staff_id}' not found`);
+      }
+
+      // Remove from division_members
+      dbInstance.db.prepare('DELETE FROM division_members WHERE staff_id = ?').run(input.staff_id);
+
+      // Update status to terminated
+      const result = this.updateStaffStatus(ctx, { staff_id: input.staff_id, status: 'terminated' });
+
+      // Log access
+      const now = new Date().toISOString();
+      dbInstance.stmt.insertMemoryAccess.run(
+        dbInstance.generateId(), input.staff_id, null,
+        ctx.owner_type, ctx.owner_id, ctx.runtime, 'update', now
+      );
+
+      return result;
+    },
+
+    // --- Task Management ---
+
+    createTask(
+      ctx: { owner_type: MemoryOwnerType; owner_id: string; runtime: 'claude' | 'hermes' },
+      input: z.infer<typeof CreateTaskInputSchema>
+    ): Task {
+      // Validate permissions based on creator type
+      if (input.created_by_type === 'founder' && !this.isFounder(ctx)) {
+        throw new Error('Only Founder can create tasks as founder');
+      }
+      if (input.created_by_type === 'division_head') {
+        if (ctx.owner_type !== 'division') {
+          throw new Error('Only Division Head can create tasks as division_head');
+        }
+        // Division Head can only create tasks for their own division
+        if (input.assigned_to_type === 'division' && input.assigned_to_id !== ctx.owner_id) {
+          throw new Error('Division Head can only assign tasks to their own division');
+        }
+        if (input.assigned_to_type === 'staff') {
+          const staff = dbInstance.stmt.getStaffAgentById.get(input.assigned_to_id) as StaffAgent | undefined;
+          if (!staff || staff.division_id !== ctx.owner_id) {
+            throw new Error('Division Head can only assign tasks to their own division members');
+          }
+        }
+      }
+
+      // Validate assigned_to
+      if (input.assigned_to_type === 'division') {
+        const division = dbInstance.stmt.getDivisionById.get(input.assigned_to_id) as Division | undefined;
+        if (!division) throw new Error(`Division '${input.assigned_to_id}' not found`);
+      } else if (input.assigned_to_type === 'staff') {
+        const staff = dbInstance.stmt.getStaffAgentById.get(input.assigned_to_id) as StaffAgent | undefined;
+        if (!staff) throw new Error(`Staff agent '${input.assigned_to_id}' not found`);
+      }
+
+      // Validate dependencies exist and are completed
+      if (input.dependencies && input.dependencies.length > 0) {
+        for (const depId of input.dependencies) {
+          const depTask = dbInstance.stmt.getTaskById.get(depId) as Task | undefined;
+          if (!depTask) throw new Error(`Dependency task '${depId}' not found`);
+          if (depTask.status !== 'completed') {
+            throw new Error(`Dependency task '${depId}' must be completed before creating dependent task`);
+          }
+        }
+      }
+
+      const taskId = dbInstance.generateId();
+      const now = new Date().toISOString();
+
+      dbInstance.stmt.insertTask.run(
+        taskId,
+        input.title,
+        input.description ?? '',
+        input.assigned_to_type,
+        input.assigned_to_id,
+        input.created_by_type,
+        input.created_by_id,
+        input.status ?? 'pending',
+        input.priority ?? 'medium',
+        input.budget_allocated ?? 0,
+        input.due_at ?? null,
+        null,
+        now,
+        now,
+        JSON.stringify(input.dependencies ?? []),
+        input.deliverable_id ?? null
+      );
+
+      // Log access
+      dbInstance.stmt.insertMemoryAccess.run(
+        dbInstance.generateId(), taskId, null,
+        ctx.owner_type, ctx.owner_id, ctx.runtime, 'create', now
+      );
+
+      return toTask(dbInstance.stmt.getTaskById.get(taskId) as any);
+    },
+
+    updateTask(
+      ctx: { owner_type: MemoryOwnerType; owner_id: string; runtime: 'claude' | 'hermes' },
+      input: z.infer<typeof UpdateTaskInputSchema>
+    ): Task {
+      const task = dbInstance.stmt.getTaskById.get(input.task_id) as Task | undefined;
+      if (!task) {
+        throw new Error(`Task '${input.task_id}' not found`);
+      }
+
+      // Validate status transitions
+      if (input.status) {
+        const validTransitions: Record<string, string[]> = {
+          pending: ['in_progress', 'cancelled'],
+          in_progress: ['review', 'cancelled'],
+          review: ['completed', 'pending', 'cancelled'],
+          completed: [],
+          cancelled: [],
+        };
+
+        const allowed = validTransitions[task.status] || [];
+        if (!allowed.includes(input.status)) {
+          throw new Error(`Invalid status transition: ${task.status} -> ${input.status}`);
+        }
+
+        // Check who can transition
+        const canTransition = this.canTransitionTask(ctx, task, input.status);
+        if (!canTransition) {
+          throw new Error(`Unauthorized to transition task to ${input.status}`);
+        }
+
+        if (input.status === 'completed') {
+          input.due_at = new Date().toISOString();
+        }
+      }
+
+      const now = new Date().toISOString();
+      dbInstance.stmt.updateTask.run(
+        input.title ?? task.title,
+        input.description ?? task.description,
+        task.assigned_to_type,
+        task.assigned_to_id,
+        task.created_by_type,
+        task.created_by_id,
+        input.status ?? task.status,
+        input.priority ?? task.priority,
+        task.budget_allocated,
+        input.due_at ?? task.due_at,
+        task.completed_at,
+        now,
+        input.task_id
+      );
+
+      // Log access
+      dbInstance.stmt.insertMemoryAccess.run(
+        dbInstance.generateId(), input.task_id, null,
+        ctx.owner_type, ctx.owner_id, ctx.runtime, 'update', now
+      );
+
+      return toTask(dbInstance.stmt.getTaskById.get(input.task_id));
+    },
+
+    canTransitionTask(
+      ctx: { owner_type: MemoryOwnerType; owner_id: string; runtime: 'claude' | 'hermes' },
+      task: Task,
+      newStatus: string
+    ): boolean {
+      // Founder can do any transition
+      if (this.isFounder(ctx)) return true;
+
+      // Division Head of assigned division
+      if (task.assigned_to_type === 'division' && this.isDivisionHead(ctx, task.assigned_to_id)) {
+        return true;
+      }
+
+      // Assigned staff member
+      if (task.assigned_to_type === 'staff' && this.isStaffAgent(ctx, task.assigned_to_id)) {
+        // Staff can only move pending -> in_progress, in_progress -> review
+        const staffAllowed: Record<string, string[]> = {
+          pending: ['in_progress'],
+          in_progress: ['review'],
+        };
+        const allowed = staffAllowed[task.status] || [];
+        return allowed.includes(newStatus);
+      }
+
+      return false;
+    },
+
+    listTasks(
+      ctx: { owner_type: MemoryOwnerType; owner_id: string; runtime: 'claude' | 'hermes' },
+      input: z.infer<typeof ListTasksInputSchema>
+    ): Task[] {
+      let tasks = dbInstance.stmt.listTasks.all() as Task[];
+
+      // Filter by permissions
+      if (!this.isFounder(ctx)) {
+        tasks = tasks.filter(t => {
+          // Can see tasks assigned to own division
+          if (t.assigned_to_type === 'division' && this.isDivisionMember(ctx, t.assigned_to_id)) return true;
+          // Can see tasks assigned to self
+          if (t.assigned_to_type === 'staff' && this.isStaffAgent(ctx, t.assigned_to_id)) return true;
+          // Can see tasks created by self
+          if (t.created_by_type === 'division_head' && ctx.owner_type === 'division' && t.created_by_id === ctx.owner_id) return true;
+          return false;
+        });
+      }
+
+      if (input.assigned_to_type) {
+        tasks = tasks.filter(t => t.assigned_to_type === input.assigned_to_type);
+      }
+      if (input.assigned_to_id) {
+        tasks = tasks.filter(t => t.assigned_to_id === input.assigned_to_id);
+      }
+      if (input.status) {
+        tasks = tasks.filter(t => t.status === input.status);
+      }
+      if (input.priority) {
+        tasks = tasks.filter(t => t.priority === input.priority);
+      }
+
+      return tasks;
+    },
+
+    completeTask(
+      ctx: { owner_type: MemoryOwnerType; owner_id: string; runtime: 'claude' | 'hermes' },
+      input: z.infer<typeof CompleteTaskInputSchema>
+    ): Task {
+      return this.updateTask(ctx, { task_id: input.task_id, status: 'completed' });
+    },
+
+    // --- Deliverable Management ---
+
+    createDeliverable(
+      ctx: { owner_type: MemoryOwnerType; owner_id: string; runtime: 'claude' | 'hermes' },
+      input: z.infer<typeof CreateDeliverableInputSchema>
+    ): Deliverable {
+      const task = dbInstance.stmt.getTaskById.get(input.task_id) as Task | undefined;
+      if (!task) {
+        throw new Error(`Task '${input.task_id}' not found`);
+      }
+
+      // Validate submitter
+      if (input.submitted_by_type === 'staff') {
+        if (!this.isStaffAgent(ctx, input.submitted_by_id)) {
+          throw new Error('Only assigned staff can submit deliverables');
+        }
+        const staff = dbInstance.stmt.getStaffAgentById.get(input.submitted_by_id) as StaffAgent | undefined;
+        if (task.assigned_to_type === 'staff' && task.assigned_to_id !== input.submitted_by_id) {
+          throw new Error('Staff not assigned to this task');
+        }
+        if (task.assigned_to_type === 'division') {
+          const members = dbInstance.stmt.getDivisionMembers.all(task.assigned_to_id) as DivisionMember[];
+          const member = members.find((m) => m.staff_id === input.submitted_by_id);
+          if (!member) {
+            throw new Error('Staff not a member of assigned division');
+          }
+        }
+      } else if (input.submitted_by_type === 'division') {
+        if (!this.isDivisionHead(ctx, input.submitted_by_id)) {
+          throw new Error('Only Division Head can submit division deliverables');
+        }
+        if (task.assigned_to_type !== 'division' || task.assigned_to_id !== input.submitted_by_id) {
+          throw new Error('Division not assigned to this task');
+        }
+      }
+
+      const deliverableId = dbInstance.generateId();
+      const now = new Date().toISOString();
+
+      dbInstance.stmt.insertDeliverable.run(
+        deliverableId,
+        input.task_id,
+        input.submitted_by_type,
+        input.submitted_by_id,
+        JSON.stringify(input.content),
+        'submitted',
+        null,
+        null,
+        null,
+        now,
+        now,
+        JSON.stringify([]),
+        JSON.stringify([]),
+        JSON.stringify([])
+      );
+
+      // Log access
+      dbInstance.stmt.insertMemoryAccess.run(
+        dbInstance.generateId(), deliverableId, null,
+        ctx.owner_type, ctx.owner_id, ctx.runtime, 'create', now
+      );
+
+      return toDeliverable(dbInstance.stmt.getDeliverableById.get(deliverableId) as any);
+    },
+
+    updateDeliverable(
+      ctx: { owner_type: MemoryOwnerType; owner_id: string; runtime: 'claude' | 'hermes' },
+      input: z.infer<typeof UpdateDeliverableInputSchema>
+    ): Deliverable {
+      const deliverable = dbInstance.stmt.getDeliverableById.get(input.deliverable_id) as Deliverable | undefined;
+      if (!deliverable) {
+        throw new Error(`Deliverable '${input.deliverable_id}' not found`);
+      }
+
+      const task = dbInstance.stmt.getTaskById.get(deliverable.task_id) as Task | undefined;
+      if (!task) {
+        throw new Error(`Task '${deliverable.task_id}' not found`);
+      }
+
+      // Only Division Head of assigned division or Founder can review
+      if (input.status && ['accepted', 'rejected', 'revision_requested'].includes(input.status)) {
+        if (!this.isFounder(ctx) && !this.isDivisionHead(ctx, task.assigned_to_id)) {
+          throw new Error('Only Division Head or Founder can review deliverables');
+        }
+      }
+
+      const now = new Date().toISOString();
+      const before = {
+        status: deliverable.status,
+        reviewed_by_type: deliverable.reviewed_by_type,
+        reviewed_by_id: deliverable.reviewed_by_id,
+        reviewed_at: deliverable.reviewed_at,
+      };
+
+      // Update the deliverable row
+      dbInstance.stmt.updateDeliverable.run(
+        input.status ?? deliverable.status,
+        input.reviewed_by_type ?? deliverable.reviewed_by_type,
+        input.reviewed_by_id ?? deliverable.reviewed_by_id,
+        input.reviewed_at ?? deliverable.reviewed_at ?? now,
+        input.deliverable_id
+      );
+
+      // Build audit log entry
+      const auditEntry = {
+        by_type: input.reviewed_by_type ?? 'system',
+        by_id: input.reviewed_by_id ?? 'system',
+        action: input.status ? 'status_change' : 'update',
+        timestamp: now,
+        before,
+        after: {
+          status: input.status ?? deliverable.status,
+          reviewed_by_type: input.reviewed_by_type ?? deliverable.reviewed_by_type,
+          reviewed_by_id: input.reviewed_by_id ?? deliverable.reviewed_by_id,
+          reviewed_at: input.reviewed_at ?? deliverable.reviewed_at ?? now,
+        },
+      };
+
+      // Append to audit_log
+      const currentAudit = deliverable.audit_log ? JSON.parse(deliverable.audit_log) : [];
+      currentAudit.push(auditEntry);
+
+      dbInstance.db.prepare('UPDATE deliverables SET audit_log = ? WHERE deliverable_id = ?')
+        .run(JSON.stringify(currentAudit), input.deliverable_id);
+
+      // Log access
+      dbInstance.stmt.insertMemoryAccess.run(
+        dbInstance.generateId(), input.deliverable_id, null,
+        ctx.owner_type, ctx.owner_id, ctx.runtime, 'update', now
+      );
+
+      return toDeliverable(dbInstance.stmt.getDeliverableById.get(input.deliverable_id) as any);
+    },
+
+    listDeliverablesByTask(
+      ctx: { owner_type: MemoryOwnerType; owner_id: string; runtime: 'claude' | 'hermes' },
+      input: z.infer<typeof ListDeliverablesByTaskInputSchema>
+    ): Deliverable[] {
+      const task = dbInstance.stmt.getTaskById.get(input.task_id) as Task | undefined;
+      if (!task) {
+        throw new Error(`Task '${input.task_id}' not found`);
+      }
+
+      // Check permission to view task's deliverables
+      if (!this.isFounder(ctx)) {
+        if (task.assigned_to_type === 'division' && !this.isDivisionMember(ctx, task.assigned_to_id)) {
+          throw new Error('Access denied to task deliverables');
+        }
+        if (task.assigned_to_type === 'staff' && !this.isStaffAgent(ctx, task.assigned_to_id)) {
+          throw new Error('Access denied to task deliverables');
+        }
+      }
+
+      return (dbInstance.stmt.listDeliverablesByTask.all(input.task_id) as any[]).map(toDeliverable);
+    },
+
+    // --- Cross-Division Request/Approval Workflow ---
+
+    requestCrossDivisionAccess(
+      ctx: { owner_type: MemoryOwnerType; owner_id: string; runtime: 'claude' | 'hermes' },
+      input: z.infer<typeof RequestCrossDivisionAccessInputSchema>
+    ): CrossDivisionShare {
+      // Only Division Head of from_division can request
+      if (!this.isDivisionHead(ctx, input.from_division)) {
+        throw new Error('Only Division Head can request cross-division access');
+      }
+
+      const toDivision = dbInstance.stmt.getDivisionById.get(input.to_division);
+      if (!toDivision) {
+        throw new Error(`Target division '${input.to_division}' not found`);
+      }
+
+      if (input.memory_id) {
+        const memory = dbInstance.stmt.getMemoryById.get(input.memory_id) as MemoryEntry | undefined;
+        if (!memory) {
+          throw new Error(`Memory '${input.memory_id}' not found`);
+        }
+        if (!this.checkMemoryAccess(ctx, memory)) {
+          throw new Error('Access denied to requested memory');
+        }
+      }
+
+      const requestId = dbInstance.generateId();
+      const now = new Date().toISOString();
+
+      dbInstance.stmt.insertCrossDivisionShare.run(
+        requestId,
+        input.memory_id ?? dbInstance.generateId(),
+        input.to_division,
+        'division',  // granted_by_type = 'division' for requests
+        input.from_division,
+        now,
+        null,  // revoked_at
+        input.request_type,
+        'pending',
+        input.justification,
+        input.priority,
+        input.deadline ?? null,
+        null,  // approved_by_type
+        null,  // approved_by_id
+        null   // approved_at
+      );
+
+      // Log access
+      dbInstance.stmt.insertMemoryAccess.run(
+        dbInstance.generateId(), requestId, null,
+        ctx.owner_type, ctx.owner_id, ctx.runtime, 'create', now
+      );
+
+      return toCrossDivisionShare(dbInstance.stmt.getCrossDivisionShares.all(requestId)
+        .find((s: any) => s.share_id === requestId));
+    },
+
+    approveCrossDivisionAccess(
+      ctx: { owner_type: MemoryOwnerType; owner_id: string; runtime: 'claude' | 'hermes' },
+      input: z.infer<typeof ApproveCrossDivisionAccessInputSchema>
+    ): { success: boolean; request_id: string; status: string } {
+      if (!this.isFounder(ctx)) {
+        throw new Error('Only Founder can approve cross-division access requests');
+      }
+
+      const shares = dbInstance.stmt.getCrossDivisionShares.all(input.request_id) as CrossDivisionShare[];
+      if (!shares.length) {
+        throw new Error(`Cross-division request '${input.request_id}' not found`);
+      }
+
+      const share = shares[0];
+      if (share.granted_by_type !== 'division') {
+        throw new Error(`Only division requests can be approved; this was granted by ${share.granted_by_type}`);
+      }
+
+      if (share.status === 'approved') {
+        throw new Error(`Request '${input.request_id}' already approved`);
+      }
+
+      const now = new Date().toISOString();
+
+      // Update to approved - use Founder as grantor
+      dbInstance.stmt.updateCrossDivisionShare.run(
+        'approved', now, 'founder', 'founder', 'founder', 'founder', input.request_id
+      );
+
+      // Log access
+      dbInstance.stmt.insertMemoryAccess.run(
+        dbInstance.generateId(), input.request_id, null,
+        ctx.owner_type, ctx.owner_id, ctx.runtime, 'update', now
+      );
+
+      return { success: true, request_id: input.request_id, status: 'approved' };
+    },
+
+    revokeCrossDivisionAccessRequest(
+      ctx: { owner_type: MemoryOwnerType; owner_id: string; runtime: 'claude' | 'hermes' },
+      input: z.infer<typeof ApproveCrossDivisionAccessInputSchema>
+    ): { success: boolean; request_id: string; status: string } {
+      if (!this.isFounder(ctx)) {
+        throw new Error('Only Founder can revoke cross-division access requests');
+      }
+
+      const shares = dbInstance.stmt.getCrossDivisionShares.all(input.request_id) as CrossDivisionShare[];
+      if (!shares.length) {
+        throw new Error(`Cross-division request '${input.request_id}' not found`);
+      }
+
+      const now = new Date().toISOString();
+
+      dbInstance.stmt.updateCrossDivisionShare.run(
+        'rejected', now, 'founder', 'founder', 'founder', 'founder', input.request_id
+      );
+
+      // Log access
+      dbInstance.stmt.insertMemoryAccess.run(
+        dbInstance.generateId(), input.request_id, null,
+        ctx.owner_type, ctx.owner_id, ctx.runtime, 'update', now
+      );
+
+      return { success: true, request_id: input.request_id, status: 'rejected' };
+    },
+
+    listPendingCrossDivisionRequests(
+      ctx: { owner_type: MemoryOwnerType; owner_id: string; runtime: 'claude' | 'hermes' },
+      input: z.infer<typeof ListPendingCrossDivisionRequestsInputSchema>
+    ): CrossDivisionShare[] {
+      if (!this.isFounder(ctx) && !this.isDivisionMember(ctx, input.division_id)) {
+        throw new Error('Access denied to cross-division requests');
+      }
+
+      const shares = dbInstance.stmt.getSharesByDivision.all(input.division_id) as CrossDivisionShare[];
+      return shares.filter(s => s.status === 'pending' || s.granted_by_type === 'division');
     },
   };
 }

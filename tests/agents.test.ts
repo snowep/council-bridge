@@ -16,7 +16,15 @@ let messageService: MessageService;
 
 function setupTestDb() {
   if (fs.existsSync(TEST_DB_PATH)) {
-    fs.unlinkSync(TEST_DB_PATH);
+    try {
+      fs.unlinkSync(TEST_DB_PATH);
+      const shmPath = TEST_DB_PATH + '-shm';
+      const walPath = TEST_DB_PATH + '-wal';
+      if (fs.existsSync(shmPath)) fs.unlinkSync(shmPath);
+      if (fs.existsSync(walPath)) fs.unlinkSync(walPath);
+    } catch (e) {
+      // Ignore if locked by another process
+    }
   }
   const instance = createDatabase(TEST_DB_PATH);
   return instance;
@@ -30,7 +38,15 @@ describe('Database', () => {
   afterEach(() => {
     testDbInstance.close();
     if (fs.existsSync(TEST_DB_PATH)) {
-      fs.unlinkSync(TEST_DB_PATH);
+      try {
+        fs.unlinkSync(TEST_DB_PATH);
+        const shmPath = TEST_DB_PATH + '-shm';
+        const walPath = TEST_DB_PATH + '-wal';
+        if (fs.existsSync(shmPath)) fs.unlinkSync(shmPath);
+        if (fs.existsSync(walPath)) fs.unlinkSync(walPath);
+      } catch (e) {
+        // Ignore if locked by another process
+      }
     }
   });
 
@@ -58,7 +74,15 @@ describe('Agents', () => {
   afterEach(() => {
     testDbInstance.close();
     if (fs.existsSync(TEST_DB_PATH)) {
-      fs.unlinkSync(TEST_DB_PATH);
+      try {
+        fs.unlinkSync(TEST_DB_PATH);
+        const shmPath = TEST_DB_PATH + '-shm';
+        const walPath = TEST_DB_PATH + '-wal';
+        if (fs.existsSync(shmPath)) fs.unlinkSync(shmPath);
+        if (fs.existsSync(walPath)) fs.unlinkSync(walPath);
+      } catch (e) {
+        // Ignore if locked by another process
+      }
     }
   });
 
@@ -121,7 +145,15 @@ describe('Messages', () => {
   afterEach(() => {
     testDbInstance.close();
     if (fs.existsSync(TEST_DB_PATH)) {
-      fs.unlinkSync(TEST_DB_PATH);
+      try {
+        fs.unlinkSync(TEST_DB_PATH);
+        const shmPath = TEST_DB_PATH + '-shm';
+        const walPath = TEST_DB_PATH + '-wal';
+        if (fs.existsSync(shmPath)) fs.unlinkSync(shmPath);
+        if (fs.existsSync(walPath)) fs.unlinkSync(walPath);
+      } catch (e) {
+        // Ignore if locked by another process
+      }
     }
   });
 
@@ -222,7 +254,15 @@ describe('Reply chain', () => {
   afterEach(() => {
     testDbInstance.close();
     if (fs.existsSync(TEST_DB_PATH)) {
-      fs.unlinkSync(TEST_DB_PATH);
+      try {
+        fs.unlinkSync(TEST_DB_PATH);
+        const shmPath = TEST_DB_PATH + '-shm';
+        const walPath = TEST_DB_PATH + '-wal';
+        if (fs.existsSync(shmPath)) fs.unlinkSync(shmPath);
+        if (fs.existsSync(walPath)) fs.unlinkSync(walPath);
+      } catch (e) {
+        // Ignore if locked by another process
+      }
     }
   });
 

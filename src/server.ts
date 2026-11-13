@@ -408,8 +408,432 @@ app.post('/mcp', async (req, res) => {
         };
       });
 
+      // Phase 6: Division Management MCP Tools
+      mcpserver.registerTool('create_division', {
+        title: 'Create Division',
+        description: 'Create a new division (Founder-only)',
+        inputSchema: {
+          name: z.string().min(1).max(255).describe('Division name'),
+          description: z.string().optional().describe('Division description'),
+          budget_limit: z.number().optional().describe('Budget limit'),
+          strategic_objectives: z.array(z.string()).optional().describe('Strategic objectives'),
+        },
+      }, async ({ name, description, budget_limit, strategic_objectives }) => {
+        const ctx = {
+          owner_type: 'founder' as const,
+          owner_id: 'founder',
+          runtime: 'claude' as const,
+        };
+        const division = services.councilService.createDivision(ctx, { name, description, budget_limit, strategic_objectives });
+        return {
+          content: [{ type: 'text', text: JSON.stringify(division, null, 2) }],
+        };
+      });
+
+      mcpserver.registerTool('assign_division_head', {
+        title: 'Assign Division Head',
+        description: 'Assign a staff agent as division head (Founder-only)',
+        inputSchema: {
+          staff_id: z.string().min(1).max(255).describe('Staff agent ID'),
+          division_id: z.string().min(1).max(255).describe('Division ID'),
+        },
+      }, async ({ staff_id, division_id }) => {
+        const ctx = {
+          owner_type: 'founder' as const,
+          owner_id: 'founder',
+          runtime: 'claude' as const,
+        };
+        const division = services.councilService.assignDivisionHead(ctx, { staff_id, division_id });
+        return {
+          content: [{ type: 'text', text: JSON.stringify(division, null, 2) }],
+        };
+      });
+
+      mcpserver.registerTool('update_division', {
+        title: 'Update Division',
+        description: 'Update division details (Founder or Division Head)',
+        inputSchema: {
+          division_id: z.string().min(1).max(255).describe('Division ID'),
+          head_staff_id: z.string().optional().describe('New head staff ID'),
+          budget_limit: z.number().optional().describe('Budget limit'),
+          strategic_objectives: z.array(z.string()).optional().describe('Strategic objectives'),
+        },
+      }, async ({ division_id, head_staff_id, budget_limit, strategic_objectives }) => {
+        const ctx = {
+          owner_type: 'division' as const,
+          owner_id: 'div-001',
+          runtime: 'claude' as const,
+        };
+        const division = services.councilService.updateDivision(ctx, { division_id, head_staff_id, budget_limit, strategic_objectives });
+        return {
+          content: [{ type: 'text', text: JSON.stringify(division, null, 2) }],
+        };
+      });
+
+      mcpserver.registerTool('list_divisions', {
+        title: 'List Divisions',
+        description: 'List all divisions (Founder-only)',
+        inputSchema: {},
+      }, async () => {
+        const ctx = {
+          owner_type: 'founder' as const,
+          owner_id: 'founder',
+          runtime: 'claude' as const,
+        };
+        const divisions = services.councilService.listDivisions(ctx);
+        return {
+          content: [{ type: 'text', text: JSON.stringify(divisions, null, 2) }],
+        };
+      });
+
+      mcpserver.registerTool('list_specialists', {
+        title: 'List Specialists',
+        description: 'List specialists in a division',
+        inputSchema: {
+          division_id: z.string().min(1).max(255).describe('Division ID'),
+        },
+      }, async ({ division_id }) => {
+        const ctx = {
+          owner_type: 'division' as const,
+          owner_id: 'div-001',
+          runtime: 'claude' as const,
+        };
+        const specialists = services.councilService.listSpecialists(ctx, { division_id });
+        return {
+          content: [{ type: 'text', text: JSON.stringify(specialists, null, 2) }],
+        };
+      });
+
+      // Phase 6: Staff Agent Management MCP Tools
+      mcpserver.registerTool('register_staff_agent', {
+        title: 'Register Staff Agent',
+        description: 'Register a new staff agent (Founder-only)',
+        inputSchema: {
+          staff_id: z.string().min(1).max(255).describe('Staff agent ID'),
+          name: z.string().min(1).max(255).describe('Staff agent name'),
+          role: z.string().min(1).max(255).describe('Professional role'),
+          division_id: z.string().min(1).max(255).describe('Division ID'),
+          runtime_instances: z.array(z.enum(['claude', 'hermes'])).min(1).describe('Runtime instances'),
+          permissions: z.array(z.string()).default([]).describe('Permissions array'),
+        },
+      }, async ({ staff_id, name, role, division_id, runtime_instances, permissions }) => {
+        const ctx = {
+          owner_type: 'founder' as const,
+          owner_id: 'founder',
+          runtime: 'claude' as const,
+        };
+        const staff = services.councilService.registerStaffAgent(ctx, { staff_id, name, role, division_id, runtime_instances, permissions });
+        return {
+          content: [{ type: 'text', text: JSON.stringify(staff, null, 2) }],
+        };
+      });
+
+      mcpserver.registerTool('update_staff_status', {
+        title: 'Update Staff Status',
+        description: 'Update staff agent status (Founder-only)',
+        inputSchema: {
+          staff_id: z.string().min(1).max(255).describe('Staff agent ID'),
+          status: z.enum(['active', 'inactive', 'terminated']).describe('New status'),
+        },
+      }, async ({ staff_id, status }) => {
+        const ctx = {
+          owner_type: 'founder' as const,
+          owner_id: 'founder',
+          runtime: 'claude' as const,
+        };
+        const staff = services.councilService.updateStaffStatus(ctx, { staff_id, status });
+        return {
+          content: [{ type: 'text', text: JSON.stringify(staff, null, 2) }],
+        };
+      });
+
+      mcpserver.registerTool('update_staff_permissions', {
+        title: 'Update Staff Permissions',
+        description: 'Update staff agent permissions (Founder-only)',
+        inputSchema: {
+          staff_id: z.string().min(1).max(255).describe('Staff agent ID'),
+          permissions: z.array(z.string()).describe('Permissions array'),
+        },
+      }, async ({ staff_id, permissions }) => {
+        const ctx = {
+          owner_type: 'founder' as const,
+          owner_id: 'founder',
+          runtime: 'claude' as const,
+        };
+        const staff = services.councilService.updateStaffPermissions(ctx, { staff_id, permissions });
+        return {
+          content: [{ type: 'text', text: JSON.stringify(staff, null, 2) }],
+        };
+      });
+
+      mcpserver.registerTool('suspend_staff_agent', {
+        title: 'Suspend Staff Agent',
+        description: 'Suspend a staff agent (sets status to inactive) (Founder-only)',
+        inputSchema: {
+          staff_id: z.string().min(1).max(255).describe('Staff agent ID'),
+        },
+      }, async ({ staff_id }) => {
+        const ctx = {
+          owner_type: 'founder' as const,
+          owner_id: 'founder',
+          runtime: 'claude' as const,
+        };
+        const staff = services.councilService.suspendStaffAgent(ctx, { staff_id });
+        return {
+          content: [{ type: 'text', text: JSON.stringify(staff, null, 2) }],
+        };
+      });
+
+      mcpserver.registerTool('retire_staff_agent', {
+        title: 'Retire Staff Agent',
+        description: 'Retire a staff agent (sets status to terminated, removes from division) (Founder-only)',
+        inputSchema: {
+          staff_id: z.string().min(1).max(255).describe('Staff agent ID'),
+        },
+      }, async ({ staff_id }) => {
+        const ctx = {
+          owner_type: 'founder' as const,
+          owner_id: 'founder',
+          runtime: 'claude' as const,
+        };
+        const staff = services.councilService.retireStaffAgent(ctx, { staff_id });
+        return {
+          content: [{ type: 'text', text: JSON.stringify(staff, null, 2) }],
+        };
+      });
+
       // Connect first
       await mcpserver.connect(transport);
+
+      // Phase 6: Task Management MCP Tools
+      mcpserver.registerTool('create_task', {
+        title: 'Create Task',
+        description: 'Create a new task',
+        inputSchema: {
+          title: z.string().min(1).max(500).describe('Task title'),
+          description: z.string().optional().describe('Task description'),
+          assigned_to_type: z.enum(['division', 'staff']).describe('Assignment type'),
+          assigned_to_id: z.string().min(1).max(255).describe('Division ID or Staff ID'),
+          created_by_type: z.enum(['founder', 'council', 'division_head']).describe('Creator type'),
+          created_by_id: z.string().min(1).max(255).describe('Creator ID'),
+          status: z.enum(['pending', 'in_progress', 'review', 'completed', 'cancelled']).optional().describe('Initial status'),
+          priority: z.enum(['low', 'medium', 'high', 'critical']).optional().describe('Priority'),
+          budget_allocated: z.number().optional().describe('Budget allocated'),
+          due_at: z.string().optional().describe('Due date (ISO)'),
+          dependencies: z.array(z.string()).optional().describe('Task dependencies'),
+          deliverable_id: z.string().optional().describe('Deliverable ID'),
+        },
+      }, async ({ title, description, assigned_to_type, assigned_to_id, created_by_type, created_by_id, status, priority, budget_allocated, due_at, dependencies, deliverable_id }) => {
+        const ctx = created_by_type === 'founder'
+          ? { owner_type: 'founder' as const, owner_id: 'founder', runtime: 'claude' as const }
+          : created_by_type === 'division_head'
+          ? { owner_type: 'division' as const, owner_id: assigned_to_type === 'division' ? assigned_to_id : '', runtime: 'claude' as const }
+          : { owner_type: 'seat' as const, owner_id: 'seat-001', runtime: 'claude' as const };
+
+        const task = services.councilService.createTask(ctx, { title, description, assigned_to_type, assigned_to_id, created_by_type, created_by_id, status, priority, budget_allocated, due_at, dependencies, deliverable_id });
+        return {
+          content: [{ type: 'text', text: JSON.stringify(task, null, 2) }],
+        };
+      });
+
+      mcpserver.registerTool('update_task', {
+        title: 'Update Task',
+        description: 'Update task status, priority, or due date',
+        inputSchema: {
+          task_id: z.string().min(1).max(255).describe('Task ID'),
+          status: z.enum(['pending', 'in_progress', 'review', 'completed', 'cancelled']).optional().describe('New status'),
+          priority: z.enum(['low', 'medium', 'high', 'critical']).optional().describe('New priority'),
+          due_at: z.string().optional().describe('New due date (ISO)'),
+        },
+      }, async ({ task_id, status, priority, due_at }) => {
+        const ctx = {
+          owner_type: 'division' as const,
+          owner_id: 'div-001',
+          runtime: 'claude' as const,
+        };
+        const task = services.councilService.updateTask(ctx, { task_id, status, priority, due_at });
+        return {
+          content: [{ type: 'text', text: JSON.stringify(task, null, 2) }],
+        };
+      });
+
+      mcpserver.registerTool('list_tasks', {
+        title: 'List Tasks',
+        description: 'List tasks with filters',
+        inputSchema: {
+          assigned_to_type: z.enum(['division', 'staff']).optional().describe('Filter by assignment type'),
+          assigned_to_id: z.string().optional().describe('Filter by division or staff ID'),
+          status: z.enum(['pending', 'in_progress', 'review', 'completed', 'cancelled']).optional().describe('Filter by status'),
+          priority: z.enum(['low', 'medium', 'high', 'critical']).optional().describe('Filter by priority'),
+        },
+      }, async ({ assigned_to_type, assigned_to_id, status, priority }) => {
+        const ctx = {
+          owner_type: 'division' as const,
+          owner_id: 'div-001',
+          runtime: 'claude' as const,
+        };
+        const tasks = services.councilService.listTasks(ctx, { assigned_to_type, assigned_to_id, status, priority });
+        return {
+          content: [{ type: 'text', text: JSON.stringify(tasks, null, 2) }],
+        };
+      });
+
+      mcpserver.registerTool('complete_task', {
+        title: 'Complete Task',
+        description: 'Mark a task as completed',
+        inputSchema: {
+          task_id: z.string().min(1).max(255).describe('Task ID'),
+        },
+      }, async ({ task_id }) => {
+        const ctx = {
+          owner_type: 'division' as const,
+          owner_id: 'div-001',
+          runtime: 'claude' as const,
+        };
+        const task = services.councilService.completeTask(ctx, { task_id });
+        return {
+          content: [{ type: 'text', text: JSON.stringify(task, null, 2) }],
+        };
+      });
+
+      // Phase 6: Deliverable Management MCP Tools
+      mcpserver.registerTool('create_deliverable', {
+        title: 'Create Deliverable',
+        description: 'Submit a deliverable for a task',
+        inputSchema: {
+          task_id: z.string().min(1).max(255).describe('Task ID'),
+          content: z.record(z.string(), z.any()).describe('Deliverable content'),
+          submitted_by_type: z.enum(['staff', 'division']).describe('Submitter type'),
+          submitted_by_id: z.string().min(1).max(255).describe('Submitter ID'),
+        },
+      }, async ({ task_id, content, submitted_by_type, submitted_by_id }) => {
+        const ctx = submitted_by_type === 'staff'
+          ? { owner_type: 'staff' as const, owner_id: submitted_by_id, runtime: 'claude' as const }
+          : { owner_type: 'division' as const, owner_id: submitted_by_id, runtime: 'claude' as const };
+
+        const deliverable = services.councilService.createDeliverable(ctx, { task_id, content, submitted_by_type, submitted_by_id });
+        return {
+          content: [{ type: 'text', text: JSON.stringify(deliverable, null, 2) }],
+        };
+      });
+
+      mcpserver.registerTool('update_deliverable', {
+        title: 'Update Deliverable',
+        description: 'Review/update a deliverable (Division Head or Founder)',
+        inputSchema: {
+          deliverable_id: z.string().min(1).max(255).describe('Deliverable ID'),
+          status: z.enum(['submitted', 'accepted', 'rejected', 'revision_requested']).optional().describe('New status'),
+          reviewed_by_type: z.enum(['founder', 'council', 'division_head']).optional().describe('Reviewer type'),
+          reviewed_by_id: z.string().optional().describe('Reviewer ID'),
+        },
+      }, async ({ deliverable_id, status, reviewed_by_type, reviewed_by_id }) => {
+        const ctx = {
+          owner_type: 'division' as const,
+          owner_id: 'div-001',
+          runtime: 'claude' as const,
+        };
+        const deliverable = services.councilService.updateDeliverable(ctx, { deliverable_id, status, reviewed_by_type, reviewed_by_id });
+        return {
+          content: [{ type: 'text', text: JSON.stringify(deliverable, null, 2) }],
+        };
+      });
+
+      mcpserver.registerTool('list_deliverables_by_task', {
+        title: 'List Deliverables by Task',
+        description: 'List all deliverables for a task',
+        inputSchema: {
+          task_id: z.string().min(1).max(255).describe('Task ID'),
+        },
+      }, async ({ task_id }) => {
+        const ctx = {
+          owner_type: 'division' as const,
+          owner_id: 'div-001',
+          runtime: 'claude' as const,
+        };
+        const deliverables = services.councilService.listDeliverablesByTask(ctx, { task_id });
+        return {
+          content: [{ type: 'text', text: JSON.stringify(deliverables, null, 2) }],
+        };
+      });
+
+      // Phase 6: Cross-Division Request/Approval MCP Tools
+      mcpserver.registerTool('request_cross_division_access', {
+        title: 'Request Cross-Division Access',
+        description: 'Request cross-division access (Division Head only)',
+        inputSchema: {
+          from_division: z.string().min(1).max(255).describe('Requesting division ID'),
+          to_division: z.string().min(1).max(255).describe('Target division ID'),
+          memory_id: z.string().optional().describe('Memory ID (optional)'),
+          justification: z.string().min(1).describe('Justification for request'),
+          priority: z.enum(['low', 'medium', 'high', 'critical']).default('medium').describe('Priority'),
+          deadline: z.string().optional().describe('Deadline (ISO)'),
+          request_type: z.enum(['task_delegate', 'deliverable_share', 'memory_access', 'resource_request']).describe('Request type'),
+        },
+      }, async ({ from_division, to_division, memory_id, justification, priority, deadline, request_type }) => {
+        const ctx = {
+          owner_type: 'division' as const,
+          owner_id: from_division,
+          runtime: 'claude' as const,
+        };
+        const request = services.councilService.requestCrossDivisionAccess(ctx, { from_division, to_division, memory_id, justification, priority, deadline, request_type });
+        return {
+          content: [{ type: 'text', text: JSON.stringify(request, null, 2) }],
+        };
+      });
+
+      mcpserver.registerTool('approve_cross_division_access', {
+        title: 'Approve Cross-Division Access',
+        description: 'Approve a cross-division access request (Founder only)',
+        inputSchema: {
+          request_id: z.string().min(1).max(255).describe('Request ID'),
+        },
+      }, async ({ request_id }) => {
+        const ctx = {
+          owner_type: 'founder' as const,
+          owner_id: 'founder',
+          runtime: 'claude' as const,
+        };
+        const result = services.councilService.approveCrossDivisionAccess(ctx, { request_id });
+        return {
+          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+        };
+      });
+
+      mcpserver.registerTool('revoke_cross_division_access_request', {
+        title: 'Revoke Cross-Division Access Request',
+        description: 'Reject/Revoke a cross-division access request (Founder only)',
+        inputSchema: {
+          request_id: z.string().min(1).max(255).describe('Request ID'),
+        },
+      }, async ({ request_id }) => {
+        const ctx = {
+          owner_type: 'founder' as const,
+          owner_id: 'founder',
+          runtime: 'claude' as const,
+        };
+        const result = services.councilService.revokeCrossDivisionAccessRequest(ctx, { request_id });
+        return {
+          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+        };
+      });
+
+      mcpserver.registerTool('list_pending_cross_division_requests', {
+        title: 'List Pending Cross-Division Requests',
+        description: 'List pending cross-division requests for a division',
+        inputSchema: {
+          division_id: z.string().min(1).max(255).describe('Division ID'),
+        },
+      }, async ({ division_id }) => {
+        const ctx = {
+          owner_type: 'division' as const,
+          owner_id: division_id,
+          runtime: 'claude' as const,
+        };
+        const requests = services.councilService.listPendingCrossDivisionRequests(ctx, { division_id });
+        return {
+          content: [{ type: 'text', text: JSON.stringify(requests, null, 2) }],
+        };
+      });
 
       // Now process the request - this will trigger onsessioninitialized for initialize requests
       await transport.handleRequest(req, res, req.body);

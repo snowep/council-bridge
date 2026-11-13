@@ -14,7 +14,15 @@ let council: CouncilService;
 
 function setupTestDb() {
   if (fs.existsSync(TEST_DB_PATH)) {
-    fs.unlinkSync(TEST_DB_PATH);
+    try {
+      fs.unlinkSync(TEST_DB_PATH);
+      const shmPath = TEST_DB_PATH + '-shm';
+      const walPath = TEST_DB_PATH + '-wal';
+      if (fs.existsSync(shmPath)) fs.unlinkSync(shmPath);
+      if (fs.existsSync(walPath)) fs.unlinkSync(walPath);
+    } catch (e) {
+      // Ignore if locked by another process
+    }
   }
   const instance = createDatabase(TEST_DB_PATH);
   return instance;
@@ -28,7 +36,15 @@ describe('Council Database Schema', () => {
   afterEach(() => {
     testDbInstance.close();
     if (fs.existsSync(TEST_DB_PATH)) {
-      fs.unlinkSync(TEST_DB_PATH);
+      try {
+        fs.unlinkSync(TEST_DB_PATH);
+        const shmPath = TEST_DB_PATH + '-shm';
+        const walPath = TEST_DB_PATH + '-wal';
+        if (fs.existsSync(shmPath)) fs.unlinkSync(shmPath);
+        if (fs.existsSync(walPath)) fs.unlinkSync(walPath);
+      } catch (e) {
+        // Ignore if locked by another process
+      }
     }
   });
 
@@ -67,7 +83,15 @@ describe('Council Seats', () => {
   afterEach(() => {
     testDbInstance.close();
     if (fs.existsSync(TEST_DB_PATH)) {
-      fs.unlinkSync(TEST_DB_PATH);
+      try {
+        fs.unlinkSync(TEST_DB_PATH);
+        const shmPath = TEST_DB_PATH + '-shm';
+        const walPath = TEST_DB_PATH + '-wal';
+        if (fs.existsSync(shmPath)) fs.unlinkSync(shmPath);
+        if (fs.existsSync(walPath)) fs.unlinkSync(walPath);
+      } catch (e) {
+        // Ignore if locked by another process
+      }
     }
   });
 
@@ -133,7 +157,15 @@ describe('Personas', () => {
   afterEach(() => {
     testDbInstance.close();
     if (fs.existsSync(TEST_DB_PATH)) {
-      fs.unlinkSync(TEST_DB_PATH);
+      try {
+        fs.unlinkSync(TEST_DB_PATH);
+        const shmPath = TEST_DB_PATH + '-shm';
+        const walPath = TEST_DB_PATH + '-wal';
+        if (fs.existsSync(shmPath)) fs.unlinkSync(shmPath);
+        if (fs.existsSync(walPath)) fs.unlinkSync(walPath);
+      } catch (e) {
+        // Ignore if locked by another process
+      }
     }
   });
 
@@ -189,7 +221,15 @@ describe('Runtime Personas', () => {
   afterEach(() => {
     testDbInstance.close();
     if (fs.existsSync(TEST_DB_PATH)) {
-      fs.unlinkSync(TEST_DB_PATH);
+      try {
+        fs.unlinkSync(TEST_DB_PATH);
+        const shmPath = TEST_DB_PATH + '-shm';
+        const walPath = TEST_DB_PATH + '-wal';
+        if (fs.existsSync(shmPath)) fs.unlinkSync(shmPath);
+        if (fs.existsSync(walPath)) fs.unlinkSync(walPath);
+      } catch (e) {
+        // Ignore if locked by another process
+      }
     }
   });
 
@@ -223,7 +263,15 @@ describe('Constitution', () => {
   afterEach(() => {
     testDbInstance.close();
     if (fs.existsSync(TEST_DB_PATH)) {
-      fs.unlinkSync(TEST_DB_PATH);
+      try {
+        fs.unlinkSync(TEST_DB_PATH);
+        const shmPath = TEST_DB_PATH + '-shm';
+        const walPath = TEST_DB_PATH + '-wal';
+        if (fs.existsSync(shmPath)) fs.unlinkSync(shmPath);
+        if (fs.existsSync(walPath)) fs.unlinkSync(walPath);
+      } catch (e) {
+        // Ignore if locked by another process
+      }
     }
   });
 
@@ -271,7 +319,15 @@ describe('Founder Approvals', () => {
   afterEach(() => {
     testDbInstance.close();
     if (fs.existsSync(TEST_DB_PATH)) {
-      fs.unlinkSync(TEST_DB_PATH);
+      try {
+        fs.unlinkSync(TEST_DB_PATH);
+        const shmPath = TEST_DB_PATH + '-shm';
+        const walPath = TEST_DB_PATH + '-wal';
+        if (fs.existsSync(shmPath)) fs.unlinkSync(shmPath);
+        if (fs.existsSync(walPath)) fs.unlinkSync(walPath);
+      } catch (e) {
+        // Ignore if locked by another process
+      }
     }
   });
 
@@ -322,7 +378,15 @@ describe('Council Initialization', () => {
   afterEach(() => {
     testDbInstance.close();
     if (fs.existsSync(TEST_DB_PATH)) {
-      fs.unlinkSync(TEST_DB_PATH);
+      try {
+        fs.unlinkSync(TEST_DB_PATH);
+        const shmPath = TEST_DB_PATH + '-shm';
+        const walPath = TEST_DB_PATH + '-wal';
+        if (fs.existsSync(shmPath)) fs.unlinkSync(shmPath);
+        if (fs.existsSync(walPath)) fs.unlinkSync(walPath);
+      } catch (e) {
+        // Ignore if locked by another process
+      }
     }
   });
 
@@ -390,7 +454,15 @@ describe('Identity Validation', () => {
   afterEach(() => {
     testDbInstance.close();
     if (fs.existsSync(TEST_DB_PATH)) {
-      fs.unlinkSync(TEST_DB_PATH);
+      try {
+        fs.unlinkSync(TEST_DB_PATH);
+        const shmPath = TEST_DB_PATH + '-shm';
+        const walPath = TEST_DB_PATH + '-wal';
+        if (fs.existsSync(shmPath)) fs.unlinkSync(shmPath);
+        if (fs.existsSync(walPath)) fs.unlinkSync(walPath);
+      } catch (e) {
+        // Ignore if locked by another process
+      }
     }
   });
 
@@ -432,7 +504,15 @@ describe('Shared Identity Retrieval', () => {
   afterEach(() => {
     testDbInstance.close();
     if (fs.existsSync(TEST_DB_PATH)) {
-      fs.unlinkSync(TEST_DB_PATH);
+      try {
+        fs.unlinkSync(TEST_DB_PATH);
+        const shmPath = TEST_DB_PATH + '-shm';
+        const walPath = TEST_DB_PATH + '-wal';
+        if (fs.existsSync(shmPath)) fs.unlinkSync(shmPath);
+        if (fs.existsSync(walPath)) fs.unlinkSync(walPath);
+      } catch (e) {
+        // Ignore if locked by another process
+      }
     }
   });
 
@@ -458,7 +538,15 @@ describe('Phase 3: Council Formation - Candidates', () => {
   afterEach(() => {
     testDbInstance.close();
     if (fs.existsSync(TEST_DB_PATH)) {
-      fs.unlinkSync(TEST_DB_PATH);
+      try {
+        fs.unlinkSync(TEST_DB_PATH);
+        const shmPath = TEST_DB_PATH + '-shm';
+        const walPath = TEST_DB_PATH + '-wal';
+        if (fs.existsSync(shmPath)) fs.unlinkSync(shmPath);
+        if (fs.existsSync(walPath)) fs.unlinkSync(walPath);
+      } catch (e) {
+        // Ignore if locked by another process
+      }
     }
   });
 
@@ -681,7 +769,15 @@ describe('Phase 3: Meetings', () => {
   afterEach(() => {
     testDbInstance.close();
     if (fs.existsSync(TEST_DB_PATH)) {
-      fs.unlinkSync(TEST_DB_PATH);
+      try {
+        fs.unlinkSync(TEST_DB_PATH);
+        const shmPath = TEST_DB_PATH + '-shm';
+        const walPath = TEST_DB_PATH + '-wal';
+        if (fs.existsSync(shmPath)) fs.unlinkSync(shmPath);
+        if (fs.existsSync(walPath)) fs.unlinkSync(walPath);
+      } catch (e) {
+        // Ignore if locked by another process
+      }
     }
   });
 
@@ -951,7 +1047,15 @@ describe('Phase 3: Evaluations', () => {
   afterEach(() => {
     testDbInstance.close();
     if (fs.existsSync(TEST_DB_PATH)) {
-      fs.unlinkSync(TEST_DB_PATH);
+      try {
+        fs.unlinkSync(TEST_DB_PATH);
+        const shmPath = TEST_DB_PATH + '-shm';
+        const walPath = TEST_DB_PATH + '-wal';
+        if (fs.existsSync(shmPath)) fs.unlinkSync(shmPath);
+        if (fs.existsSync(walPath)) fs.unlinkSync(walPath);
+      } catch (e) {
+        // Ignore if locked by another process
+      }
     }
   });
 
@@ -1237,7 +1341,15 @@ describe('Phase 3: Evaluation Criteria', () => {
   afterEach(() => {
     testDbInstance.close();
     if (fs.existsSync(TEST_DB_PATH)) {
-      fs.unlinkSync(TEST_DB_PATH);
+      try {
+        fs.unlinkSync(TEST_DB_PATH);
+        const shmPath = TEST_DB_PATH + '-shm';
+        const walPath = TEST_DB_PATH + '-wal';
+        if (fs.existsSync(shmPath)) fs.unlinkSync(shmPath);
+        if (fs.existsSync(walPath)) fs.unlinkSync(walPath);
+      } catch (e) {
+        // Ignore if locked by another process
+      }
     }
   });
 
@@ -1267,7 +1379,15 @@ describe('Phase 3: P2 - New Tests', () => {
   afterEach(() => {
     testDbInstance.close();
     if (fs.existsSync(TEST_DB_PATH)) {
-      fs.unlinkSync(TEST_DB_PATH);
+      try {
+        fs.unlinkSync(TEST_DB_PATH);
+        const shmPath = TEST_DB_PATH + '-shm';
+        const walPath = TEST_DB_PATH + '-wal';
+        if (fs.existsSync(shmPath)) fs.unlinkSync(shmPath);
+        if (fs.existsSync(walPath)) fs.unlinkSync(walPath);
+      } catch (e) {
+        // Ignore if locked by another process
+      }
     }
   });
 
