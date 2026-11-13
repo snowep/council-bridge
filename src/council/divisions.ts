@@ -18,8 +18,12 @@ import {
   CreateTaskInput,
   UpdateTaskInput,
   CreateDeliverableInput,
-  UpdateDeliverableInput
+  UpdateDeliverableInput,
+  ApproveDivisionHeadInput,
+  ApproveSpecialistInput,
+  ActivateStaffAgentInput
 } from './inputs.js';
+import { createMemory } from './memory.js';
 
 // --- Division Operations ---
 
@@ -27,7 +31,7 @@ export function createDivision(
   db: DatabaseInstance,
   input: CreateDivisionInput
 ): Division {
-  const divisionId = db.generateId();
+  const divisionId = input.division_id ?? db.generateId();
   db.runPreparedStatement('insertDivision', [
     divisionId,
     input.name,
@@ -65,7 +69,6 @@ export function updateDivision(
   const existing = getDivisionById(db, divisionId);
   if (!existing) throw new Error(`Division '${divisionId}' not found`);
 
-  const now = new Date().toISOString();
   db.runPreparedStatement('updateDivision', [
     updates.name ?? existing.name,
     updates.description ?? existing.description,
@@ -73,7 +76,6 @@ export function updateDivision(
     updates.budget_limit ?? existing.budget_limit,
     JSON.stringify(updates.permissions ?? JSON.parse(existing.permissions)),
     JSON.stringify(updates.strategic_objectives ?? JSON.parse(existing.strategic_objectives)),
-    now,
     divisionId
   ]);
 
@@ -179,12 +181,11 @@ export function addDivisionMember(
   db: DatabaseInstance,
   input: AddDivisionMemberInput
 ): DivisionMember {
-  const now = new Date().toISOString();
+  const role = input.role ?? 'specialist';
   db.runPreparedStatement('insertDivisionMember', [
     input.division_id,
     input.staff_id,
-    input.role ?? 'specialist',
-    now
+    role
   ]);
 
   const result = db.query(
@@ -424,4 +425,187 @@ export function updateDeliverable(
 
   const result = db.query('SELECT * FROM deliverables WHERE deliverable_id = ?', [deliverableId]);
   return normalizeDeliverable(result[0] as Record<string, any>);
+}
+
+// --- Phase 9: Appointment Ceremony Operations ---
+
+export function approveDivisionHead(
+  db: DatabaseInstance,
+  ctx: { owner_type: string; owner_id: string },
+  input: ApproveDivisionHeadInput
+): Division {
+  if (ctx.owner_type !== 'founder') {
+    throw new Error('Only Founder can approve Division Head appointments');
+  }
+
+  const division = getDivisionById(db, input.division_id);
+  if (!division) throw new Error(`Division '${input.division_id}' not found`);
+
+  const staff = getStaffAgentById(db, input.staff_id);
+  if (!staff) throw new Error(`Staff agent '${input.staff_id}' not found`);
+
+  if (staff.division_id !== input.division_id) {
+    throw new Error(`Staff agent '${input.staff_id}' is not a member of division '${input.division_id}'`);
+  }
+
+  if (division.head_staff_id === input.staff_id) {
+    throw new Error(`Staff agent '${input.staff_id}' is already the Division Head of '${input.division_id}'`);
+  }
+
+  const updatedDivision = updateDivision(db, input.division_id, {
+    division_id: input.division_id,
+    head_staff_id: input.staff_id
+  });
+
+  // Create audit memory entry
+  const memoryId = db.generateId();
+  createMemory(db, {
+    memory_id: memoryId,
+    owner_type: 'founder',
+    owner_id: 'founder',
+    category: 'council_shared',
+    memory_type: 'appointment_record',
+    title: `Division Head Appointed: ${staff.name} for ${division.name}`,
+    content: JSON.stringify({
+      action: 'approve_division_head',
+      division_id: input.division_id,
+      staff_id: input.staff_id,
+      staff_name: staff.name,
+      appointed_at: new Date().toISOString()
+    }),
+    tags: ['appointment', 'division_head', input.division_id.toLowerCase().replace(/\s+/g, '-')],
+    confidence: 1.0
+  });
+
+  return updatedDivision;
+}
+
+export function approveSpecialist(
+  db: DatabaseInstance,
+  ctx: { owner_type: string; owner_id: string },
+  input: ApproveSpecialistInput
+): StaffAgent {
+  if (ctx.owner_type !== 'founder') {
+    throw new Error('Only Founder can approve specialist appointments');
+  }
+
+  const staff = getStaffAgentById(db, input.staff_id);
+  if (!staff) throw new Error(`Staff agent '${input.staff_id}' not found`);
+
+  const division = getDivisionById(db, input.division_id);
+  if (!division) throw new Error(`Division '${input.division_id}' not found`);
+
+  if (staff.division_id !== input.division_id) {
+    throw new Error(`Staff agent '${input.staff_id}' is not registered to division '${input.division_id}'`);
+  }
+
+  if (staff.status === 'active') {
+    throw new Error(`Staff agent '${input.staff_id}' is already active`);
+  }
+
+  const updatedStaff = updateStaffAgent(db, input.staff_id, {
+    status: 'active'
+  });
+
+  // Add to division members if not already present
+  const existingMember = db.query(
+    'SELECT * FROM division_members WHERE division_id = ? AND staff_id = ?',
+    [input.division_id, input.staff_id]
+  );
+  if (existingMember.length === 0) {
+    addDivisionMember(db, {
+      division_id: input.division_id,
+      staff_id: input.staff_id,
+      role: 'specialist'
+    });
+  }
+
+  // Create audit memory entry
+  const memoryId = db.generateId();
+  createMemory(db, {
+    memory_id: memoryId,
+    owner_type: 'founder',
+    owner_id: 'founder',
+    category: 'council_shared',
+    memory_type: 'appointment_record',
+    title: `Specialist Approved: ${staff.name} for ${division.name}`,
+    content: JSON.stringify({
+      action: 'approve_specialist',
+      division_id: input.division_id,
+      staff_id: input.staff_id,
+      staff_name: staff.name,
+      role: staff.role,
+      approved_at: new Date().toISOString()
+    }),
+    tags: ['appointment', 'specialist', input.division_id.toLowerCase().replace(/\s+/g, '-')],
+    confidence: 1.0
+  });
+
+  return updatedStaff;
+}
+
+export function activateStaffAgent(
+  db: DatabaseInstance,
+  ctx: { owner_type: string; owner_id: string },
+  input: ActivateStaffAgentInput
+): StaffAgent {
+  if (ctx.owner_type !== 'founder') {
+    throw new Error('Only Founder can activate staff agents');
+  }
+
+  const staff = getStaffAgentById(db, input.staff_id);
+  if (!staff) throw new Error(`Staff agent '${input.staff_id}' not found`);
+
+  if (staff.status !== 'active') {
+    throw new Error(`Staff agent '${input.staff_id}' must be approved before activation`);
+  }
+
+  // Assign runtime personas
+  const existingRuntimes: ('claude' | 'hermes')[] = [];
+  try {
+    const parsed = JSON.parse(staff.runtime_instances);
+    existingRuntimes.push(...parsed);
+  } catch {
+    // Empty or invalid, start fresh
+  }
+
+  const newRuntimes: ('claude' | 'hermes')[] = [...new Set([...existingRuntimes, ...input.runtimes])];
+
+  // Disable FK temporarily for runtime persona insertion (staff_id used as persona_id)
+  db.db.pragma('foreign_keys = OFF');
+  try {
+    for (const runtime of input.runtimes) {
+      if (!existingRuntimes.includes(runtime)) {
+        db.db.prepare('INSERT OR IGNORE INTO runtime_personas (runtime, persona_id) VALUES (?, ?)').run(runtime, input.staff_id);
+      }
+    }
+  } finally {
+    db.db.pragma('foreign_keys = ON');
+  }
+
+  const updatedStaff = updateStaffAgent(db, input.staff_id, {
+    runtime_instances: newRuntimes
+  });
+
+  // Create audit memory entry
+  const memoryId = db.generateId();
+  createMemory(db, {
+    memory_id: memoryId,
+    owner_type: 'founder',
+    owner_id: 'founder',
+    category: 'council_shared',
+    memory_type: 'activation_record',
+    title: `Staff Agent Activated: ${staff.name} (${input.runtimes.join(', ')})`,
+    content: JSON.stringify({
+      action: 'activate_staff_agent',
+      staff_id: input.staff_id,
+      staff_name: staff.name,
+      runtimes: input.runtimes,
+      activated_at: new Date().toISOString()
+    }),
+    tags: ['activation', input.staff_id],
+    confidence: 1.0
+  });
+
+  return updatedStaff;
 }

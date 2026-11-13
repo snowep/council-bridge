@@ -77,7 +77,10 @@ import {
   ListExecutionRequestsInput,
   ListApprovalRequestsInput,
   GetExecutionHistoryInput,
-  CreateEvaluationCriteriaInput
+  CreateEvaluationCriteriaInput,
+  ApproveDivisionHeadInput,
+  ApproveSpecialistInput,
+  ActivateStaffAgentInput
 } from './inputs.js';
 import * as ops from './operations.js';
 import * as div from './divisions.js';
@@ -265,6 +268,11 @@ export interface CouncilService {
   requestCrossDivisionAccess(ctx: { owner_type: MemoryOwnerType; owner_id: string; runtime: 'claude' | 'hermes' }, input: RequestCrossDivisionAccessInput): CrossDivisionShare;
   approveCrossDivisionAccess(ctx: { owner_type: MemoryOwnerType; owner_id: string; runtime: 'claude' | 'hermes' }, input: ApproveCrossDivisionAccessInput): CrossDivisionShare;
   listPendingCrossDivisionRequests(ctx: { owner_type: MemoryOwnerType; owner_id: string; runtime: 'claude' | 'hermes' }, input: ListPendingCrossDivisionRequestsInput): CrossDivisionShare[];
+
+  // Phase 9: Appointment Ceremony
+  approveDivisionHead(ctx: { owner_type: MemoryOwnerType; owner_id: string; runtime: 'claude' | 'hermes' }, input: ApproveDivisionHeadInput): Division;
+  approveSpecialist(ctx: { owner_type: MemoryOwnerType; owner_id: string; runtime: 'claude' | 'hermes' }, input: ApproveSpecialistInput): StaffAgent;
+  activateStaffAgent(ctx: { owner_type: MemoryOwnerType; owner_id: string; runtime: 'claude' | 'hermes' }, input: ActivateStaffAgentInput): StaffAgent;
 
   // Phase 7: Autonomy & Execution
   createTaskAutonomyLevel(ctx: { owner_type: MemoryOwnerType; owner_id: string; runtime: 'claude' | 'hermes' }, input: CreateTaskAutonomyLevelInput): TaskAutonomyLevel;
@@ -1594,6 +1602,22 @@ function createCouncilService(dbInstance: DatabaseInstance): CouncilService {
       }
       return (db.query('SELECT * FROM cross_division_shares WHERE division_id = ? ORDER BY granted_at DESC', [input.division_id]) as CrossDivisionShare[])
         .filter((share) => share.status === 'pending' || share.granted_by_type === 'division');
+    },
+
+    // Phase 9: Appointment Ceremony
+    approveDivisionHead(ctx, input) {
+      if (!ops.isFounder(ctx)) throw new Error('Only Founder can approve Division Head appointments');
+      return div.approveDivisionHead(db, ctx, input);
+    },
+
+    approveSpecialist(ctx, input) {
+      if (!ops.isFounder(ctx)) throw new Error('Only Founder can approve specialist appointments');
+      return div.approveSpecialist(db, ctx, input);
+    },
+
+    activateStaffAgent(ctx, input) {
+      if (!ops.isFounder(ctx)) throw new Error('Only Founder can activate staff agents');
+      return div.activateStaffAgent(db, ctx, input);
     },
 
     // Phase 7: Autonomy & Execution

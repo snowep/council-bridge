@@ -119,7 +119,7 @@ export const RegisterStaffAgentInputSchema = z.object({
   name: z.string().min(1).max(255),
   role: z.string().min(1).max(255),
   division_id: z.string().min(1).max(255),
-  runtime_instances: z.array(z.enum(['claude', 'hermes'])).min(1),
+  runtime_instances: z.array(z.enum(['claude', 'hermes'])).default([]),
   permissions: z.array(z.string()).default([]),
   status: z.enum(['active', 'inactive', 'terminated']).optional(),
 });
@@ -132,7 +132,7 @@ export const UpdateStaffStatusInputSchema = z.object({
 export type UpdateStaffStatusInput = z.infer<typeof UpdateStaffStatusInputSchema>;
 
 export const UpdateStaffAgentInputSchema = z.object({
-  staff_id: z.string().min(1).max(255),
+  staff_id: z.string().min(1).max(255).optional(),
   name: z.string().optional(),
   role: z.string().optional(),
   division_id: z.string().optional(),
@@ -264,6 +264,25 @@ export const ListPendingCrossDivisionRequestsInputSchema = z.object({
   division_id: z.string().min(1).max(255),
 });
 export type ListPendingCrossDivisionRequestsInput = z.infer<typeof ListPendingCrossDivisionRequestsInputSchema>;
+
+// Phase 9: Appointment Ceremony Input Schemas
+export const ApproveDivisionHeadInputSchema = z.object({
+  division_id: z.string().min(1).max(255),
+  staff_id: z.string().min(1).max(255),
+});
+export type ApproveDivisionHeadInput = z.infer<typeof ApproveDivisionHeadInputSchema>;
+
+export const ApproveSpecialistInputSchema = z.object({
+  staff_id: z.string().min(1).max(255),
+  division_id: z.string().min(1).max(255),
+});
+export type ApproveSpecialistInput = z.infer<typeof ApproveSpecialistInputSchema>;
+
+export const ActivateStaffAgentInputSchema = z.object({
+  staff_id: z.string().min(1).max(255),
+  runtimes: z.array(z.enum(['claude', 'hermes'])).min(1),
+});
+export type ActivateStaffAgentInput = z.infer<typeof ActivateStaffAgentInputSchema>;
 
 // Phase 7: Re-export from types.ts
 export {
