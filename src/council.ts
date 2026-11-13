@@ -3593,11 +3593,7 @@ export function createCouncilService(dbInstance: DatabaseInstance) {
         'approved', now, 'founder', 'founder', 'founder', 'founder', input.request_id
       );
 
-      // Log access
-      dbInstance.stmt.insertMemoryAccess.run(
-        dbInstance.generateId(), input.request_id, null,
-        ctx.owner_type, ctx.owner_id, ctx.runtime, 'update', now
-      );
+      // Note: Cross-division share modifications are not memory entries
 
       return { success: true, request_id: input.request_id, status: 'approved' };
     },
@@ -3621,11 +3617,7 @@ export function createCouncilService(dbInstance: DatabaseInstance) {
         'rejected', now, 'founder', 'founder', 'founder', 'founder', input.request_id
       );
 
-      // Log access
-      dbInstance.stmt.insertMemoryAccess.run(
-        dbInstance.generateId(), input.request_id, null,
-        ctx.owner_type, ctx.owner_id, ctx.runtime, 'update', now
-      );
+      // Note: Cross-division share modifications are not memory entries
 
       return { success: true, request_id: input.request_id, status: 'rejected' };
     },
