@@ -46,8 +46,8 @@ execution_history: history_id, execution_id, task_id, requested_by_type/id,
 ```
 
 **FK Fixes Applied:**
-- Removed `insertMemoryAccess` calls for non-memory-entry entities (task_autonomy_levels, execution_requests, approval_requests)
-- Fixed approval_request insertion order: execution_request created FIRST before approval_request
+- Removed `insertMemoryAccess` calls for non-memory-entry entities (task_autonomy_levels, execution_requests, approval_requests, cross_division share approvals)
+- Fixed approval_request insertion order: execution request created FIRST before approval_request
 - Fixed `isDivisionHead` logic: was comparing division_id with head_staff_id (always false), now correctly checks division context
 
 ### 3. Service Layer (src/council.ts)
