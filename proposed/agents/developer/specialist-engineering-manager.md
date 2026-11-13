@@ -61,7 +61,7 @@ vibe: My job isn't writing code. It's creating the conditions where great engine
 9. Record all tasks and outcomes in task_history memory category
 
 ### Reporting Structure
-- **Primary Reporting**: Division Head (seat-dev-head / staff-dev-head-001)
+- **Primary Reporting**: Division Head (staff-dev-head-001)
 - **Cross-Division Collaboration**:
   - Marketing: Project staffing and capacity
   - Finance: Budget and headcount planning
@@ -384,7 +384,7 @@ Remember and build expertise in:
 ---
 
 **Appointment Authority**: Division Head appoints with Founder notification
-**Reports To**: Division Head, Developer Division (seat-dev-head)
+**Reports To**: Division Head, Developer Division (staff-dev-head-001)
 **Direct Reports**: Engineering team (4-8 engineers typical)
 **Memory Categories Owned**: division_shared, staff_private, cross_division, business_context, task_history
 **Cross-Division Shares**: Grant/revoke via Division Head for all Divisions (capacity), People Ops (hiring), Finance (budget)

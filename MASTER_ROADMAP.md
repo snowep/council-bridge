@@ -13,7 +13,7 @@ This roadmap consolidates the 8-phase Council Bridge architecture with the 6-sta
 | 2 | Council Governance | ✅ Complete | 11 seats, personas, constitutions, founder approvals |
 | 3 | Council Formation & Meetings | ✅ Complete | Candidates, deliberation, votes, meetings, evaluations |
 | 4 | Memory & Knowledge Subsystem | ✅ Complete | 14 categories, versioning, FTS5, cross-division shares, 106 tests passing |
-| 5 | Dashboard and Chat | 🔄 Ready | Implementation plan prepared; Founder approval to begin |
+| 5 | Dashboard and Chat | ✅ **Formally Accepted** | Implementation complete; Founder accepted |
 | 6 | Division Management, Staff Agents and Delegation | ⏳ Planned | Founder appointment ceremony triggers |
 | 7 | Autonomy, Permissions and Execution | ⏳ Planned | After Phase 6 |
 | 8 | Security and Reliability | ⏳ Planned | After Phase 7 |
@@ -47,8 +47,8 @@ This roadmap consolidates the 8-phase Council Bridge architecture with the 6-sta
 - **Verification**: 130 Phase 4-specific tests passing (100% coverage of PHASE4_TEST_PLAN.md)
 
 ---
-## Phase 5: Dashboard and Chat (READY — Awaiting Founder Approval)
-**Implementation Plan Prepared** (per audit instructions, Division Management and staff onboarding excluded from Phase 5):
+## Phase 5: Dashboard and Chat (✅ **FORMALLY ACCEPTED**)
+**Implementation Complete** — All acceptance criteria met, Founder review passed.
 
 ### Application Layout & Navigation
 - Sidebar with phase navigation (1–8), collapsible
@@ -116,13 +116,13 @@ This roadmap consolidates the 8-phase Council Bridge architecture with the 6-sta
 ---
 ## Phase 6: Division Management, Staff Agents and Delegation (Planned)
 ### Prerequisites
-- Phase 5 Stage 6 complete (Founder-approved roster)
+- Phase 5 complete (Dashboard and Chat formally accepted)
 - Phase 4 future tables exist (empty, ready)
 
 ### Execution (Do Not Execute Without Founder Approval)
 1. **Founder Appointment Ceremony**
    - Review `council-bridge-roster.md` v2.2
-   - Approve/modify Division Heads → assign `seat_id` + `staff_id`
+   - Approve/modify Division Heads → assign `staff_id`
    - Approve specialist role definitions
    - Log appointments in `council_shared` memory
 

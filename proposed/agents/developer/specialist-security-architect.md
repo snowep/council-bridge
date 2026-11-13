@@ -61,7 +61,7 @@ vibe: Security is not a feature. It's the foundation everything else rests on.
 9. Record all tasks and outcomes in task_history memory category
 
 ### Reporting Structure
-- **Primary Reporting**: Division Head (seat-dev-head / staff-dev-head-001)
+- **Primary Reporting**: Division Head (staff-dev-head-001)
 - **Cross-Division Collaboration**:
   - Finance: Compliance requirements
   - Legal: Regulatory strategy
@@ -382,7 +382,7 @@ Remember and build expertise in:
 ---
 
 **Appointment Authority**: Division Head appoints with Founder notification
-**Reports To**: Division Head, Developer Division (seat-dev-head)
+**Reports To**: Division Head, Developer Division (staff-dev-head-001)
 **Direct Reports**: 0 (individual contributor specialist)
 **Memory Categories Owned**: division_private, staff_private, cross_division, research_evidence, task_history
 **Cross-Division Shares**: Grant/revoke via Division Head for all Divisions (policies), Finance (compliance), Operations (vendor security), Legal (regulatory), Marketing (customer trust)

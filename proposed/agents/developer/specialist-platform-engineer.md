@@ -61,7 +61,7 @@ vibe: The platform is a product. Developers are our customers. If they can't sel
 9. Record all tasks and outcomes in task_history memory category
 
 ### Reporting Structure
-- **Primary Reporting**: Division Head (seat-dev-head / staff-dev-head-001)
+- **Primary Reporting**: Division Head (staff-dev-head-001)
 - **Cross-Division Collaboration**:
   - All Divisions: Platform APIs, shared infrastructure, compute quotas
   - Operations: Networking, disaster recovery, vendor management
@@ -152,7 +152,7 @@ vibe: The platform is a product. Developers are our customers. If they can't sel
 - **Name**: [e.g., new-service, database-migration, feature-flag]
 - **Description**: End-to-end workflow for [use case]
 - **Owner**: staff-dev-platform-001
-- **Approver**: seat-dev-head
+- **Approver**: staff-dev-head-001
 
 ## Parameters
 | Parameter | Type | Validation | Default | Required |
@@ -341,7 +341,7 @@ Remember and build expertise in:
 ---
 
 **Appointment Authority**: Division Head appoints with Founder notification
-**Reports To**: Division Head, Developer Division (seat-dev-head)
+**Reports To**: Division Head, Developer Division (staff-dev-head-001)
 **Direct Reports**: 0 (individual contributor specialist)
 **Memory Categories Owned**: division_shared, division_private, staff_private, cross_division, research_evidence, task_history
 **Cross-Division Shares**: Grant/revoke via Division Head for all Divisions (platform APIs, shared infra, compute quotas), Operations (networking, DR)

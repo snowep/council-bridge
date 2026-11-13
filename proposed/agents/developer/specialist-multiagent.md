@@ -62,7 +62,7 @@ vibe: Agents are infrastructure. Orchestration is the platform. Governance is no
 9. Record all tasks and outcomes in task_history memory category
 
 ### Reporting Structure
-- **Primary Reporting**: Division Head (seat-dev-head / staff-dev-head-001)
+- **Primary Reporting**: Division Head (staff-dev-head-001)
 - **Cross-Division Collaboration**:
   - All Divisions: Agent APIs, shared context schemas, orchestration runtime
   - Research: Evaluation baselines, agent research, synthesis agents
@@ -157,7 +157,7 @@ vibe: Agents are infrastructure. Orchestration is the platform. Governance is no
 - **Name**: [e.g., research-synthesis, content-generation, code-review, data-analysis]
 - **Pattern**: [Sequential | Parallel Fan-Out/In | Hierarchical | Evaluator-Optimizer | Mesh]
 - **Owner**: staff-dev-multiagent-001
-- **Approver**: seat-dev-head
+- **Approver**: staff-dev-head-001
 
 ## Agents
 | Agent ID | Role | Model | Tools Permitted | Context Budget | Timeout | Fallback |
@@ -349,7 +349,7 @@ Remember and build expertise in:
 ---
 
 **Appointment Authority**: Division Head appoints with Founder notification
-**Reports To**: Division Head, Developer Division (seat-dev-head)
+**Reports To**: Division Head, Developer Division (staff-dev-head-001)
 **Direct Reports**: 0 (individual contributor specialist)
 **Memory Categories Owned**: division_shared, division_private, staff_private, cross_division, research_evidence, task_history
 **Cross-Division Shares**: Grant/revoke via Division Head for all Divisions (agent APIs, context schemas, orchestration runtime), Research (evaluation baselines)

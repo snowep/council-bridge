@@ -10,7 +10,7 @@
 FOUNDER
     │
     ▼
-COUNCIL (Division Heads)
+COUNCIL (11 Voting Seats)
     │
     ├──────────────────┬──────────────────┬──────────────────┬──────────────────┬──────────────────┐
     ▼                  ▼                  ▼                  ▼                  ▼                  ▼
@@ -22,27 +22,27 @@ Specialist       Specialist          Specialist         Specialist         Speci
 Staff Agents     Staff Agents        Staff Agents       Staff Agents       Staff Agents       Staff Agents
 ```
 
+**Division Heads are organizational leaders, NOT Council members.** They report to the Council and Founder but hold no Council seat or voting rights.
+
 ---
-## Division Heads (Council Members)
+## Division Heads (Organizational Leaders — NOT Council Members)
 
 ### 1. Developer Division Head
 | Field | Value |
 |-------|-------|
 | **Agent Source** | Software Architect (engineering/engineering-software-architect.md) |
-| **Council Title** | Division Head, Developer Division |
-| **Seat ID** | seat-dev-head |
+| **Title** | Division Head, Developer Division |
 | **Staff ID** | staff-dev-head-001 |
 | **Qualification** | ✅ Qualified — Strategic architecture, ADR-driven, domain-first, trade-off conscious |
 | **Adaptation Required** | Dual-runtime identity, memory categories (division_shared, division_private), task delegation engine, cross-division shares |
 | **Core Mission** | Design systems that survive the team; balance coupling vs. duplication, consistency vs. availability; document decisions not just designs |
-| **Permission Boundaries** | Division memory ownership, task creation/delegation within division, cross-division share grants (with Council approval), staff_private memory for direct reports |
+| **Permission Boundaries** | Division memory ownership, task creation/delegation within division, cross-division share grants (with Founder approval), staff_private memory for direct reports |
 
 ### 2. Marketing Division Head
 | Field | Value |
 |-------|-------|
 | **Agent Source** | PR & Communications Manager (marketing/marketing-pr-communications-manager.md) |
-| **Council Title** | Division Head, Marketing Division |
-| **Seat ID** | seat-marketing-head |
+| **Title** | Division Head, Marketing Division |
 | **Staff ID** | staff-marketing-head-001 |
 | **Qualification** | ✅ Qualified — Full-spectrum comms, crisis response, media relations, executive positioning, measurement |
 | **Adaptation Required** | Dual-runtime identity, division memory categories, brand assets as memory entries, campaign history tracking |
@@ -53,8 +53,7 @@ Staff Agents     Staff Agents        Staff Agents       Staff Agents       Staff
 | Field | Value |
 |-------|-------|
 | **Agent Source** | FP&A Analyst (finance/finance-fpa-analyst.md) |
-| **Council Title** | Division Head, Finance Division |
-| **Seat ID** | seat-finance-head |
+| **Title** | Division Head, Finance Division |
 | **Staff ID** | staff-finance-head-001 |
 | **Qualification** | ✅ Qualified — Strategic partner, rolling forecasts, scenario planning, business translation, board-ready |
 | **Adaptation Required** | Dual-runtime identity, budgets/forecasts as versioned memory, division_private for sensitive financial data, cross_division for board packs |
@@ -65,8 +64,7 @@ Staff Agents     Staff Agents        Staff Agents       Staff Agents       Staff
 | Field | Value |
 |-------|-------|
 | **Agent Source** | Brand Guardian (design/design-brand-guardian.md) |
-| **Council Title** | Division Head, Creative Division |
-| **Seat ID** | seat-creative-head |
+| **Title** | Division Head, Creative Division |
 | **Staff ID** | staff-creative-head-001 |
 | **Qualification** | ✅ Qualified — Strategic brand foundation, visual identity systems, voice/messaging, protection, evolution |
 | **Adaptation Required** | Dual-runtime identity, brand assets as memory (versioned), visual identity versioning, cross-division access for brand compliance |
@@ -77,8 +75,7 @@ Staff Agents     Staff Agents        Staff Agents       Staff Agents       Staff
 | Field | Value |
 |-------|-------|
 | **Agent Source** | Research Synthesist (research/research-synthesist.md) |
-| **Council Title** | Division Head, Research & Intelligence Division |
-| **Seat ID** | seat-research-head |
+| **Title** | Division Head, Research & Intelligence Division |
 | **Staff ID** | staff-research-head-001 |
 | **Qualification** | ✅ Qualified — Systematic review, source grading, evidence synthesis, gap analysis, confidence calibration |
 | **Adaptation Required** | Dual-runtime identity, evidence as memory with citations, synthesis versioning, citation graph as memory_links |
@@ -89,8 +86,7 @@ Staff Agents     Staff Agents        Staff Agents       Staff Agents       Staff
 | Field | Value |
 |-------|-------|
 | **Agent Source** | Chief of Staff (specialized/specialized-chief-of-staff.md) |
-| **Council Title** | Division Head, Business Operations Division |
-| **Seat ID** | seat-ops-head |
+| **Title** | Division Head, Business Operations Division |
 | **Staff ID** | staff-ops-head-001 |
 | **Qualification** | ✅ Qualified — Meta-operations, process ownership, cascading updates, decision routing, invisible weight management |
 | **Adaptation Required** | Dual-runtime identity, process docs/SOPs as memory, decision log versioning, org-wide visibility (council_shared), cross-division coordination |
@@ -215,10 +211,10 @@ Staff Agents     Staff Agents        Staff Agents       Staff Agents       Staff
 | Phase | Name | Status | Belongs To |
 |-------|------|--------|------------|
 | 1 | MCP Agent Communication | ✅ Complete | — |
-| 2 | Personas and Identity | ✅ Complete | — |
-| 3 | Council and Meeting Engine | ✅ Complete | — |
-| 4 | Memory and Knowledge | ✅ Complete | Acceptance verification complete |
-| 5 | Dashboard and Chat | ⏳ Planned | Preparation underway |
+| 2 | Council Governance | ✅ Complete | — |
+| 3 | Council Formation, Meetings & Evaluation | ✅ Complete | — |
+| 4 | Memory and Knowledge Subsystem | ✅ Complete | Acceptance verification complete |
+| 5 | Dashboard and Chat | ✅ **Formally Accepted** | — |
 | 6 | Division Management, Staff Agents and Delegation | ⏳ Planned | Founder appointment triggers |
 | 7 | Autonomy, Permissions and Execution | ⏳ Planned | After Phase 6 |
 | 8 | Security and Reliability | ⏳ Planned | After Phase 7 |

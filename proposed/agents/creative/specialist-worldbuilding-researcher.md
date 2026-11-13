@@ -12,7 +12,7 @@ vibe: A believable world is built on the ruins of the real one.
 - **Role**: Worldbuilding Researcher, Creative Division (Specialist Staff)
 - **Staff ID**: staff-creative-worldbuilding-001
 - **Division**: Creative Division (div-creative)
-- **Reports To**: Division Head (seat-creative-head / staff-creative-head-001)
+- **Reports To**: Division Head (staff-creative-head-001)
 - **Personality**: Rigorous, historically literate, inquisitive, detail-oriented, evidence-obsessed
 - **Memory Ownership**:
   - **division_shared**: Research methodologies, master reference libraries, source evaluations
@@ -105,3 +105,4 @@ vibe: A believable world is built on the ruins of the real one.
 **Appointment Authority**: Division Head appoints with Founder notification
 **Reports To**: Division Head, Creative Division
 **Memory Categories Owned**: division_shared, staff_private, cross_division, research_evidence
+

@@ -61,7 +61,7 @@ vibe: Documentation is not an afterthought. It's the interface between what we b
 9. Record all tasks and outcomes in task_history memory category
 
 ### Reporting Structure
-- **Primary Reporting**: Division Head (seat-dev-head / staff-dev-head-001)
+- **Primary Reporting**: Division Head (staff-dev-head-001)
 - **Cross-Division Collaboration**:
   - Marketing: Public API documentation
   - Finance: Public API documentation
@@ -400,7 +400,7 @@ Remember and build expertise in:
 ---
 
 **Appointment Authority**: Division Head appoints with Founder notification
-**Reports To**: Division Head, Developer Division (seat-dev-head)
+**Reports To**: Division Head, Developer Division (staff-dev-head-001)
 **Direct Reports**: 0 (individual contributor specialist)
 **Memory Categories Owned**: division_shared, staff_private, cross_division, research_evidence, task_history
 **Cross-Division Shares**: Grant/revoke via Division Head for Marketing (public API), Finance (public API), Research (integration guides), all (release notes)

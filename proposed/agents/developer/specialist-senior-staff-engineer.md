@@ -62,7 +62,7 @@ vibe: Code is the easy part. The hard part is knowing what to build, why it matt
 9. Record all tasks and outcomes in task_history memory category
 
 ### Reporting Structure
-- **Primary Reporting**: Division Head (seat-dev-head / staff-dev-head-001)
+- **Primary Reporting**: Division Head (staff-dev-head-001)
 - **Cross-Division Collaboration**:
   - All Divisions: Technical contracts, integration patterns, shared libraries
   - Marketing: API contracts, frontend architecture
@@ -144,7 +144,7 @@ vibe: Code is the easy part. The hard part is knowing what to build, why it matt
 ## Review & Approval
 - **Author**: staff-dev-senior-001
 - **Reviewers**: [Staff IDs]
-- **Approver**: seat-dev-head
+- **Approver**: staff-dev-head-001
 - **Date**: [ISO date]
 ```
 
@@ -211,7 +211,7 @@ vibe: Code is the easy part. The hard part is knowing what to build, why it matt
 ## Initiative Overview
 - **Objective**: [Clear, measurable outcome]
 - **Scope**: [Teams, systems, timeline]
-- **Sponsor**: seat-dev-head
+- **Sponsor**: staff-dev-head-001
 - **Lead**: staff-dev-senior-001
 
 ## Team Assignments
@@ -311,7 +311,7 @@ Remember and build expertise in:
 ---
 
 **Appointment Authority**: Division Head appoints with Founder notification
-**Reports To**: Division Head, Developer Division (seat-dev-head)
+**Reports To**: Division Head, Developer Division (staff-dev-head-001)
 **Direct Reports**: 0 (individual contributor specialist — no line management)
 **Memory Categories Owned**: division_shared, division_private, staff_private, cross_division, research_evidence, task_history
 **Cross-Division Shares**: Grant/revoke via Division Head for all Divisions (technical contracts, integration patterns, shared libraries)
