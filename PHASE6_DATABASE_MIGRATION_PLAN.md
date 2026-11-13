@@ -326,25 +326,29 @@ SELECT cds.* FROM cross_division_shares cds LEFT JOIN divisions d ON cds.divisio
 
 **File**: `tests/phase6_migration_verification.test.ts`
 
-**Test Coverage (13 tests, all passing)**:
-| Test | Status |
-|------|--------|
-| Base Phase 4 schema creation | ✅ PASS |
-| Current `staff_agents` default = 'active' | ✅ PASS |
-| Current `cross_division_shares` allows both grant types | ✅ PASS |
-| Migration 001: data preserved, default → 'inactive' | ✅ PASS |
-| Migration 001: FK to divisions preserved | ✅ PASS |
-| Migration 001: division_members FK preserved | ✅ PASS |
-| Migration 001: indexes recreated | ✅ PASS |
-| Migration 002: Founder grants preserved | ✅ PASS |
-| Migration 002: Division grants revoked & audited | ✅ PASS |
-| Migration 002: New division grants rejected | ✅ PASS |
-| Migration 003: tasks columns added | ✅ PASS |
-| Migration 004: deliverables columns added | ✅ PASS |
-| Migration 005: Stage 7 columns with CHECK constraints | ✅ PASS |
-| Rollback restores original schema | ✅ PASS |
-| FTS5 triggers work after migrations | ✅ PASS |
-| Revoked cross-division shares inaccessible | ✅ PASS |
+**Test Coverage (15 tests, all passing)**:
+| Test Category | Tests | Status |
+|---------------|-------|--------|
+| Migration 001 (actual SQL): staff_agents default → inactive | 1 | ✅ PASS |
+| Migration 002 (actual SQL): cross_division_shares founder-only | 1 | ✅ PASS |
+| Migration 003 (actual SQL): tasks additive columns | 1 | ✅ PASS |
+| Migration 004 (actual SQL): deliverables additive columns | 1 | ✅ PASS |
+| Migration 005 (actual SQL): cross_division_shares Stage 7 columns | 1 | ✅ PASS |
+| Full migration sequence (001-005 in order) | 1 | ✅ PASS |
+| Table rebuild preservation (indexes, triggers, FK records) | 2 | ✅ PASS |
+| Rollback using actual backups (file-backed database) | 1 | ✅ PASS |
+| Migration execution tracking (ledger, duplicate prevention) | 1 | ✅ PASS |
+| Test classification (unit/integration/application-layer) | 5 | ✅ PASS |
+
+**Verification Scope**:
+- ✅ All five committed SQL files executed by tests
+- ✅ Legacy grant conversion tested against actual Migration 002 file
+- ✅ Foreign-key checks pass after table rebuilds (`PRAGMA foreign_key_check`)
+- ✅ Indexes recreated after table rebuilds (standard indexes documented in migration SQL)
+- ✅ Dependent records survive table rebuilds (division_members → staff_agents FK)
+- ✅ Backup restoration tested against file-backed temporary database (file copy method)
+- ✅ Duplicate migration execution prevented via migration_ledger table with SHA-256 checksums
+- ✅ Tests distinguish: actual SQL file execution, full sequence integration, backup/rollback integration, application-layer (NOT tested here)
 
 **Run Command**:
 ```bash

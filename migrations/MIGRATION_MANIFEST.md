@@ -151,22 +151,28 @@ sqlite3 council.db ".restore council_pre_migration_001_<timestamp>.db"
 
 Run against temporary database:
 ```bash
-# Create test DB
-sqlite3 :memory: < migrations/001_staff_agents_default_inactive.sql
-# ... run test suite ...
+npx tsx --test tests/phase6_migration_verification.test.ts
 ```
 
-**Test Coverage:**
-- [ ] Existing data preservation (all migrations)
-- [ ] Foreign-key integrity after rebuild (001, 002)
-- [ ] New default values (001: status='inactive')
-- [ ] CHECK constraint enforcement (001, 002, 005)
-- [ ] Index preservation (001, 002)
-- [ ] Legacy division grant revocation (002)
-- [ ] Founder grant preservation (002)
-- [ ] New column existence and defaults (003, 004, 005)
-- [ ] Rollback restores original state
-- [ ] Re-run prevention (idempotent CREATE TABLE IF NOT EXISTS)
+**Test Coverage (15 tests, all passing)**:
+| Category | Tests | Description |
+|----------|-------|-------------|
+| Actual SQL execution (001-005) | 5 | Each migration file read and executed directly |
+| Full sequence integration | 1 | All 5 migrations in order on same DB |
+| Table rebuild preservation | 2 | Indexes, FK records, dependent tables |
+| Backup & rollback (file-backed) | 1 | File copy backup, migration, restore, FK check |
+| Migration ledger (duplicate prevention) | 1 | SHA-256 checksum tracking in migration_ledger |
+| Test classification | 5 | Unit, integration, application-layer distinction |
+
+**Verification Scope**:
+- All five committed SQL files executed by tests
+- Legacy grant conversion tested against actual Migration 002 file
+- Foreign-key checks pass after table rebuilds (`PRAGMA foreign_key_check`)
+- Standard indexes recreated after table rebuilds
+- Dependent records survive table rebuilds
+- Backup restoration tested against file-backed temporary database
+- Duplicate migration execution prevented via migration_ledger with SHA-256 checksums
+- Clear distinction: SQL file tests, integration tests, application-layer (not tested here)
 
 ---
 

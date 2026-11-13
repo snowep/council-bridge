@@ -13,11 +13,12 @@ All migration planning artifacts have been finalized, tested against temporary d
 **Key Accomplishments:**
 - ✅ 5 SQL migration files created in `migrations/` directory
 - ✅ Migration manifest with exact execution order
-- ✅ 13 verification tests passing against temporary databases
-- ✅ Foreign-key strategy documented and tested
+- ✅ **15 verification tests passing** against temporary databases (actual SQL files executed)
+- ✅ Foreign-key strategy documented and tested (`PRAGMA foreign_key_check` passes)
 - ✅ Legacy cross-division grant treatment resolved (revoke + audit, no fabricated approval)
 - ✅ Deliverable relationship decision made (Option B: app-layer)
-- ✅ Backup/rollback procedures documented
+- ✅ Backup/rollback procedures documented and **tested** (file copy method on file-backed DB)
+- ✅ Migration execution tracking with SHA-256 checksums prevents duplicate execution
 - ✅ Production database **NOT modified**
 - ✅ Phase 6 implementation remains **unauthorized**
 
@@ -252,34 +253,31 @@ sqlite3 council.db ".restore council_pre_migration_001_<timestamp>.db"
 
 **Test File**: `tests/phase6_migration_verification.test.ts`  
 **Run Command**: `npx tsx --test tests/phase6_migration_verification.test.ts`  
-**Result**: **13/13 PASS** (0 FAIL)
+**Result**: **15/15 PASS** (0 FAIL)
 
-| Test Suite | Tests | Status |
-|------------|-------|--------|
-| Base Phase 4 Schema Setup | 3 | ✅ PASS |
-| Migration 001: staff_agents default → inactive | 1 | ✅ PASS |
-| Migration 002: cross_division_shares founder only | 1 | ✅ PASS |
-| Migration 003: tasks additive columns | 1 | ✅ PASS |
-| Migration 004: deliverables additive columns | 1 | ✅ PASS |
-| Migration 005: cross_division_shares Stage 7 | 1 | ✅ PASS |
-| Foreign Key Integrity | 2 | ✅ PASS |
-| Rollback Behavior | 1 | ✅ PASS |
-| FTS5 Compatibility | 1 | ✅ PASS |
-| Cross-Division Access Enforcement | 1 | ✅ PASS |
-| **TOTAL** | **13** | **✅ ALL PASS** |
+| Test Category | Tests | Status |
+|---------------|-------|--------|
+| Migration 001 (actual SQL): staff_agents default → inactive | 1 | ✅ PASS |
+| Migration 002 (actual SQL): cross_division_shares founder-only | 1 | ✅ PASS |
+| Migration 003 (actual SQL): tasks additive columns | 1 | ✅ PASS |
+| Migration 004 (actual SQL): deliverables additive columns | 1 | ✅ PASS |
+| Migration 005 (actual SQL): cross_division_shares Stage 7 columns | 1 | ✅ PASS |
+| Full migration sequence (001-005 in order) | 1 | ✅ PASS |
+| Table rebuild preservation (indexes, triggers, FK records) | 2 | ✅ PASS |
+| Rollback using actual backups (file-backed database) | 1 | ✅ PASS |
+| Migration execution tracking (ledger, duplicate prevention) | 1 | ✅ PASS |
+| Test classification (unit/integration/application-layer) | 5 | ✅ PASS |
+| **TOTAL** | **15** | **✅ ALL PASS** |
 
-**Coverage Verified**:
-- Existing data preservation
-- FK integrity after rebuild
-- New default values
-- CHECK constraint enforcement
-- Index recreation
-- Legacy grant revocation + audit
-- New division grants rejected
-- Founder grants accepted
-- Rollback restores original schema
-- FTS5 triggers functional
-- Revoked shares inaccessible
+**Verification Scope**:
+- ✅ All five committed SQL files are executed by tests (read from disk, not reconstructed)
+- ✅ Legacy grant conversion tested against actual Migration 002 file
+- ✅ Foreign-key checks pass after table rebuilds (`PRAGMA foreign_key_check` returns 0 violations)
+- ✅ Standard indexes recreated after table rebuilds (as specified in migration SQL)
+- ✅ Dependent records survive table rebuilds (division_members → staff_agents FK verified)
+- ✅ Backup restoration tested against file-backed temporary database (file copy method)
+- ✅ Duplicate migration execution prevented via migration_ledger with SHA-256 checksums
+- ✅ Clear test classification: actual SQL file execution tests, full sequence integration, backup/rollback integration, application-layer (NOT tested here)
 
 ---
 
@@ -348,8 +346,8 @@ sqlite3 council.db ".restore council_pre_migration_001_<timestamp>.db"
 | 12 | All SQL migration files exist | **PASS** | 5 files in `migrations/` directory |
 | 13 | Migration manifest matches actual files | **PASS** | `MIGRATION_MANIFEST.md` lists all 5 with correct filenames |
 | 14 | Migration count consistent across documentation | **PASS** | All docs: 5 logical migrations (001-005) |
-| 15 | Rollback procedures documented and tested | **PASS** | Test: backup restore restores original schema with 'active' default |
-| 16 | Temporary-database migration tests pass | **PASS** | 13/13 tests passing |
+| 15 | Rollback procedures documented and tested | **PASS** | Test: file copy backup, migration, restore, FK integrity verified |
+| 16 | Temporary-database migration tests pass | **PASS** | 15/15 tests passing (actual SQL files, file-backed DB rollback, ledger) |
 | 17 | Existing Phase 1–5 functionality remains unchanged | **PASS** | No production DB touched; existing tests unaffected |
 | 18 | Production database has not been modified | **PASS** | Confirmed — all tests in-memory; no migration script executed |
 | 19 | Phase 6 implementation remains unauthorized | **PASS** | No code changes; no agents created; awaiting Founder review |
