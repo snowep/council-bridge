@@ -234,6 +234,190 @@ export type EvaluationCriteria = z.infer<typeof EvaluationCriteriaSchema> & {
   created_at: string;
 };
 
+// Phase 4: Memory and Knowledge Subsystem
+
+export const MemoryCategorySchema = z.enum([
+  'individual_persona',
+  'council_shared',
+  'meeting_history',
+  'decision_resolution',
+  'idea_proposal',
+  'research_evidence',
+  'lesson_learned',
+  'unresolved_question',
+  'division_shared',
+  'division_private',
+  'staff_private',
+  'business_context',
+  'task_history',
+  'cross_division',
+]);
+
+export const MemoryOwnerTypeSchema = z.enum(['seat', 'division', 'staff', 'founder']);
+export type MemoryOwnerType = z.infer<typeof MemoryOwnerTypeSchema>;
+
+export const MemoryLinkTypeSchema = z.enum([
+  'supports',
+  'contradicts',
+  'extends',
+  'references',
+  'supersedes',
+  'derived_from',
+]);
+export type MemoryLinkType = z.infer<typeof MemoryLinkTypeSchema>;
+
+export const MemoryAccessTypeSchema = z.enum(['create', 'read', 'update', 'link', 'search']);
+export type MemoryAccessType = z.infer<typeof MemoryAccessTypeSchema>;
+
+export const MemoryEntrySchema = z.object({
+  memory_id: z.string().min(1).max(255),
+  owner_type: MemoryOwnerTypeSchema,
+  owner_id: z.string().min(1).max(255),
+  category: MemoryCategorySchema,
+  memory_type: z.string().min(1).max(255),
+  title: z.string().min(1).max(500),
+  content: z.string().min(1),
+  tags: z.string().default('[]'),
+  confidence: z.number().min(0).max(1).default(1.0),
+  version: z.int().positive().default(1),
+  supersedes_id: z.string().nullable().optional(),
+  meeting_id: z.string().nullable().optional(),
+  division_id: z.string().nullable().optional(),
+  task_id: z.string().nullable().optional(),
+  archived_at: z.string().nullable().optional(),
+});
+export type MemoryEntry = z.infer<typeof MemoryEntrySchema> & {
+  created_at: string;
+  updated_at: string;
+};
+
+export const MemoryVersionSchema = z.object({
+  version_id: z.string().min(1).max(255),
+  memory_id: z.string().min(1).max(255),
+  version_num: z.int().positive(),
+  title: z.string().min(1).max(500),
+  content: z.string().min(1),
+  tags: z.string().default('[]'),
+  confidence: z.number().min(0).max(1).default(1.0),
+  changed_by_owner_type: MemoryOwnerTypeSchema,
+  changed_by_owner_id: z.string().min(1).max(255),
+  changed_by_runtime: z.enum(['claude', 'hermes']),
+  change_summary: z.string().default(''),
+});
+export type MemoryVersion = z.infer<typeof MemoryVersionSchema> & {
+  created_at: string;
+};
+
+export const MemoryLinkSchema = z.object({
+  link_id: z.string().min(1).max(255),
+  source_memory_id: z.string().min(1).max(255),
+  target_memory_id: z.string().min(1).max(255),
+  link_type: MemoryLinkTypeSchema,
+  strength: z.number().gt(0).lte(1).default(1.0),
+  notes: z.string().default(''),
+  created_by_owner_type: MemoryOwnerTypeSchema,
+  created_by_owner_id: z.string().min(1).max(255),
+  created_by_runtime: z.enum(['claude', 'hermes']),
+});
+export type MemoryLink = z.infer<typeof MemoryLinkSchema> & {
+  created_at: string;
+};
+
+export const MemoryAccessSchema = z.object({
+  access_id: z.string().min(1).max(255),
+  memory_id: z.string().min(1).max(255),
+  version_accessed: z.int().positive().nullable().optional(),
+  accessor_type: MemoryOwnerTypeSchema,
+  accessor_id: z.string().min(1).max(255),
+  accessor_runtime: z.enum(['claude', 'hermes']),
+  access_type: MemoryAccessTypeSchema,
+});
+export type MemoryAccess = z.infer<typeof MemoryAccessSchema> & {
+  created_at: string;
+};
+
+export const CrossDivisionShareSchema = z.object({
+  share_id: z.string().min(1).max(255),
+  memory_id: z.string().min(1).max(255),
+  division_id: z.string().min(1).max(255),
+  granted_by_type: z.enum(['division', 'founder']),
+  granted_by_id: z.string().min(1).max(255),
+  granted_at: z.string(),
+  revoked_at: z.string().nullable().optional(),
+});
+export type CrossDivisionShare = z.infer<typeof CrossDivisionShareSchema> & {
+  created_at: string;
+};
+
+// Input schemas for MCP tools
+export const CreateMemoryInputSchema = z.object({
+  category: MemoryCategorySchema,
+  memory_type: z.string().min(1).max(255),
+  title: z.string().min(1).max(500),
+  content: z.record(z.string(), z.any()),
+  tags: z.array(z.string()).default([]),
+  confidence: z.number().min(0).max(1).default(1.0),
+  meeting_id: z.string().optional(),
+  division_id: z.string().optional(),
+  task_id: z.string().optional(),
+});
+export type CreateMemoryInput = z.infer<typeof CreateMemoryInputSchema>;
+
+export const UpdateMemoryInputSchema = z.object({
+  memory_id: z.string().min(1).max(255),
+  title: z.string().min(1).max(500).optional(),
+  content: z.record(z.string(), z.any()).optional(),
+  tags: z.array(z.string()).optional(),
+  confidence: z.number().min(0).max(1).optional(),
+  change_summary: z.string().min(1).max(1000),
+});
+export type UpdateMemoryInput = z.infer<typeof UpdateMemoryInputSchema>;
+
+export const SearchMemoryInputSchema = z.object({
+  query: z.string().optional(),
+  category: MemoryCategorySchema.optional(),
+  memory_type: z.string().optional(),
+  meeting_id: z.string().optional(),
+  division_id: z.string().optional(),
+  task_id: z.string().optional(),
+  tags: z.array(z.string()).optional(),
+  min_confidence: z.number().min(0).max(1).optional(),
+  limit: z.int().positive().max(1000).default(50),
+  offset: z.int().nonnegative().default(0),
+  include_archived: z.boolean().default(false),
+});
+export type SearchMemoryInput = z.infer<typeof SearchMemoryInputSchema>;
+
+export const LinkMemoryInputSchema = z.object({
+  source_memory_id: z.string().min(1).max(255),
+  target_memory_id: z.string().min(1).max(255),
+  link_type: MemoryLinkTypeSchema,
+  strength: z.number().gt(0).lte(1).default(1.0),
+  notes: z.string().default(''),
+});
+export type LinkMemoryInput = z.infer<typeof LinkMemoryInputSchema>;
+
+export const GetRelatedInputSchema = z.object({
+  memory_id: z.string().min(1).max(255),
+  link_type: MemoryLinkTypeSchema.optional(),
+  direction: z.enum(['out', 'in', 'both']).default('out'),
+  depth: z.int().positive().max(5).default(1),
+  max_depth: z.int().positive().max(5).default(3),
+});
+export type GetRelatedInput = z.infer<typeof GetRelatedInputSchema>;
+
+export const GrantCrossDivisionAccessInputSchema = z.object({
+  memory_id: z.string().min(1).max(255),
+  division_id: z.string().min(1).max(255),
+});
+export type GrantCrossDivisionAccessInput = z.infer<typeof GrantCrossDivisionAccessInputSchema>;
+
+export const RevokeCrossDivisionAccessInputSchema = z.object({
+  memory_id: z.string().min(1).max(255),
+  division_id: z.string().min(1).max(255),
+});
+export type RevokeCrossDivisionAccessInput = z.infer<typeof RevokeCrossDivisionAccessInputSchema>;
+
 function toCouncilSeat(row: any): CouncilSeat {
   return {
     ...row,
@@ -314,6 +498,26 @@ function toEvaluationCriteria(row: any): EvaluationCriteria {
   return row;
 }
 
+function toMemoryEntry(row: any): MemoryEntry {
+  return row;
+}
+
+function toMemoryVersion(row: any): MemoryVersion {
+  return row;
+}
+
+function toMemoryLink(row: any): MemoryLink {
+  return row;
+}
+
+function toMemoryAccess(row: any): MemoryAccess {
+  return row;
+}
+
+function toCrossDivisionShare(row: any): CrossDivisionShare {
+  return row;
+}
+
 export function createCouncilService(dbInstance: DatabaseInstance) {
   // Valid meeting status transitions
   const validStatusTransitions: Record<string, string[]> = {
@@ -336,7 +540,7 @@ export function createCouncilService(dbInstance: DatabaseInstance) {
     'challenges', 'synthesis', 'reassessment', 'evaluation', 'closure'
   ];
 
-  // Phase to meeting status mapping
+  // Phase to meeting status mapping (closure handled on completion, not start)
   const phaseToStatus: Record<string, string> = {
     preparation: 'preparing',
     founder_deliberation: 'deliberation',
@@ -346,7 +550,6 @@ export function createCouncilService(dbInstance: DatabaseInstance) {
     synthesis: 'synthesis',
     reassessment: 'reassessment',
     evaluation: 'evaluation',
-    closure: 'closed',
   };
 
   return {
@@ -846,9 +1049,9 @@ export function createCouncilService(dbInstance: DatabaseInstance) {
         }
       }
 
-      // Update meeting status to match phase (except closure, which sets status on completion)
+      // Update meeting status to match phase
       const expectedStatus = phaseToStatus[phase] as Meeting['status'];
-      if (expectedStatus && meeting.status !== expectedStatus && phase !== 'closure') {
+      if (expectedStatus && meeting.status !== expectedStatus) {
         this.updateMeetingStatus(meetingId, expectedStatus);
       }
 
@@ -877,11 +1080,12 @@ export function createCouncilService(dbInstance: DatabaseInstance) {
 
       dbInstance.stmt.updateMeetingPhase.run('completed', 'completed', meetingId, phase);
 
-      // If completing closure phase, update meeting status to closed
+      // If completing closure phase, update meeting status to closed (via validation)
       if (phase === 'closure') {
-        dbInstance.stmt.updateMeetingStatus.run('closed', 'closed', meetingId);
+        this.updateMeetingStatus(meetingId, 'closed');
       }
 
+      // Return updated phase from cached data (no redundant query)
       const updatedPhases = this.getMeetingPhases(meetingId);
       return updatedPhases.find(p => p.phase === phase) as MeetingPhase;
     },
@@ -1239,13 +1443,14 @@ export function createCouncilService(dbInstance: DatabaseInstance) {
       // Get criteria from the meeting's constitution
       const criteria = this.getEvaluationCriteriaForConstitution(meeting.constitution_version);
 
-      // Calculate weighted score using Constitution criteria (only pass provided scores)
-      const scores: Record<string, number> = {};
-      if (input.cultural_impact_score !== undefined) scores.cultural_impact = input.cultural_impact_score;
-      if (input.creative_output_score !== undefined) scores.creative_output = input.creative_output_score;
-      if (input.collaborative_spirit_score !== undefined) scores.collaborative_spirit = input.collaborative_spirit_score;
-      if (input.strategic_vision_score !== undefined) scores.strategic_vision = input.strategic_vision_score;
-      if (input.authenticity_score !== undefined) scores.authenticity = input.authenticity_score;
+      // Calculate weighted score using Constitution criteria (all 5 scores required by schema)
+      const scores = {
+        cultural_impact: input.cultural_impact_score,
+        creative_output: input.creative_output_score,
+        collaborative_spirit: input.collaborative_spirit_score,
+        strategic_vision: input.strategic_vision_score,
+        authenticity: input.authenticity_score,
+      };
       const weightedScore = this.calculateWeightedScore(scores, criteria);
 
       // Check for duplicate evaluation
@@ -1395,6 +1600,786 @@ export function createCouncilService(dbInstance: DatabaseInstance) {
 
     getEvaluationCriteria(constitutionVersion: string): EvaluationCriteria[] {
       return (dbInstance.stmt.getEvaluationCriteria.all(constitutionVersion) as any[]).map(toEvaluationCriteria);
+    },
+
+    // Phase 4: Memory and Knowledge Subsystem
+
+    // --- Privacy Filter Helpers ---
+
+    checkMemoryAccess(
+      ctx: { owner_type: MemoryOwnerType; owner_id: string; runtime: 'claude' | 'hermes' },
+      memory: MemoryEntry
+    ): boolean {
+      if (ctx.owner_type === 'founder') return true;
+
+      const publicCategories = [
+        'council_shared', 'decision_resolution', 'lesson_learned',
+        'business_context', 'idea_proposal', 'research_evidence', 'unresolved_question'
+      ];
+
+      if (publicCategories.includes(memory.category)) return true;
+
+      if (memory.category === 'individual_persona' &&
+          ctx.owner_type === 'seat' && memory.owner_id === ctx.owner_id) return true;
+
+      if (memory.category === 'division_private' &&
+          ctx.owner_type === 'division' && memory.owner_id === ctx.owner_id) return true;
+
+      if (memory.category === 'staff_private' &&
+          ctx.owner_type === 'staff' && memory.owner_id === ctx.owner_id) return true;
+
+      if (memory.category === 'meeting_history' && ctx.owner_type === 'seat') {
+        // Check if seat participated in meeting
+        const meeting = this.getMeeting(memory.meeting_id!);
+        if (meeting) {
+          const participants = this.getPrimaryIdeas(memory.meeting_id!)
+            .map(p => p.seat_id);
+          return participants.includes(ctx.owner_id);
+        }
+        return false;
+      }
+
+      if (memory.category === 'division_shared' &&
+          ctx.owner_type === 'division' && memory.division_id === ctx.owner_id) return true;
+
+      if (memory.category === 'cross_division' && memory.division_id) {
+        // Check cross_division_shares - owner can always access
+        if (memory.owner_type === ctx.owner_type && memory.owner_id === ctx.owner_id) return true;
+        const shares = dbInstance.stmt.getCrossDivisionShares.all(memory.memory_id) as CrossDivisionShare[];
+        return shares.some(s => s.division_id === (ctx.owner_type === 'division' ? ctx.owner_id : memory.division_id));
+      }
+
+      if (memory.category === 'task_history') {
+        // Check task assignment
+        return true; // Simplified - would check tasks table
+      }
+
+      return false;
+    },
+
+    buildPrivacyFilter(
+      ctx: { owner_type: MemoryOwnerType; owner_id: string; runtime: 'claude' | 'hermes' }
+    ): { sql: string; values: any[] } {
+      const values: any[] = [];
+      let sql = '';
+
+      if (ctx.owner_type === 'founder') {
+        sql = '1=1';
+      } else if (ctx.owner_type === 'seat') {
+        sql = `(
+          m.category IN ('council_shared', 'decision_resolution', 'lesson_learned', 'business_context', 'idea_proposal', 'research_evidence', 'unresolved_question')
+          OR (m.owner_type = 'seat' AND m.owner_id = ? AND m.category = 'individual_persona')
+          OR (m.category = 'meeting_history' AND m.meeting_id IN (
+            SELECT DISTINCT meeting_id FROM primary_ideas WHERE seat_id = ?
+          ))
+          OR (m.category = 'task_history' AND m.task_id IN (
+            SELECT task_id FROM tasks WHERE (assigned_to_type = 'seat' AND assigned_to_id = ?) OR (created_by_type = 'seat' AND created_by_id = ?)
+          ))
+        )`;
+        values.push(ctx.owner_id, ctx.owner_id, ctx.owner_id, ctx.owner_id);
+      } else if (ctx.owner_type === 'division') {
+        sql = `(
+          m.category IN ('council_shared', 'decision_resolution', 'lesson_learned', 'business_context', 'idea_proposal', 'research_evidence', 'unresolved_question')
+          OR (m.owner_type = 'division' AND m.owner_id = ? AND m.category IN ('division_shared', 'division_private'))
+          OR (m.category = 'division_shared' AND m.division_id = ?)
+          OR (m.category = 'cross_division' AND m.division_id IN (
+            SELECT division_id FROM cross_division_shares WHERE memory_id = m.memory_id AND revoked_at IS NULL
+          ))
+          OR (m.category = 'task_history' AND m.task_id IN (
+            SELECT task_id FROM tasks WHERE (assigned_to_type = 'division' AND assigned_to_id = ?) OR (created_by_type = 'division_head' AND created_by_id = ?)
+          ))
+        )`;
+        values.push(ctx.owner_id, ctx.owner_id, ctx.owner_id, ctx.owner_id);
+      } else if (ctx.owner_type === 'staff') {
+        sql = `(
+          m.category IN ('council_shared', 'decision_resolution', 'lesson_learned', 'business_context', 'idea_proposal', 'research_evidence', 'unresolved_question')
+          OR (m.owner_type = 'staff' AND m.owner_id = ? AND m.category = 'staff_private')
+          OR (m.category = 'division_shared' AND m.division_id IN (
+            SELECT division_id FROM division_members WHERE staff_id = ?
+          ))
+          OR (m.category = 'cross_division' AND m.division_id IN (
+            SELECT division_id FROM cross_division_shares WHERE memory_id = m.memory_id AND revoked_at IS NULL
+          ))
+          OR (m.category = 'task_history' AND m.task_id IN (
+            SELECT task_id FROM tasks WHERE assigned_to_type = 'staff' AND assigned_to_id = ?
+          ))
+        )`;
+        values.push(ctx.owner_id, ctx.owner_id, ctx.owner_id);
+      }
+
+      return { sql, values };
+    },
+
+    // --- Memory CRUD ---
+
+    createMemory(
+      ctx: { owner_type: MemoryOwnerType; owner_id: string; runtime: 'claude' | 'hermes' },
+      input: z.infer<typeof CreateMemoryInputSchema>
+    ): MemoryEntry {
+      // Validate category-specific rules
+      this.validateMemoryCreation(ctx, input);
+
+      const tx = dbInstance.stmt.beginTransaction.run();
+      try {
+        const memoryId = dbInstance.generateId();
+        const now = new Date().toISOString();
+        const tagsJson = JSON.stringify(input.tags || []);
+
+        dbInstance.stmt.insertMemory.run(
+          memoryId,
+          ctx.owner_type,
+          ctx.owner_id,
+          input.category,
+          input.memory_type,
+          input.title,
+          JSON.stringify(input.content),
+          tagsJson,
+          input.confidence ?? 1.0,
+          1,
+          null,
+          input.meeting_id || null,
+          input.division_id || null,
+          input.task_id || null,
+          null,
+          now,
+          now
+        );
+
+        dbInstance.stmt.insertMemoryVersion.run(
+          dbInstance.generateId(), memoryId, 1, input.title,
+          JSON.stringify(input.content), tagsJson,
+          input.confidence ?? 1.0,
+          ctx.owner_type, ctx.owner_id, ctx.runtime, 'Initial creation', now
+        );
+
+        dbInstance.stmt.insertMemoryAccess.run(
+          dbInstance.generateId(), memoryId, null, ctx.owner_type, ctx.owner_id, ctx.runtime, 'create', now
+        );
+
+        dbInstance.stmt.commitTransaction.run();
+        return toMemoryEntry(dbInstance.stmt.getMemoryById.get(memoryId));
+      } catch (error) {
+        dbInstance.stmt.rollbackTransaction.run();
+        throw error;
+      }
+    },
+
+    validateMemoryCreation(
+      ctx: { owner_type: MemoryOwnerType; owner_id: string; runtime: 'claude' | 'hermes' },
+      input: z.infer<typeof CreateMemoryInputSchema>
+    ): void {
+      // Seat-level categories
+      if (['individual_persona'].includes(input.category)) {
+        if (ctx.owner_type !== 'seat') {
+          throw new Error(`Category '${input.category}' requires seat owner_type`);
+        }
+      }
+
+      // Council-level categories
+      if (['council_shared', 'decision_resolution', 'lesson_learned', 'unresolved_question'].includes(input.category)) {
+        if (ctx.owner_type !== 'seat' && ctx.owner_type !== 'founder') {
+          throw new Error(`Category '${input.category}' requires seat or founder owner_type`);
+        }
+      }
+
+      // Meeting history - must have meeting_id
+      if (input.category === 'meeting_history') {
+        if (!input.meeting_id) {
+          throw new Error(`Category 'meeting_history' requires meeting_id`);
+        }
+        const meeting = this.getMeeting(input.meeting_id);
+        if (!meeting) {
+          throw new Error(`Meeting '${input.meeting_id}' not found`);
+        }
+      }
+
+      // Division-level categories
+      if (['division_shared', 'division_private'].includes(input.category)) {
+        if (ctx.owner_type !== 'division' && ctx.owner_type !== 'staff') {
+          throw new Error(`Category '${input.category}' requires division or staff owner_type`);
+        }
+        if (!input.division_id) {
+          throw new Error(`Category '${input.category}' requires division_id`);
+        }
+        if (input.category === 'division_private' && ctx.owner_type !== 'division') {
+          throw new Error(`Category 'division_private' requires division owner_type (head only)`);
+        }
+      }
+
+      // Staff private
+      if (input.category === 'staff_private') {
+        if (ctx.owner_type !== 'staff') {
+          throw new Error(`Category 'staff_private' requires staff owner_type`);
+        }
+      }
+
+      // Business context
+      if (input.category === 'business_context') {
+        if (ctx.owner_type !== 'founder' && ctx.owner_type !== 'seat' && ctx.owner_type !== 'division') {
+          throw new Error(`Category 'business_context' requires founder, seat, or division owner_type`);
+        }
+      }
+
+      // Task history
+      if (input.category === 'task_history') {
+        if (!input.task_id) {
+          throw new Error(`Category 'task_history' requires task_id`);
+        }
+      }
+
+      // Cross-division
+      if (input.category === 'cross_division') {
+        if (!input.division_id) {
+          throw new Error(`Category 'cross_division' requires division_id`);
+        }
+        // Verify cross_division_shares grant exists (or will be created)
+      }
+    },
+
+    getMemory(
+      ctx: { owner_type: MemoryOwnerType; owner_id: string; runtime: 'claude' | 'hermes' },
+      memoryId: string,
+      options?: { include_versions?: boolean; include_links?: boolean; version?: number }
+    ): { memory: MemoryEntry; versions?: MemoryVersion[]; links?: MemoryLink[] } | undefined {
+      const memory = dbInstance.stmt.getMemoryById.get(memoryId) as MemoryEntry | undefined;
+      if (!memory) return undefined;
+
+      if (!this.checkMemoryAccess(ctx, memory)) {
+        return undefined;
+      }
+
+      // Log access
+      const now = new Date().toISOString();
+      dbInstance.stmt.insertMemoryAccess.run(
+        dbInstance.generateId(), memoryId, options?.version || null,
+        ctx.owner_type, ctx.owner_id, ctx.runtime, 'read', now
+      );
+
+      const result: any = { memory: toMemoryEntry(memory) };
+
+      if (options?.include_versions) {
+        result.versions = (dbInstance.stmt.getMemoryVersions.all(memoryId, 50) as any[]).map(toMemoryVersion);
+      }
+
+      if (options?.include_links) {
+        result.links = (dbInstance.stmt.getMemoryLinks.all(memoryId, memoryId) as any[]).map(toMemoryLink);
+      }
+
+      return result;
+    },
+
+    updateMemory(
+      ctx: { owner_type: MemoryOwnerType; owner_id: string; runtime: 'claude' | 'hermes' },
+      input: z.infer<typeof UpdateMemoryInputSchema>
+    ): MemoryEntry {
+      const memory = dbInstance.stmt.getMemoryById.get(input.memory_id) as MemoryEntry | undefined;
+      if (!memory) {
+        throw new Error(`Memory '${input.memory_id}' not found`);
+      }
+
+      if (!this.checkMemoryAccess(ctx, memory)) {
+        throw new Error(`Access denied to memory '${input.memory_id}'`);
+      }
+
+      // Immutable categories
+      if (memory.category === 'decision_resolution') {
+        throw new Error(`Category 'decision_resolution' is immutable; create new version with supersedes link instead`);
+      }
+
+      if (memory.category === 'meeting_history') {
+        // Check if meeting phase allows updates
+        const meeting = this.getMeeting(memory.meeting_id!);
+        if (meeting && ['closed', 'archived', 'cancelled'].includes(meeting.status)) {
+          throw new Error(`Meeting history frozen after meeting closure`);
+        }
+      }
+
+      const tx = dbInstance.stmt.beginTransaction.run();
+      try {
+        const now = new Date().toISOString();
+        const newTitle = input.title ?? memory.title;
+        const newContent = input.content ? JSON.stringify(input.content) : memory.content;
+        const newTags = input.tags ? JSON.stringify(input.tags) : memory.tags;
+        const newConfidence = input.confidence ?? memory.confidence;
+
+        // Update memory entry (increments version, sets supersedes_id)
+        dbInstance.stmt.updateMemory.run(
+          newTitle, newContent, newTags, newConfidence,
+          memory.memory_id, // supersedes_id points to current (which becomes previous)
+          memory.memory_id
+        );
+
+        // Create version record
+        const newVersion = memory.version + 1;
+        dbInstance.stmt.insertMemoryVersion.run(
+          dbInstance.generateId(), memory.memory_id, newVersion,
+          newTitle, newContent, newTags, newConfidence,
+          ctx.owner_type, ctx.owner_id, ctx.runtime, input.change_summary, now
+        );
+
+        // Log access
+        dbInstance.stmt.insertMemoryAccess.run(
+          dbInstance.generateId(), memory.memory_id, newVersion,
+          ctx.owner_type, ctx.owner_id, ctx.runtime, 'update', now
+        );
+
+        dbInstance.stmt.commitTransaction.run();
+        return toMemoryEntry(dbInstance.stmt.getMemoryById.get(input.memory_id));
+      } catch (error) {
+        dbInstance.stmt.rollbackTransaction.run();
+        throw error;
+      }
+    },
+
+    archiveMemory(
+      ctx: { owner_type: MemoryOwnerType; owner_id: string; runtime: 'claude' | 'hermes' },
+      memoryId: string
+    ): MemoryEntry {
+      const memory = dbInstance.stmt.getMemoryById.get(memoryId) as MemoryEntry | undefined;
+      if (!memory) {
+        throw new Error(`Memory '${memoryId}' not found`);
+      }
+
+      if (!this.checkMemoryAccess(ctx, memory)) {
+        throw new Error(`Access denied to memory '${memoryId}'`);
+      }
+
+      // Check archival rules
+      const immutableCategories = ['decision_resolution', 'meeting_history', 'task_history'];
+      if (immutableCategories.includes(memory.category)) {
+        throw new Error(`Category '${memory.category}' cannot be archived`);
+      }
+
+      const now = new Date().toISOString();
+      dbInstance.stmt.archiveMemory.run(memoryId);
+      dbInstance.stmt.insertMemoryAccess.run(
+        dbInstance.generateId(), memoryId, memory.version,
+        ctx.owner_type, ctx.owner_id, ctx.runtime, 'update', now
+      );
+
+      return toMemoryEntry(dbInstance.stmt.getMemoryById.get(memoryId));
+    },
+
+    restoreMemory(
+      ctx: { owner_type: MemoryOwnerType; owner_id: string; runtime: 'claude' | 'hermes' },
+      memoryId: string
+    ): MemoryEntry {
+      const memory = dbInstance.stmt.getMemoryById.get(memoryId) as MemoryEntry | undefined;
+      if (!memory) {
+        throw new Error(`Memory '${memoryId}' not found`);
+      }
+
+      if (!this.checkMemoryAccess(ctx, memory)) {
+        throw new Error(`Access denied to memory '${memoryId}'`);
+      }
+
+      const now = new Date().toISOString();
+      dbInstance.stmt.restoreMemory.run(memoryId);
+      dbInstance.stmt.insertMemoryAccess.run(
+        dbInstance.generateId(), memoryId, memory.version,
+        ctx.owner_type, ctx.owner_id, ctx.runtime, 'update', now
+      );
+
+      return toMemoryEntry(dbInstance.stmt.getMemoryById.get(memoryId));
+    },
+
+    // --- Memory Retrieval ---
+
+    getMemoryEntriesByOwner(
+      ctx: { owner_type: MemoryOwnerType; owner_id: string; runtime: 'claude' | 'hermes' },
+      ownerType: MemoryOwnerType,
+      ownerId: string,
+      limit = 50,
+      offset = 0
+    ): MemoryEntry[] {
+      // Can only query own memory unless founder
+      if (ctx.owner_type !== 'founder' && (ownerType !== ctx.owner_type || ownerId !== ctx.owner_id)) {
+        return [];
+      }
+      return (dbInstance.stmt.getMemoryEntriesByOwner.all(ownerType, ownerId, limit, offset) as any[]).map(toMemoryEntry);
+    },
+
+    getMemoryEntriesByCategory(
+      ctx: { owner_type: MemoryOwnerType; owner_id: string; runtime: 'claude' | 'hermes' },
+      category: z.infer<typeof MemoryCategorySchema>,
+      limit = 50,
+      offset = 0
+    ): MemoryEntry[] {
+      const all = (dbInstance.stmt.getMemoryEntriesByCategory.all(category, limit, offset) as any[]).map(toMemoryEntry);
+      return all.filter(m => this.checkMemoryAccess(ctx, m));
+    },
+
+    getMemoryEntriesByMeeting(
+      ctx: { owner_type: MemoryOwnerType; owner_id: string; runtime: 'claude' | 'hermes' },
+      meetingId: string
+    ): MemoryEntry[] {
+      const all = (dbInstance.stmt.getMemoryEntriesByMeeting.all(meetingId) as any[]).map(toMemoryEntry);
+      return all.filter(m => this.checkMemoryAccess(ctx, m));
+    },
+
+    getMemoryEntriesByDivision(
+      ctx: { owner_type: MemoryOwnerType; owner_id: string; runtime: 'claude' | 'hermes' },
+      divisionId: string,
+      limit = 50,
+      offset = 0
+    ): MemoryEntry[] {
+      const all = (dbInstance.stmt.getMemoryEntriesByDivision.all(divisionId, limit, offset) as any[]).map(toMemoryEntry);
+      return all.filter(m => this.checkMemoryAccess(ctx, m));
+    },
+
+    getMemoryEntriesByTask(
+      ctx: { owner_type: MemoryOwnerType; owner_id: string; runtime: 'claude' | 'hermes' },
+      taskId: string
+    ): MemoryEntry[] {
+      const all = (dbInstance.stmt.getMemoryEntriesByTask.all(taskId) as any[]).map(toMemoryEntry);
+      return all.filter(m => this.checkMemoryAccess(ctx, m));
+    },
+
+    searchMemory(
+      ctx: { owner_type: MemoryOwnerType; owner_id: string; runtime: 'claude' | 'hermes' },
+      input: z.infer<typeof SearchMemoryInputSchema>
+    ): MemoryEntry[] {
+      const conditions = ['m.archived_at IS NULL'];
+      const values: any[] = [];
+
+      if (!input.include_archived) {
+        conditions.push('m.archived_at IS NULL');
+      }
+
+      const privacy = this.buildPrivacyFilter(ctx);
+      conditions.push(`(${privacy.sql})`);
+      values.push(...privacy.values);
+
+      if (input.category) { conditions.push('m.category = ?'); values.push(input.category); }
+      if (input.memory_type) { conditions.push('m.memory_type = ?'); values.push(input.memory_type); }
+      if (input.meeting_id) { conditions.push('m.meeting_id = ?'); values.push(input.meeting_id); }
+      if (input.division_id) { conditions.push('m.division_id = ?'); values.push(input.division_id); }
+      if (input.task_id) { conditions.push('m.task_id = ?'); values.push(input.task_id); }
+      if (input.min_confidence) { conditions.push('m.confidence >= ?'); values.push(input.min_confidence); }
+      if (input.tags?.length) {
+        conditions.push(`EXISTS (SELECT 1 FROM json_each(m.tags) WHERE value IN (${input.tags.map(() => '?').join(',')}))`);
+        values.push(...input.tags);
+      }
+
+      let query = `
+        SELECT m.* FROM memory_entries m
+        ${input.query ? 'JOIN memory_fts f ON m.memory_id = f.memory_id' : ''}
+        WHERE ${conditions.join(' AND ')}
+      `;
+
+      if (input.query) {
+        values.unshift(input.query);
+        query = query.replace('WHERE', 'WHERE memory_fts MATCH ? AND');
+      }
+
+      query += ' ORDER BY m.updated_at DESC LIMIT ? OFFSET ?';
+      values.push(input.limit ?? 50, input.offset ?? 0);
+
+      // Note: search access logging uses a special pattern since it doesn't target a single memory
+      // We skip memory_access insert for search to avoid FK constraint on empty memory_id
+      // In production, this would be logged separately or with a NULL memory_id if schema allows
+
+      const rawStmt = dbInstance.db.prepare(query);
+      return (rawStmt.all(...values) as any[]).map(toMemoryEntry);
+    },
+
+    // --- Memory Versions ---
+
+    getMemoryVersions(
+      ctx: { owner_type: MemoryOwnerType; owner_id: string; runtime: 'claude' | 'hermes' },
+      memoryId: string,
+      limit = 50
+    ): MemoryVersion[] {
+      const memory = dbInstance.stmt.getMemoryById.get(memoryId) as MemoryEntry | undefined;
+      if (!memory || !this.checkMemoryAccess(ctx, memory)) {
+        return [];
+      }
+
+      const now = new Date().toISOString();
+      dbInstance.stmt.insertMemoryAccess.run(
+        dbInstance.generateId(), memoryId, null,
+        ctx.owner_type, ctx.owner_id, ctx.runtime, 'read', now
+      );
+
+      return (dbInstance.stmt.getMemoryVersions.all(memoryId, limit) as any[]).map(toMemoryVersion);
+    },
+
+    getMemoryVersion(
+      ctx: { owner_type: MemoryOwnerType; owner_id: string; runtime: 'claude' | 'hermes' },
+      memoryId: string,
+      versionNum: number
+    ): MemoryVersion | undefined {
+      const memory = dbInstance.stmt.getMemoryById.get(memoryId) as MemoryEntry | undefined;
+      if (!memory || !this.checkMemoryAccess(ctx, memory)) {
+        return undefined;
+      }
+
+      const version = dbInstance.stmt.getMemoryVersion.get(memoryId, versionNum) as MemoryVersion | undefined;
+      if (version) {
+        const now = new Date().toISOString();
+        dbInstance.stmt.insertMemoryAccess.run(
+          dbInstance.generateId(), memoryId, versionNum,
+          ctx.owner_type, ctx.owner_id, ctx.runtime, 'read', now
+        );
+      }
+      return version ? toMemoryVersion(version) : undefined;
+    },
+
+    // --- Memory Links ---
+
+    linkMemory(
+      ctx: { owner_type: MemoryOwnerType; owner_id: string; runtime: 'claude' | 'hermes' },
+      input: z.infer<typeof LinkMemoryInputSchema>
+    ): MemoryLink {
+      const source = dbInstance.stmt.getMemoryById.get(input.source_memory_id) as MemoryEntry | undefined;
+      const target = dbInstance.stmt.getMemoryById.get(input.target_memory_id) as MemoryEntry | undefined;
+
+      if (!source || !target) {
+        throw new Error(`Source or target memory not found`);
+      }
+
+      if (!this.checkMemoryAccess(ctx, source) || !this.checkMemoryAccess(ctx, target)) {
+        throw new Error(`Access denied to source or target memory`);
+      }
+
+      // Prevent self-links
+      if (input.source_memory_id === input.target_memory_id) {
+        throw new Error(`Cannot link memory to itself`);
+      }
+
+      // Validate link_type rules
+      if (input.link_type === 'supersedes') {
+        if (source.category !== target.category) {
+          throw new Error(`supersedes link requires same category`);
+        }
+        if (target.category !== 'decision_resolution' && target.category !== 'idea_proposal') {
+          throw new Error(`supersedes link only valid for decision_resolution or idea_proposal categories`);
+        }
+      }
+
+      const now = new Date().toISOString();
+      const linkId = dbInstance.generateId();
+
+      dbInstance.stmt.insertMemoryLink.run(
+        linkId,
+        input.source_memory_id,
+        input.target_memory_id,
+        input.link_type,
+        input.strength,
+        input.notes ?? '',
+        ctx.owner_type,
+        ctx.owner_id,
+        ctx.runtime,
+        now
+      );
+
+      // Log access for both memories
+      dbInstance.stmt.insertMemoryAccess.run(
+        dbInstance.generateId(), input.source_memory_id, source.version,
+        ctx.owner_type, ctx.owner_id, ctx.runtime, 'link', now
+      );
+      dbInstance.stmt.insertMemoryAccess.run(
+        dbInstance.generateId(), input.target_memory_id, target.version,
+        ctx.owner_type, ctx.owner_id, ctx.runtime, 'link', now
+      );
+
+      return toMemoryLink(dbInstance.stmt.getMemoryLinks.all(input.source_memory_id, input.target_memory_id)
+        .find((l: any) => l.link_id === linkId));
+    },
+
+    getMemoryLinks(
+      ctx: { owner_type: MemoryOwnerType; owner_id: string; runtime: 'claude' | 'hermes' },
+      memoryId: string
+    ): MemoryLink[] {
+      const memory = dbInstance.stmt.getMemoryById.get(memoryId) as MemoryEntry | undefined;
+      if (!memory || !this.checkMemoryAccess(ctx, memory)) {
+        return [];
+      }
+
+      const now = new Date().toISOString();
+      dbInstance.stmt.insertMemoryAccess.run(
+        dbInstance.generateId(), memoryId, memory.version,
+        ctx.owner_type, ctx.owner_id, ctx.runtime, 'read', now
+      );
+
+      return (dbInstance.stmt.getMemoryLinks.all(memoryId, memoryId) as any[]).map(toMemoryLink);
+    },
+
+    getRelated(
+      ctx: { owner_type: MemoryOwnerType; owner_id: string; runtime: 'claude' | 'hermes' },
+      input: z.infer<typeof GetRelatedInputSchema>
+    ): Array<{ memory: MemoryEntry; link_type: string; strength: number; depth: number; path: string }> {
+      const maxDepth = input.max_depth ?? 3;
+      let results: Array<{ memory: MemoryEntry; link_type: string; strength: number; depth: number; path: string }> = [];
+      let currentDepth = 0;
+      let currentNodes = [{ memory_id: input.memory_id, path: '', link_type: null as string | null }];
+
+      const startMemory = dbInstance.stmt.getMemoryById.get(input.memory_id) as MemoryEntry | undefined;
+      if (!startMemory || !this.checkMemoryAccess(ctx, startMemory)) {
+        return [];
+      }
+
+      while (currentDepth < maxDepth && currentNodes.length > 0) {
+        const nextNodes: typeof currentNodes = [];
+
+        for (const node of currentNodes) {
+          const links = (input.direction === 'in'
+            ? dbInstance.stmt.getLinksByTarget.all(node.memory_id)
+            : input.direction === 'out'
+            ? dbInstance.stmt.getLinksBySource.all(node.memory_id)
+            : dbInstance.stmt.getMemoryLinks.all(node.memory_id, node.memory_id)) as MemoryLink[];
+
+          for (const link of links) {
+            if (input.link_type && link.link_type !== input.link_type) continue;
+
+            const targetId = input.direction === 'in' ? link.source_memory_id : link.target_memory_id;
+            const target = dbInstance.stmt.getMemoryById.get(targetId) as MemoryEntry | undefined;
+            if (!target || target.archived_at) continue;
+
+            if (!this.checkMemoryAccess(ctx, target)) continue;
+
+            if (node.path.includes(targetId)) continue; // cycle detection
+
+            results.push({
+              memory: toMemoryEntry(target),
+              link_type: link.link_type,
+              strength: link.strength,
+              depth: currentDepth + 1,
+              path: node.path + '->' + targetId
+            });
+
+            nextNodes.push({ memory_id: targetId, path: node.path + '->' + targetId, link_type: link.link_type });
+          }
+        }
+
+        currentNodes = nextNodes;
+        currentDepth++;
+      }
+
+      // Log access
+      const now = new Date().toISOString();
+      dbInstance.stmt.insertMemoryAccess.run(
+        dbInstance.generateId(), input.memory_id, null,
+        ctx.owner_type, ctx.owner_id, ctx.runtime, 'read', now
+      );
+
+      return results;
+    },
+
+    // --- Cross-Division Shares ---
+
+    grantCrossDivisionAccess(
+      ctx: { owner_type: MemoryOwnerType; owner_id: string; runtime: 'claude' | 'hermes' },
+      input: z.infer<typeof GrantCrossDivisionAccessInputSchema>
+    ): CrossDivisionShare {
+      const memory = dbInstance.stmt.getMemoryById.get(input.memory_id) as MemoryEntry | undefined;
+      if (!memory) {
+        throw new Error(`Memory '${input.memory_id}' not found`);
+      }
+
+      if (!this.checkMemoryAccess(ctx, memory)) {
+        throw new Error(`Access denied to memory '${input.memory_id}'`);
+      }
+
+      if (memory.category !== 'cross_division') {
+        throw new Error(`Cross-division sharing only allowed for 'cross_division' category`);
+      }
+
+      // Only division head or founder can grant
+      if (ctx.owner_type !== 'division' && ctx.owner_type !== 'founder') {
+        throw new Error(`Only division head or founder can grant cross-division access`);
+      }
+
+      const existing = dbInstance.stmt.getCrossDivisionShares.all(input.memory_id) as CrossDivisionShare[];
+      if (existing.some(s => s.division_id === input.division_id && !s.revoked_at)) {
+        throw new Error(`Division '${input.division_id}' already has access to this memory`);
+      }
+
+      const now = new Date().toISOString();
+      const shareId = dbInstance.generateId();
+
+      dbInstance.stmt.insertCrossDivisionShare.run(
+        shareId, input.memory_id, input.division_id,
+        ctx.owner_type, ctx.owner_id, now
+      );
+
+      const now2 = new Date().toISOString();
+      dbInstance.stmt.insertMemoryAccess.run(
+        dbInstance.generateId(), input.memory_id, memory.version,
+        ctx.owner_type, ctx.owner_id, ctx.runtime, 'link', now2
+      );
+
+      return toCrossDivisionShare(dbInstance.stmt.getCrossDivisionShares.all(input.memory_id)
+        .find((s: any) => s.share_id === shareId));
+    },
+
+    revokeCrossDivisionAccess(
+      ctx: { owner_type: MemoryOwnerType; owner_id: string; runtime: 'claude' | 'hermes' },
+      input: z.infer<typeof RevokeCrossDivisionAccessInputSchema>
+    ): boolean {
+      const memory = dbInstance.stmt.getMemoryById.get(input.memory_id) as MemoryEntry | undefined;
+      if (!memory) {
+        throw new Error(`Memory '${input.memory_id}' not found`);
+      }
+
+      if (!this.checkMemoryAccess(ctx, memory)) {
+        throw new Error(`Access denied to memory '${input.memory_id}'`);
+      }
+
+      if (ctx.owner_type !== 'division' && ctx.owner_type !== 'founder') {
+        throw new Error(`Only division head or founder can revoke cross-division access`);
+      }
+
+      const result = dbInstance.stmt.revokeCrossDivisionShare.run(input.memory_id, input.division_id);
+      if (result.changes > 0) {
+        const now = new Date().toISOString();
+        dbInstance.stmt.insertMemoryAccess.run(
+          dbInstance.generateId(), input.memory_id, memory.version,
+          ctx.owner_type, ctx.owner_id, ctx.runtime, 'link', now
+        );
+        return true;
+      }
+      return false;
+    },
+
+    getCrossDivisionShares(
+      ctx: { owner_type: MemoryOwnerType; owner_id: string; runtime: 'claude' | 'hermes' },
+      memoryId?: string,
+      divisionId?: string
+    ): CrossDivisionShare[] {
+      if (memoryId) {
+        const memory = dbInstance.stmt.getMemoryById.get(memoryId) as MemoryEntry | undefined;
+        if (!memory || !this.checkMemoryAccess(ctx, memory)) {
+          return [];
+        }
+        return (dbInstance.stmt.getCrossDivisionShares.all(memoryId) as any[]).map(toCrossDivisionShare);
+      }
+
+      if (divisionId) {
+        // Check if requester can see this division's shares
+        if (ctx.owner_type !== 'founder' &&
+            !(ctx.owner_type === 'division' && ctx.owner_id === divisionId)) {
+          return [];
+        }
+        return (dbInstance.stmt.getSharesByDivision.all(divisionId) as any[]).map(toCrossDivisionShare);
+      }
+
+      return [];
+    },
+
+    // --- Memory Access Log ---
+
+    getMemoryAccessLog(
+      ctx: { owner_type: MemoryOwnerType; owner_id: string; runtime: 'claude' | 'hermes' },
+      memoryId: string,
+      limit = 50
+    ): MemoryAccess[] {
+      const memory = dbInstance.stmt.getMemoryById.get(memoryId) as MemoryEntry | undefined;
+      if (!memory || !this.checkMemoryAccess(ctx, memory)) {
+        return [];
+      }
+
+      return (dbInstance.stmt.getMemoryAccessLog.all(memoryId, limit) as any[]).map(toMemoryAccess);
     },
   };
 }

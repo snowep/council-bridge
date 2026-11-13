@@ -54,7 +54,7 @@ describe('Council Database Schema', () => {
 
   test('should have schema_version table with version', () => {
     const version = testDbInstance.db.prepare('SELECT version FROM schema_version').get();
-    assert.strictEqual(version.version, '3.0.0');
+    assert.strictEqual(version.version, '4.0.0');
   });
 });
 
@@ -1199,13 +1199,13 @@ describe('Phase 3: Evaluations', () => {
         status: 'preparing',
         constitution_version: '1.0.0',
       });
-      // Progress through all 9 phases (closure auto-sets status to closed)
+      // Progress through all 9 phases (closure completes and sets status to closed)
       const phases = ['preparation', 'founder_deliberation', 'primary_ideas', 'brainstorming', 'challenges', 'synthesis', 'reassessment', 'evaluation', 'closure'];
       for (const phase of phases) {
         council.startMeetingPhase(meeting.meeting_id, phase);
         council.completeMeetingPhase(meeting.meeting_id, phase);
       }
-      // Meeting status is now 'closed' automatically via phaseToStatus['closure'] = 'closed'
+      // Meeting status is now 'closed' via completeMeetingPhase('closure')
       council.submitEvaluation({
         id: randomUUID(),
         meeting_id: meeting.meeting_id,
@@ -1476,7 +1476,7 @@ describe('Phase 3: P2 - New Tests', () => {
       council.startMeetingPhase(meeting.meeting_id, phase);
       council.completeMeetingPhase(meeting.meeting_id, phase);
     }
-    // Meeting status is now 'closed' automatically via phaseToStatus['closure'] = 'closed'
+    // Meeting status is now 'closed' via completeMeetingPhase('closure')
 
     // Cannot go from closed back to preparing
     assert.throws(
@@ -1551,7 +1551,7 @@ describe('Phase 3: P2 - New Tests', () => {
       council.startMeetingPhase(meeting.meeting_id, phase);
       council.completeMeetingPhase(meeting.meeting_id, phase);
     }
-    // Meeting status is now 'closed' automatically via phaseToStatus['closure'] = 'closed'
+    // Meeting status is now 'closed' via completeMeetingPhase('closure')
     council.updateMeetingStatus(meeting.meeting_id, 'archived');
 
     assert.throws(
@@ -1856,7 +1856,7 @@ describe('Phase 3: P2 - New Tests', () => {
       council.startMeetingPhase(meeting.meeting_id, phase);
       council.completeMeetingPhase(meeting.meeting_id, phase);
     }
-    // Meeting status is now 'closed' automatically via phaseToStatus['closure'] = 'closed'
+    // Meeting status is now 'closed' via completeMeetingPhase('closure')
 
     // Scores: 10, 10, 10, 10, 10 with weights 0.30, 0.25, 0.20, 0.15, 0.10 = 10
     const evaluation = council.submitEvaluation({
@@ -1964,7 +1964,7 @@ describe('Phase 3: P2 - New Tests', () => {
       council.startMeetingPhase(meeting.meeting_id, phase);
       council.completeMeetingPhase(meeting.meeting_id, phase);
     }
-    // Meeting status is now 'closed' automatically via phaseToStatus['closure'] = 'closed'
+    // Meeting status is now 'closed' via completeMeetingPhase('closure')
 
     // Scores must match criteria names: "Cultural Impact" -> cultural_impact, "Creative Output" -> creative_output
     const evaluation = council.submitEvaluation({
