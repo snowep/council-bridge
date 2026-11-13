@@ -1,0 +1,16 @@
+import Database from 'better-sqlite3';
+const db = new Database('./data/council.db');
+console.log('=== New tables ===');
+console.log(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE '%execution%' OR name LIKE '%approval%' OR name LIKE '%autonomy%' ORDER BY name").all());
+console.log('\n=== task_autonomy_levels ===');
+console.log(db.prepare("PRAGMA table_info(task_autonomy_levels)").all());
+console.log('\n=== execution_requests ===');
+console.log(db.prepare("PRAGMA table_info(execution_requests)").all());
+console.log('\n=== approval_requests ===');
+console.log(db.prepare("PRAGMA table_info(approval_requests)").all());
+console.log('\n=== execution_history ===');
+console.log(db.prepare("PRAGMA table_info(execution_history)").all());
+console.log('\n=== tasks autonomy_level ===');
+console.log(db.prepare("PRAGMA table_info(tasks)").all().find(c => c.name === 'autonomy_level'));
+console.log('\n=== deliverables execution_id ===');
+console.log(db.prepare("PRAGMA table_info(deliverables)").all().find(c => c.name === 'execution_id'));

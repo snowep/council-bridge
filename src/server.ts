@@ -1,1090 +1,469 @@
-import { randomUUID } from 'node:crypto';
-import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import * as z from 'zod/v4';
-import path from 'node:path';
-import { createAgentService } from './agents.js';
-import { createMessageService } from './messages.js';
-import { createDatabase } from './database.js';
-import { createCouncilService } from './council.js';
+// Server with Production-Ready Authentication
+// Phase 8: Explicit auth modes, fail-closed in production
 
-const PORT = 3334;
-const HOST = '127.0.0.1';
+import express, { Request, Response, NextFunction } from 'express';
+import { z } from 'zod/v4';
+import crypto from 'crypto';
 
-import express from 'express';
+import { createDatabase, DatabaseInstance } from './database.js';
+import {
+  AutonomyLevelSchema,
+  ExecutionStatusSchema,
+  ApprovalStatusSchema,
+  CreateTaskAutonomyLevelInputSchema,
+  RequestExecutionInputSchema,
+  ApproveExecutionInputSchema,
+  GetExecutionRequestInputSchema,
+  ListExecutionRequestsInputSchema,
+  ListApprovalRequestsInputSchema,
+  GetExecutionHistoryInputSchema
+} from './council/types.js';
+
+import {
+  validateSessionToken,
+  hasPermission,
+  listActiveSessions,
+  cleanupExpiredSessions
+} from './auth/session.js';
+
+import {
+  verifyFounderOperation,
+  verifyFounderRequestWithLoadedKeys,
+  getFounderKeyId,
+  getFounderPublicKey
+} from './auth/founder.js';
+
+import {
+  getAuthConfig,
+  isProductionMode,
+  isDevelopmentMode,
+  AuthContext,
+  validateAuthMode
+} from './auth/index.js';
+
+import {
+  listTaskAutonomyLevels,
+  getTaskAutonomyLevel,
+  requestExecution,
+  approveExecution,
+  getExecutionRequest,
+  getExecutionHistory,
+  listExecutionRequests,
+  listApprovalRequests
+} from './council/operations.js';
+
+import { setCryptoModule } from './council/operations.js';
+
+// Initialize crypto module for operations
+setCryptoModule(crypto);
+
 const app = express();
-
 app.use(express.json());
 
-app.get('/health', (_req, res) => {
-  res.json({
-    status: 'ok',
-    timestamp: new Date().toISOString(),
-    sessions: sessions.size,
-  });
-});
+// Database instance
+let db: DatabaseInstance;
 
-const sessions = new Map();
+// Initialize database
+async function initDb() {
+  db = await createDatabase(process.env.DATABASE_PATH || ':memory:');
+}
 
-function createServices(dbInstance: any) {
-  return {
-    agentService: createAgentService(dbInstance),
-    messageService: createMessageService(dbInstance, createAgentService(dbInstance)),
-    councilService: createCouncilService(dbInstance),
+// Auth mode configuration
+const config = getAuthConfig();
+const PRODUCTION_MODE = isProductionMode();
+const DEVELOPMENT_MODE = isDevelopmentMode();
+
+// Validate auth configuration on startup
+const authValidation = validateAuthMode();
+if (!authValidation.valid) {
+  console.error('⚠️  AUTH CONFIGURATION ERRORS:');
+  for (const error of authValidation.errors) {
+    console.error(`   - ${error}`);
+  }
+  if (PRODUCTION_MODE) {
+    console.error('❌ Server will not start in production with invalid auth config');
+    process.exit(1);
+  }
+}
+
+console.log(`🔐 Auth Mode: ${config.mode.toUpperCase()}`);
+console.log(`🔐 Hardcoded Fallback: ${config.allow_hardcoded_fallback ? 'ENABLED (development only)' : 'DISABLED'}`);
+console.log(`🔐 Session Timeout: ${config.session_timeout_ms / 1000 / 60} minutes`);
+console.log(`🔐 Founder Key ID: ${getFounderKeyId() ?? 'NOT INITIALIZED'}`);
+
+// Auth middleware - Production: require valid session; Development: optional with fallback
+function authMiddleware(req: Request, res: Response, next: NextFunction) {
+  const authHeader = req.headers.authorization;
+  const clientIp = req.ip || req.socket.remoteAddress;
+
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    const token = authHeader.substring(7);
+    const session = validateSessionToken(token, undefined, clientIp);
+
+    if (session) {
+      (req as any).authContext = {
+        owner_type: session.owner_type,
+        owner_id: session.owner_id,
+        runtime: session.runtime,
+        session_id: session.session_id,
+        permissions: session.permissions,
+        expires_at: session.expires_at,
+        issued_at: session.issued_at,
+        founder_signed: session.owner_type === 'founder',
+        client_ip: clientIp
+      };
+      return next();
+    }
+
+    // Invalid/expired token
+    return res.status(401).json({
+      error: 'Invalid or expired session token',
+      code: 'AUTH_INVALID_TOKEN'
+    });
+  }
+
+  // No token provided
+  if (PRODUCTION_MODE) {
+    // Production: fail closed - no fallback to hardcoded identities
+    return res.status(401).json({
+      error: 'Authentication required',
+      code: 'AUTH_REQUIRED',
+      message: 'Provide Authorization: Bearer <session_token> header'
+    });
+  }
+
+  // Development: allow fallback to hardcoded context for backward compatibility
+  next();
+}
+
+// Founder signature middleware for privileged operations
+// Verifies operation-bound signature with replay protection
+function founderSignatureMiddleware(requiredOperations: string[]) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    const { founder_signature, founder_timestamp, founder_nonce, founder_key_id } = req.body;
+    const operation = req.path.replace('/api/', '');
+
+    if (!requiredOperations.includes(operation)) {
+      return next();
+    }
+
+    // In production, ALL privileged operations require valid founder signature
+    // In development, also require signature but with more lenient validation
+    if (!founder_signature) {
+      return res.status(403).json({
+        error: 'Founder signature required for this operation',
+        code: 'FOUNDER_SIGNATURE_REQUIRED',
+        operation
+      });
+    }
+
+    if (!founder_timestamp || !founder_nonce || !founder_key_id) {
+      return res.status(403).json({
+        error: 'Founder signature missing required fields (timestamp, nonce, key_id)',
+        code: 'FOUNDER_SIGNATURE_INCOMPLETE'
+      });
+    }
+
+    // Verify operation-bound signature
+    const body = { ...req.body };
+    delete body.founder_signature;
+    delete body.founder_timestamp;
+    delete body.founder_nonce;
+    delete body.founder_key_id;
+
+    const valid = verifyFounderOperation(
+      operation,
+      body,
+      founder_signature,
+      founder_timestamp,
+      founder_nonce,
+      founder_key_id
+    );
+
+    if (!valid) {
+      return res.status(403).json({
+        error: 'Invalid founder signature',
+        code: 'FOUNDER_SIGNATURE_INVALID'
+      });
+    }
+
+    // Signature valid - set founder context
+    (req as any).authContext = {
+      owner_type: 'founder',
+      owner_id: 'founder',
+      runtime: 'claude',
+      session_id: 'founder-signed',
+      permissions: [],
+      expires_at: Infinity,
+      issued_at: Date.now(),
+      founder_signed: true
+    };
+
+    next();
   };
 }
 
-app.post('/mcp', async (req, res) => {
-  const sessionId = req.headers['mcp-session-id'];
-  const isInitialize = req.body?.method === 'initialize';
+// Get auth context from request
+function getAuthContext(req: Request): AuthContext {
+  return (req as any).authContext || (DEVELOPMENT_MODE ? {
+    owner_type: 'division',
+    owner_id: 'div-001',
+    runtime: 'claude',
+    session_id: 'default',
+    permissions: [],
+    expires_at: Date.now() + 3600000,
+    issued_at: Date.now(),
+    founder_signed: false
+  } : null)!;
+}
 
-  if (!sessionId && !isInitialize) {
-    res.status(400).json({ error: 'Missing mcp-session-id header' });
-    return;
-  }
-
-  console.log(
-    `[server] POST /mcp received, sessionId=${sessionId ?? 'initializing'}`
-  );
-
-  console.log(`[server] POST /mcp received, sessionId=${sessionId}`);
-
+// Phase 7: Task Autonomy Level Endpoints
+app.post('/api/task-autonomy', authMiddleware, async (req, res) => {
   try {
-    let session = sessions.get(sessionId);
+    const input = CreateTaskAutonomyLevelInputSchema.parse(req.body);
+    const ctx = getAuthContext(req);
 
-    if (!session) {
-      // New session - create fresh database, services, and MCP server
-      const dbInstance = createDatabase(
-        process.env.DB_PATH || path.join(process.cwd(), 'data', 'council.db')
-      );
-      const services = createServices(dbInstance);
-      const mcpserver = new McpServer(
-        { name: 'council-bridge', version: '1.0.0' },
-        { capabilities: { tools: {} } }
-      );
-
-      // Create transport and set up session callbacks
-      const transport = new StreamableHTTPServerTransport({
-        sessionIdGenerator: () => randomUUID(),
-        onsessioninitialized: async (sid) => {
-          console.log(`[${new Date().toISOString()}] Session initialized: ${sid}`);
-          // Store session immediately in the map using the callback's sid
-          session = {
-            transport,
-            agentService: services.agentService,
-            messageService: services.messageService,
-            mcpserver,
-          };
-          sessions.set(sid, session);
-          // Also store under the original request sessionId if different
-          if (sessionId && sessionId !== sid) {
-            sessions.set(sessionId, session);
-          }
-          console.log(`[${new Date().toISOString()}] Session stored. Total sessions: ${sessions.size}`);
-        },
-      });
-
-      transport.onclose = () => {
-        const sid = transport.sessionId;
-        if (sid && sessions.has(sid)) {
-          console.log(`[${new Date().toISOString()}] Transport closed for session ${sid}`);
-          sessions.delete(sid);
-        }
-      };
-
-      // Register tools on the new McpServer instance
-      mcpserver.registerTool('register_agent', {
-        title: 'Register Agent',
-        description: 'Register a new agent in the council',
-        inputSchema: {
-          agent_id: z.string().min(1).max(255).describe('Unique identifier for the agent'),
-          display_name: z.string().min(1).max(255).describe('Human-readable display name'),
-          runtime: z.string().min(1).max(255).describe('Runtime environment (e.g., node, python, browser)'),
-        },
-      }, async ({ agent_id, display_name, runtime }) => {
-        const agent = services.agentService.registerAgent({ agent_id, display_name, runtime });
-        return {
-          content: [{ type: 'text', text: JSON.stringify(agent, null, 2) }],
-        };
-      });
-
-      mcpserver.registerTool('list_agents', {
-        title: 'List Agents',
-        description: 'List all registered agents',
-        inputSchema: {},
-      }, async () => {
-        const agents = services.agentService.listAgents();
-        return {
-          content: [{ type: 'text', text: JSON.stringify(agents, null, 2) }],
-        };
-      });
-
-      mcpserver.registerTool('send_message', {
-        title: 'Send Message',
-        description: 'Send a message from one agent to another',
-        inputSchema: {
-          sender_id: z.string().min(1).max(255).describe('Sender agent ID'),
-          recipient_id: z.string().min(1).max(255).describe('Recipient agent ID'),
-          content: z.string().min(1).describe('Message content'),
-          reply_to: z.string().uuid().optional().describe('Optional message ID to reply to'),
-        },
-      }, async ({ sender_id, recipient_id, content, reply_to }) => {
-        const message = services.messageService.sendMessage({ sender_id, recipient_id, content, reply_to });
-        return {
-          content: [{ type: 'text', text: JSON.stringify(message, null, 2) }],
-        };
-      });
-
-      mcpserver.registerTool('check_inbox', {
-        title: 'Check Inbox',
-        description: 'Check messages for an agent',
-        inputSchema: {
-          agent_id: z.string().min(1).max(255).describe('Agent ID to check inbox for'),
-        },
-      }, async ({ agent_id }) => {
-        const messages = services.messageService.checkInbox(agent_id);
-        return {
-          content: [{ type: 'text', text: JSON.stringify(messages, null, 2) }],
-        };
-      });
-
-      mcpserver.registerTool('reply_message', {
-        title: 'Reply Message',
-        description: 'Reply to a specific message',
-        inputSchema: {
-          agent_id: z.string().min(1).max(255).describe('Agent ID (must be the recipient)'),
-          message_id: z.string().uuid().describe('Message ID to reply to'),
-          content: z.string().min(1).describe('Reply content'),
-        },
-      }, async ({ agent_id, message_id, content }) => {
-        const message = services.messageService.replyMessage({ agent_id, message_id, content });
-        return {
-          content: [{ type: 'text', text: JSON.stringify(message, null, 2) }],
-        };
-      });
-
-      mcpserver.registerTool('list_messages', {
-        title: 'List Messages',
-        description: 'List all messages sent or received by an agent',
-        inputSchema: {
-          agent_id: z.string().min(1).max(255).describe('Agent ID'),
-          limit: z.number().int().positive().max(100).default(50).describe('Maximum messages to return'),
-        },
-      }, async ({ agent_id, limit }) => {
-        const messages = services.messageService.listMessages({ agent_id, limit });
-        return {
-          content: [{ type: 'text', text: JSON.stringify(messages, null, 2) }],
-        };
-      });
-
-      // Phase 4: Memory Tools
-      mcpserver.registerTool('create_memory', {
-        title: 'Create Memory',
-        description: 'Create a new memory entry (owner/identity derived from session)',
-        inputSchema: {
-          category: z.enum([
-            'individual_persona', 'council_shared', 'meeting_history', 'decision_resolution',
-            'idea_proposal', 'research_evidence', 'lesson_learned', 'unresolved_question',
-            'division_shared', 'division_private', 'staff_private', 'business_context',
-            'task_history', 'cross_division'
-          ]).describe('Memory category'),
-          memory_type: z.string().min(1).max(255).describe('Discriminator for structured content'),
-          title: z.string().min(1).max(500).describe('Memory title'),
-          content: z.record(z.string(), z.any()).describe('Structured JSON content'),
-          tags: z.array(z.string()).default([]).describe('Tags for categorization'),
-          confidence: z.number().min(0).max(1).default(1.0).describe('Confidence score 0-1'),
-          meeting_id: z.string().optional().describe('Optional meeting ID'),
-          division_id: z.string().optional().describe('Optional division ID'),
-          task_id: z.string().optional().describe('Optional task ID'),
-        },
-      }, async ({ category, memory_type, title, content, tags, confidence, meeting_id, division_id, task_id }) => {
-        // In production, ctx comes from session middleware
-        // For now, we'll extract from session or use defaults
-        const ctx = {
-          owner_type: 'seat' as const,
-          owner_id: 'seat-001',
-          runtime: 'claude' as const,
-        };
-        const memory = services.councilService.createMemory(ctx, { category, memory_type, title, content, tags, confidence, meeting_id, division_id, task_id });
-        return {
-          content: [{ type: 'text', text: JSON.stringify(memory, null, 2) }],
-        };
-      });
-
-      mcpserver.registerTool('get_memory', {
-        title: 'Get Memory',
-        description: 'Fetch a memory by ID with optional versions and links',
-        inputSchema: {
-          memory_id: z.string().min(1).max(255).describe('Memory ID'),
-          include_versions: z.boolean().default(false).describe('Include version history'),
-          include_links: z.boolean().default(false).describe('Include links'),
-          version: z.number().int().positive().optional().describe('Specific version to fetch'),
-        },
-      }, async ({ memory_id, include_versions, include_links, version }) => {
-        const ctx = {
-          owner_type: 'seat' as const,
-          owner_id: 'seat-001',
-          runtime: 'claude' as const,
-        };
-        const result = services.councilService.getMemory(ctx, memory_id, { include_versions, include_links, version });
-        return {
-          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
-        };
-      });
-
-      mcpserver.registerTool('update_memory', {
-        title: 'Update Memory',
-        description: 'Create a new version of a memory (immutable history preserved)',
-        inputSchema: {
-          memory_id: z.string().min(1).max(255).describe('Memory ID'),
-          title: z.string().min(1).max(500).optional().describe('New title'),
-          content: z.record(z.string(), z.any()).optional().describe('New content'),
-          tags: z.array(z.string()).optional().describe('New tags'),
-          confidence: z.number().min(0).max(1).optional().describe('New confidence'),
-          change_summary: z.string().min(1).max(1000).describe('Reason for change'),
-        },
-      }, async ({ memory_id, title, content, tags, confidence, change_summary }) => {
-        const ctx = {
-          owner_type: 'seat' as const,
-          owner_id: 'seat-001',
-          runtime: 'claude' as const,
-        };
-        const memory = services.councilService.updateMemory(ctx, { memory_id, title, content, tags, confidence, change_summary });
-        return {
-          content: [{ type: 'text', text: JSON.stringify(memory, null, 2) }],
-        };
-      });
-
-      mcpserver.registerTool('search_memory', {
-        title: 'Search Memory',
-        description: 'Full-text search with filters and privacy enforcement',
-        inputSchema: {
-          query: z.string().optional().describe('FTS5 search query'),
-          category: z.enum([
-            'individual_persona', 'council_shared', 'meeting_history', 'decision_resolution',
-            'idea_proposal', 'research_evidence', 'lesson_learned', 'unresolved_question',
-            'division_shared', 'division_private', 'staff_private', 'business_context',
-            'task_history', 'cross_division'
-          ]).optional().describe('Filter by category'),
-          memory_type: z.string().optional().describe('Filter by memory type'),
-          meeting_id: z.string().optional().describe('Filter by meeting'),
-          division_id: z.string().optional().describe('Filter by division'),
-          task_id: z.string().optional().describe('Filter by task'),
-          tags: z.array(z.string()).optional().describe('Filter by tags'),
-          min_confidence: z.number().min(0).max(1).optional().describe('Minimum confidence'),
-          limit: z.number().int().positive().max(1000).default(50).describe('Result limit'),
-          offset: z.number().int().nonnegative().default(0).describe('Result offset'),
-          include_archived: z.boolean().default(false).describe('Include archived entries'),
-        },
-      }, async ({ query, category, memory_type, meeting_id, division_id, task_id, tags, min_confidence, limit, offset, include_archived }) => {
-        const ctx = {
-          owner_type: 'seat' as const,
-          owner_id: 'seat-001',
-          runtime: 'claude' as const,
-        };
-        const results = services.councilService.searchMemory(ctx, { query, category, memory_type, meeting_id, division_id, task_id, tags, min_confidence, limit, offset, include_archived });
-        return {
-          content: [{ type: 'text', text: JSON.stringify(results, null, 2) }],
-        };
-      });
-
-      mcpserver.registerTool('link_memory', {
-        title: 'Link Memory',
-        description: 'Create a relationship between two memories',
-        inputSchema: {
-          source_memory_id: z.string().min(1).max(255).describe('Source memory ID'),
-          target_memory_id: z.string().min(1).max(255).describe('Target memory ID'),
-          link_type: z.enum(['supports', 'contradicts', 'extends', 'references', 'supersedes', 'derived_from']).describe('Relationship type'),
-          strength: z.number().min(0).max(1).default(1.0).describe('Relationship strength 0-1'),
-          notes: z.string().default('').describe('Optional notes'),
-        },
-      }, async ({ source_memory_id, target_memory_id, link_type, strength, notes }) => {
-        const ctx = {
-          owner_type: 'seat' as const,
-          owner_id: 'seat-001',
-          runtime: 'claude' as const,
-        };
-        const link = services.councilService.linkMemory(ctx, { source_memory_id, target_memory_id, link_type, strength, notes });
-        return {
-          content: [{ type: 'text', text: JSON.stringify(link, null, 2) }],
-        };
-      });
-
-      mcpserver.registerTool('get_related', {
-        title: 'Get Related Memories',
-        description: 'Graph traversal to find related memories with privacy enforcement',
-        inputSchema: {
-          memory_id: z.string().min(1).max(255).describe('Starting memory ID'),
-          link_type: z.enum(['supports', 'contradicts', 'extends', 'references', 'supersedes', 'derived_from']).optional().describe('Filter by link type'),
-          direction: z.enum(['out', 'in', 'both']).default('out').describe('Traversal direction'),
-          depth: z.number().int().positive().max(5).default(1).describe('Current depth'),
-          max_depth: z.number().int().positive().max(5).default(3).describe('Maximum traversal depth'),
-        },
-      }, async ({ memory_id, link_type, direction, depth, max_depth }) => {
-        const ctx = {
-          owner_type: 'seat' as const,
-          owner_id: 'seat-001',
-          runtime: 'claude' as const,
-        };
-        const results = services.councilService.getRelated(ctx, { memory_id, link_type, direction, depth, max_depth });
-        return {
-          content: [{ type: 'text', text: JSON.stringify(results, null, 2) }],
-        };
-      });
-
-      mcpserver.registerTool('get_memory_versions', {
-        title: 'Get Memory Versions',
-        description: 'Get version history for a memory',
-        inputSchema: {
-          memory_id: z.string().min(1).max(255).describe('Memory ID'),
-          limit: z.number().int().positive().max(100).default(50).describe('Maximum versions to return'),
-        },
-      }, async ({ memory_id, limit }) => {
-        const ctx = {
-          owner_type: 'seat' as const,
-          owner_id: 'seat-001',
-          runtime: 'claude' as const,
-        };
-        const versions = services.councilService.getMemoryVersions(ctx, memory_id, limit);
-        return {
-          content: [{ type: 'text', text: JSON.stringify(versions, null, 2) }],
-        };
-      });
-
-      mcpserver.registerTool('get_cross_division_shares', {
-        title: 'Get Cross-Division Shares',
-        description: 'List cross-division sharing grants',
-        inputSchema: {
-          memory_id: z.string().optional().describe('Filter by memory'),
-          division_id: z.string().optional().describe('Filter by division'),
-        },
-      }, async ({ memory_id, division_id }) => {
-        const ctx = {
-          owner_type: 'seat' as const,
-          owner_id: 'seat-001',
-          runtime: 'claude' as const,
-        };
-        const shares = services.councilService.getCrossDivisionShares(ctx, memory_id, division_id);
-        return {
-          content: [{ type: 'text', text: JSON.stringify(shares, null, 2) }],
-        };
-      });
-
-      mcpserver.registerTool('grant_cross_division_access', {
-        title: 'Grant Cross-Division Access',
-        description: 'Grant a division access to a cross-division memory',
-        inputSchema: {
-          memory_id: z.string().min(1).max(255).describe('Memory ID'),
-          division_id: z.string().min(1).max(255).describe('Division ID to grant access'),
-        },
-      }, async ({ memory_id, division_id }) => {
-        const ctx = {
-          owner_type: 'division' as const,
-          owner_id: 'div-001',
-          runtime: 'claude' as const,
-        };
-        const share = services.councilService.grantCrossDivisionAccess(ctx, { memory_id, division_id });
-        return {
-          content: [{ type: 'text', text: JSON.stringify(share, null, 2) }],
-        };
-      });
-
-      mcpserver.registerTool('revoke_cross_division_access', {
-        title: 'Revoke Cross-Division Access',
-        description: 'Revoke a division access to a cross-division memory',
-        inputSchema: {
-          memory_id: z.string().min(1).max(255).describe('Memory ID'),
-          division_id: z.string().min(1).max(255).describe('Division ID to revoke access'),
-        },
-      }, async ({ memory_id, division_id }) => {
-        const ctx = {
-          owner_type: 'division' as const,
-          owner_id: 'div-001',
-          runtime: 'claude' as const,
-        };
-        const result = services.councilService.revokeCrossDivisionAccess(ctx, { memory_id, division_id });
-        return {
-          content: [{ type: 'text', text: JSON.stringify({ success: result }, null, 2) }],
-        };
-      });
-
-      // Phase 6: Division Management MCP Tools
-      mcpserver.registerTool('create_division', {
-        title: 'Create Division',
-        description: 'Create a new division (Founder-only)',
-        inputSchema: {
-          name: z.string().min(1).max(255).describe('Division name'),
-          description: z.string().optional().describe('Division description'),
-          budget_limit: z.number().optional().describe('Budget limit'),
-          strategic_objectives: z.array(z.string()).optional().describe('Strategic objectives'),
-        },
-      }, async ({ name, description, budget_limit, strategic_objectives }) => {
-        const ctx = {
-          owner_type: 'founder' as const,
-          owner_id: 'founder',
-          runtime: 'claude' as const,
-        };
-        const division = services.councilService.createDivision(ctx, { name, description, budget_limit, strategic_objectives });
-        return {
-          content: [{ type: 'text', text: JSON.stringify(division, null, 2) }],
-        };
-      });
-
-      mcpserver.registerTool('assign_division_head', {
-        title: 'Assign Division Head',
-        description: 'Assign a staff agent as division head (Founder-only)',
-        inputSchema: {
-          staff_id: z.string().min(1).max(255).describe('Staff agent ID'),
-          division_id: z.string().min(1).max(255).describe('Division ID'),
-        },
-      }, async ({ staff_id, division_id }) => {
-        const ctx = {
-          owner_type: 'founder' as const,
-          owner_id: 'founder',
-          runtime: 'claude' as const,
-        };
-        const division = services.councilService.assignDivisionHead(ctx, { staff_id, division_id });
-        return {
-          content: [{ type: 'text', text: JSON.stringify(division, null, 2) }],
-        };
-      });
-
-      mcpserver.registerTool('update_division', {
-        title: 'Update Division',
-        description: 'Update division details (Founder or Division Head)',
-        inputSchema: {
-          division_id: z.string().min(1).max(255).describe('Division ID'),
-          head_staff_id: z.string().optional().describe('New head staff ID'),
-          budget_limit: z.number().optional().describe('Budget limit'),
-          strategic_objectives: z.array(z.string()).optional().describe('Strategic objectives'),
-        },
-      }, async ({ division_id, head_staff_id, budget_limit, strategic_objectives }) => {
-        const ctx = {
-          owner_type: 'division' as const,
-          owner_id: 'div-001',
-          runtime: 'claude' as const,
-        };
-        const division = services.councilService.updateDivision(ctx, { division_id, head_staff_id, budget_limit, strategic_objectives });
-        return {
-          content: [{ type: 'text', text: JSON.stringify(division, null, 2) }],
-        };
-      });
-
-      mcpserver.registerTool('list_divisions', {
-        title: 'List Divisions',
-        description: 'List all divisions (Founder-only)',
-        inputSchema: {},
-      }, async () => {
-        const ctx = {
-          owner_type: 'founder' as const,
-          owner_id: 'founder',
-          runtime: 'claude' as const,
-        };
-        const divisions = services.councilService.listDivisions(ctx);
-        return {
-          content: [{ type: 'text', text: JSON.stringify(divisions, null, 2) }],
-        };
-      });
-
-      mcpserver.registerTool('list_specialists', {
-        title: 'List Specialists',
-        description: 'List specialists in a division',
-        inputSchema: {
-          division_id: z.string().min(1).max(255).describe('Division ID'),
-        },
-      }, async ({ division_id }) => {
-        const ctx = {
-          owner_type: 'division' as const,
-          owner_id: 'div-001',
-          runtime: 'claude' as const,
-        };
-        const specialists = services.councilService.listSpecialists(ctx, { division_id });
-        return {
-          content: [{ type: 'text', text: JSON.stringify(specialists, null, 2) }],
-        };
-      });
-
-      // Phase 6: Staff Agent Management MCP Tools
-      mcpserver.registerTool('register_staff_agent', {
-        title: 'Register Staff Agent',
-        description: 'Register a new staff agent (Founder-only)',
-        inputSchema: {
-          staff_id: z.string().min(1).max(255).describe('Staff agent ID'),
-          name: z.string().min(1).max(255).describe('Staff agent name'),
-          role: z.string().min(1).max(255).describe('Professional role'),
-          division_id: z.string().min(1).max(255).describe('Division ID'),
-          runtime_instances: z.array(z.enum(['claude', 'hermes'])).min(1).describe('Runtime instances'),
-          permissions: z.array(z.string()).default([]).describe('Permissions array'),
-        },
-      }, async ({ staff_id, name, role, division_id, runtime_instances, permissions }) => {
-        const ctx = {
-          owner_type: 'founder' as const,
-          owner_id: 'founder',
-          runtime: 'claude' as const,
-        };
-        const staff = services.councilService.registerStaffAgent(ctx, { staff_id, name, role, division_id, runtime_instances, permissions });
-        return {
-          content: [{ type: 'text', text: JSON.stringify(staff, null, 2) }],
-        };
-      });
-
-      mcpserver.registerTool('update_staff_status', {
-        title: 'Update Staff Status',
-        description: 'Update staff agent status (Founder-only)',
-        inputSchema: {
-          staff_id: z.string().min(1).max(255).describe('Staff agent ID'),
-          status: z.enum(['active', 'inactive', 'terminated']).describe('New status'),
-        },
-      }, async ({ staff_id, status }) => {
-        const ctx = {
-          owner_type: 'founder' as const,
-          owner_id: 'founder',
-          runtime: 'claude' as const,
-        };
-        const staff = services.councilService.updateStaffStatus(ctx, { staff_id, status });
-        return {
-          content: [{ type: 'text', text: JSON.stringify(staff, null, 2) }],
-        };
-      });
-
-      mcpserver.registerTool('update_staff_permissions', {
-        title: 'Update Staff Permissions',
-        description: 'Update staff agent permissions (Founder-only)',
-        inputSchema: {
-          staff_id: z.string().min(1).max(255).describe('Staff agent ID'),
-          permissions: z.array(z.string()).describe('Permissions array'),
-        },
-      }, async ({ staff_id, permissions }) => {
-        const ctx = {
-          owner_type: 'founder' as const,
-          owner_id: 'founder',
-          runtime: 'claude' as const,
-        };
-        const staff = services.councilService.updateStaffPermissions(ctx, { staff_id, permissions });
-        return {
-          content: [{ type: 'text', text: JSON.stringify(staff, null, 2) }],
-        };
-      });
-
-      mcpserver.registerTool('suspend_staff_agent', {
-        title: 'Suspend Staff Agent',
-        description: 'Suspend a staff agent (sets status to inactive) (Founder-only)',
-        inputSchema: {
-          staff_id: z.string().min(1).max(255).describe('Staff agent ID'),
-        },
-      }, async ({ staff_id }) => {
-        const ctx = {
-          owner_type: 'founder' as const,
-          owner_id: 'founder',
-          runtime: 'claude' as const,
-        };
-        const staff = services.councilService.suspendStaffAgent(ctx, { staff_id });
-        return {
-          content: [{ type: 'text', text: JSON.stringify(staff, null, 2) }],
-        };
-      });
-
-      mcpserver.registerTool('retire_staff_agent', {
-        title: 'Retire Staff Agent',
-        description: 'Retire a staff agent (sets status to terminated, removes from division) (Founder-only)',
-        inputSchema: {
-          staff_id: z.string().min(1).max(255).describe('Staff agent ID'),
-        },
-      }, async ({ staff_id }) => {
-        const ctx = {
-          owner_type: 'founder' as const,
-          owner_id: 'founder',
-          runtime: 'claude' as const,
-        };
-        const staff = services.councilService.retireStaffAgent(ctx, { staff_id });
-        return {
-          content: [{ type: 'text', text: JSON.stringify(staff, null, 2) }],
-        };
-      });
-
-      // Connect first
-      await mcpserver.connect(transport);
-
-      // Phase 6: Task Management MCP Tools
-      mcpserver.registerTool('create_task', {
-        title: 'Create Task',
-        description: 'Create a new task',
-        inputSchema: {
-          title: z.string().min(1).max(500).describe('Task title'),
-          description: z.string().optional().describe('Task description'),
-          assigned_to_type: z.enum(['division', 'staff']).describe('Assignment type'),
-          assigned_to_id: z.string().min(1).max(255).describe('Division ID or Staff ID'),
-          created_by_type: z.enum(['founder', 'council', 'division_head']).describe('Creator type'),
-          created_by_id: z.string().min(1).max(255).describe('Creator ID'),
-          status: z.enum(['pending', 'in_progress', 'review', 'completed', 'cancelled']).optional().describe('Initial status'),
-          priority: z.enum(['low', 'medium', 'high', 'critical']).optional().describe('Priority'),
-          budget_allocated: z.number().optional().describe('Budget allocated'),
-          due_at: z.string().optional().describe('Due date (ISO)'),
-          dependencies: z.array(z.string()).optional().describe('Task dependencies'),
-          deliverable_id: z.string().optional().describe('Deliverable ID'),
-        },
-      }, async ({ title, description, assigned_to_type, assigned_to_id, created_by_type, created_by_id, status, priority, budget_allocated, due_at, dependencies, deliverable_id }) => {
-        const ctx = created_by_type === 'founder'
-          ? { owner_type: 'founder' as const, owner_id: 'founder', runtime: 'claude' as const }
-          : created_by_type === 'division_head'
-          ? { owner_type: 'division' as const, owner_id: assigned_to_type === 'division' ? assigned_to_id : '', runtime: 'claude' as const }
-          : { owner_type: 'seat' as const, owner_id: 'seat-001', runtime: 'claude' as const };
-
-        const task = services.councilService.createTask(ctx, { title, description, assigned_to_type, assigned_to_id, created_by_type, created_by_id, status, priority, budget_allocated, due_at, dependencies, deliverable_id });
-        return {
-          content: [{ type: 'text', text: JSON.stringify(task, null, 2) }],
-        };
-      });
-
-      mcpserver.registerTool('update_task', {
-        title: 'Update Task',
-        description: 'Update task status, priority, or due date',
-        inputSchema: {
-          task_id: z.string().min(1).max(255).describe('Task ID'),
-          status: z.enum(['pending', 'in_progress', 'review', 'completed', 'cancelled']).optional().describe('New status'),
-          priority: z.enum(['low', 'medium', 'high', 'critical']).optional().describe('New priority'),
-          due_at: z.string().optional().describe('New due date (ISO)'),
-        },
-      }, async ({ task_id, status, priority, due_at }) => {
-        const ctx = {
-          owner_type: 'division' as const,
-          owner_id: 'div-001',
-          runtime: 'claude' as const,
-        };
-        const task = services.councilService.updateTask(ctx, { task_id, status, priority, due_at });
-        return {
-          content: [{ type: 'text', text: JSON.stringify(task, null, 2) }],
-        };
-      });
-
-      mcpserver.registerTool('list_tasks', {
-        title: 'List Tasks',
-        description: 'List tasks with filters',
-        inputSchema: {
-          assigned_to_type: z.enum(['division', 'staff']).optional().describe('Filter by assignment type'),
-          assigned_to_id: z.string().optional().describe('Filter by division or staff ID'),
-          status: z.enum(['pending', 'in_progress', 'review', 'completed', 'cancelled']).optional().describe('Filter by status'),
-          priority: z.enum(['low', 'medium', 'high', 'critical']).optional().describe('Filter by priority'),
-        },
-      }, async ({ assigned_to_type, assigned_to_id, status, priority }) => {
-        const ctx = {
-          owner_type: 'division' as const,
-          owner_id: 'div-001',
-          runtime: 'claude' as const,
-        };
-        const tasks = services.councilService.listTasks(ctx, { assigned_to_type, assigned_to_id, status, priority });
-        return {
-          content: [{ type: 'text', text: JSON.stringify(tasks, null, 2) }],
-        };
-      });
-
-      mcpserver.registerTool('complete_task', {
-        title: 'Complete Task',
-        description: 'Mark a task as completed',
-        inputSchema: {
-          task_id: z.string().min(1).max(255).describe('Task ID'),
-        },
-      }, async ({ task_id }) => {
-        const ctx = {
-          owner_type: 'division' as const,
-          owner_id: 'div-001',
-          runtime: 'claude' as const,
-        };
-        const task = services.councilService.completeTask(ctx, { task_id });
-        return {
-          content: [{ type: 'text', text: JSON.stringify(task, null, 2) }],
-        };
-      });
-
-      // Phase 6: Deliverable Management MCP Tools
-      mcpserver.registerTool('create_deliverable', {
-        title: 'Create Deliverable',
-        description: 'Submit a deliverable for a task',
-        inputSchema: {
-          task_id: z.string().min(1).max(255).describe('Task ID'),
-          content: z.record(z.string(), z.any()).describe('Deliverable content'),
-          submitted_by_type: z.enum(['staff', 'division']).describe('Submitter type'),
-          submitted_by_id: z.string().min(1).max(255).describe('Submitter ID'),
-        },
-      }, async ({ task_id, content, submitted_by_type, submitted_by_id }) => {
-        const ctx = submitted_by_type === 'staff'
-          ? { owner_type: 'staff' as const, owner_id: submitted_by_id, runtime: 'claude' as const }
-          : { owner_type: 'division' as const, owner_id: submitted_by_id, runtime: 'claude' as const };
-
-        const deliverable = services.councilService.createDeliverable(ctx, { task_id, content, submitted_by_type, submitted_by_id });
-        return {
-          content: [{ type: 'text', text: JSON.stringify(deliverable, null, 2) }],
-        };
-      });
-
-      mcpserver.registerTool('update_deliverable', {
-        title: 'Update Deliverable',
-        description: 'Review/update a deliverable (Division Head or Founder)',
-        inputSchema: {
-          deliverable_id: z.string().min(1).max(255).describe('Deliverable ID'),
-          status: z.enum(['submitted', 'accepted', 'rejected', 'revision_requested']).optional().describe('New status'),
-          reviewed_by_type: z.enum(['founder', 'council', 'division_head']).optional().describe('Reviewer type'),
-          reviewed_by_id: z.string().optional().describe('Reviewer ID'),
-        },
-      }, async ({ deliverable_id, status, reviewed_by_type, reviewed_by_id }) => {
-        const ctx = {
-          owner_type: 'division' as const,
-          owner_id: 'div-001',
-          runtime: 'claude' as const,
-        };
-        const deliverable = services.councilService.updateDeliverable(ctx, { deliverable_id, status, reviewed_by_type, reviewed_by_id });
-        return {
-          content: [{ type: 'text', text: JSON.stringify(deliverable, null, 2) }],
-        };
-      });
-
-      mcpserver.registerTool('list_deliverables_by_task', {
-        title: 'List Deliverables by Task',
-        description: 'List all deliverables for a task',
-        inputSchema: {
-          task_id: z.string().min(1).max(255).describe('Task ID'),
-        },
-      }, async ({ task_id }) => {
-        const ctx = {
-          owner_type: 'division' as const,
-          owner_id: 'div-001',
-          runtime: 'claude' as const,
-        };
-        const deliverables = services.councilService.listDeliverablesByTask(ctx, { task_id });
-        return {
-          content: [{ type: 'text', text: JSON.stringify(deliverables, null, 2) }],
-        };
-      });
-
-      // Phase 6: Cross-Division Request/Approval MCP Tools
-      mcpserver.registerTool('request_cross_division_access', {
-        title: 'Request Cross-Division Access',
-        description: 'Request cross-division access (Division Head only)',
-        inputSchema: {
-          from_division: z.string().min(1).max(255).describe('Requesting division ID'),
-          to_division: z.string().min(1).max(255).describe('Target division ID'),
-          memory_id: z.string().optional().describe('Memory ID (optional)'),
-          justification: z.string().min(1).describe('Justification for request'),
-          priority: z.enum(['low', 'medium', 'high', 'critical']).default('medium').describe('Priority'),
-          deadline: z.string().optional().describe('Deadline (ISO)'),
-          request_type: z.enum(['task_delegate', 'deliverable_share', 'memory_access', 'resource_request']).describe('Request type'),
-        },
-      }, async ({ from_division, to_division, memory_id, justification, priority, deadline, request_type }) => {
-        const ctx = {
-          owner_type: 'division' as const,
-          owner_id: from_division,
-          runtime: 'claude' as const,
-        };
-        const request = services.councilService.requestCrossDivisionAccess(ctx, { from_division, to_division, memory_id, justification, priority, deadline, request_type });
-        return {
-          content: [{ type: 'text', text: JSON.stringify(request, null, 2) }],
-        };
-      });
-
-      mcpserver.registerTool('approve_cross_division_access', {
-        title: 'Approve Cross-Division Access',
-        description: 'Approve a cross-division access request (Founder only)',
-        inputSchema: {
-          request_id: z.string().min(1).max(255).describe('Request ID'),
-        },
-      }, async ({ request_id }) => {
-        const ctx = {
-          owner_type: 'founder' as const,
-          owner_id: 'founder',
-          runtime: 'claude' as const,
-        };
-        const result = services.councilService.approveCrossDivisionAccess(ctx, { request_id });
-        return {
-          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
-        };
-      });
-
-      mcpserver.registerTool('revoke_cross_division_access_request', {
-        title: 'Revoke Cross-Division Access Request',
-        description: 'Reject/Revoke a cross-division access request (Founder only)',
-        inputSchema: {
-          request_id: z.string().min(1).max(255).describe('Request ID'),
-        },
-      }, async ({ request_id }) => {
-        const ctx = {
-          owner_type: 'founder' as const,
-          owner_id: 'founder',
-          runtime: 'claude' as const,
-        };
-        const result = services.councilService.revokeCrossDivisionAccessRequest(ctx, { request_id });
-        return {
-          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
-        };
-      });
-
-      mcpserver.registerTool('list_pending_cross_division_requests', {
-        title: 'List Pending Cross-Division Requests',
-        description: 'List pending cross-division requests for a division',
-        inputSchema: {
-          division_id: z.string().min(1).max(255).describe('Division ID'),
-        },
-      }, async ({ division_id }) => {
-        const ctx = {
-          owner_type: 'division' as const,
-          owner_id: division_id,
-          runtime: 'claude' as const,
-        };
-        const requests = services.councilService.listPendingCrossDivisionRequests(ctx, { division_id });
-        return {
-          content: [{ type: 'text', text: JSON.stringify(requests, null, 2) }],
-        };
-      });
-
-      // Phase 7: Autonomy, Permissions and Execution MCP Tools
-      mcpserver.registerTool('create_task_autonomy_level', {
-        title: 'Create Task Autonomy Level',
-        description: 'Define autonomy level for a task type (Founder-only)',
-        inputSchema: {
-          task_type: z.string().min(1).max(255).describe('Task type (e.g., research, deployment)'),
-          autonomy_level: z.union([z.literal(1), z.literal(2), z.literal(3)]).describe('Autonomy level: 1=autonomous, 2=bounded, 3=founder approval'),
-          description: z.string().optional().describe('Description'),
-        },
-      }, async ({ task_type, autonomy_level, description }) => {
-        const ctx = {
-          owner_type: 'founder' as const,
-          owner_id: 'founder',
-          runtime: 'claude' as const,
-        };
-        const level = services.councilService.createTaskAutonomyLevel(ctx, { task_type, autonomy_level, description });
-        return {
-          content: [{ type: 'text', text: JSON.stringify(level, null, 2) }],
-        };
-      });
-
-      mcpserver.registerTool('get_task_autonomy_level', {
-        title: 'Get Task Autonomy Level',
-        description: 'Get autonomy level for a task type',
-        inputSchema: {
-          task_type: z.string().min(1).max(255).describe('Task type'),
-        },
-      }, async ({ task_type }) => {
-        const ctx = {
-          owner_type: 'seat' as const,
-          owner_id: 'seat-001',
-          runtime: 'claude' as const,
-        };
-        const level = services.councilService.getTaskAutonomyLevel(ctx, task_type);
-        return {
-          content: [{ type: 'text', text: JSON.stringify(level, null, 2) }],
-        };
-      });
-
-      mcpserver.registerTool('list_task_autonomy_levels', {
-        title: 'List Task Autonomy Levels',
-        description: 'List all defined task autonomy levels',
-        inputSchema: {},
-      }, async () => {
-        const ctx = {
-          owner_type: 'seat' as const,
-          owner_id: 'seat-001',
-          runtime: 'claude' as const,
-        };
-        const levels = services.councilService.listTaskAutonomyLevels(ctx);
-        return {
-          content: [{ type: 'text', text: JSON.stringify(levels, null, 2) }],
-        };
-      });
-
-      mcpserver.registerTool('request_execution', {
-        title: 'Request Execution',
-        description: 'Request execution of an action (Staff, Division Head, or Founder)',
-        inputSchema: {
-          task_id: z.string().min(1).max(255).describe('Task ID'),
-          autonomy_level: z.union([z.literal(1), z.literal(2), z.literal(3)]).optional().describe('Override autonomy level'),
-          action_description: z.string().min(1).max(1000).describe('Description of proposed action'),
-          action_payload: z.record(z.string(), z.any()).default({}).describe('JSON payload with action parameters'),
-        },
-      }, async ({ task_id, autonomy_level, action_description, action_payload }) => {
-        // Determine ctx from session - in production this comes from auth
-        const ctx = {
-          owner_type: 'staff' as const,
-          owner_id: 'staff-001',
-          runtime: 'claude' as const,
-        };
-        const execution = services.councilService.requestExecution(ctx, { task_id, autonomy_level: autonomy_level as 1 | 2 | 3 | undefined, action_description, action_payload });
-        return {
-          content: [{ type: 'text', text: JSON.stringify(execution, null, 2) }],
-        };
-      });
-
-      mcpserver.registerTool('get_execution_request', {
-        title: 'Get Execution Request',
-        description: 'Get execution request details',
-        inputSchema: {
-          execution_id: z.string().min(1).max(255).describe('Execution request ID'),
-        },
-      }, async ({ execution_id }) => {
-        const ctx = {
-          owner_type: 'seat' as const,
-          owner_id: 'seat-001',
-          runtime: 'claude' as const,
-        };
-        const execution = services.councilService.getExecutionRequest(ctx, { execution_id });
-        return {
-          content: [{ type: 'text', text: JSON.stringify(execution, null, 2) }],
-        };
-      });
-
-      mcpserver.registerTool('list_execution_requests', {
-        title: 'List Execution Requests',
-        description: 'List execution requests with filters',
-        inputSchema: {
-          status: z.enum(['proposed', 'permission_check', 'approval_required', 'approved', 'rejected', 'queued', 'running', 'completed', 'failed', 'cancelled']).optional().describe('Filter by status'),
-          autonomy_level: z.union([z.literal(1), z.literal(2), z.literal(3)]).optional().describe('Filter by autonomy level'),
-          requested_by_type: z.enum(['staff', 'division', 'founder']).optional().describe('Filter by requester type'),
-          requested_by_id: z.string().optional().describe('Filter by requester ID'),
-          task_id: z.string().optional().describe('Filter by task ID'),
-          limit: z.number().int().positive().max(100).default(50).describe('Result limit'),
-          offset: z.number().int().nonnegative().default(0).describe('Result offset'),
-        },
-      }, async ({ status, autonomy_level, requested_by_type, requested_by_id, task_id, limit, offset }) => {
-        const ctx = {
-          owner_type: 'seat' as const,
-          owner_id: 'seat-001',
-          runtime: 'claude' as const,
-        };
-        const executions = services.councilService.listExecutionRequests(ctx, { status, autonomy_level, requested_by_type, requested_by_id, task_id, limit, offset });
-        return {
-          content: [{ type: 'text', text: JSON.stringify(executions, null, 2) }],
-        };
-      });
-
-      mcpserver.registerTool('approve_execution', {
-        title: 'Approve Execution',
-        description: 'Approve or reject an execution request (Founder-only)',
-        inputSchema: {
-          approval_request_id: z.string().min(1).max(255).describe('Approval request ID'),
-          approved: z.boolean().describe('Approve or reject'),
-          rejection_reason: z.string().optional().describe('Reason if rejected'),
-        },
-      }, async ({ approval_request_id, approved, rejection_reason }) => {
-        const ctx = {
-          owner_type: 'founder' as const,
-          owner_id: 'founder',
-          runtime: 'claude' as const,
-        };
-        const result = services.councilService.approveExecution(ctx, { approval_request_id, approved, rejection_reason });
-        return {
-          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
-        };
-      });
-
-      mcpserver.registerTool('list_approval_requests', {
-        title: 'List Approval Requests',
-        description: 'List approval requests (Founder-only)',
-        inputSchema: {
-          status: z.enum(['pending', 'approved', 'rejected', 'expired', 'cancelled']).optional().describe('Filter by status'),
-          requested_by_type: z.enum(['staff', 'division', 'founder']).optional().describe('Filter by requester type'),
-          requested_by_id: z.string().optional().describe('Filter by requester ID'),
-          limit: z.number().int().positive().max(100).default(50).describe('Result limit'),
-          offset: z.number().int().nonnegative().default(0).describe('Result offset'),
-        },
-      }, async ({ status, requested_by_type, requested_by_id, limit, offset }) => {
-        const ctx = {
-          owner_type: 'founder' as const,
-          owner_id: 'founder',
-          runtime: 'claude' as const,
-        };
-        const approvals = services.councilService.listApprovalRequests(ctx, { status, requested_by_type, requested_by_id, limit, offset });
-        return {
-          content: [{ type: 'text', text: JSON.stringify(approvals, null, 2) }],
-        };
-      });
-
-      mcpserver.registerTool('get_execution_history', {
-        title: 'Get Execution History',
-        description: 'Get execution history (audit trail) for an execution request',
-        inputSchema: {
-          execution_id: z.string().min(1).max(255).describe('Execution request ID'),
-        },
-      }, async ({ execution_id }) => {
-        const ctx = {
-          owner_type: 'seat' as const,
-          owner_id: 'seat-001',
-          runtime: 'claude' as const,
-        };
-        const history = services.councilService.getExecutionHistory(ctx, { execution_id });
-        return {
-          content: [{ type: 'text', text: JSON.stringify(history, null, 2) }],
-        };
-      });
-
-      mcpserver.registerTool('execute_execution_request', {
-        title: 'Execute Execution Request',
-        description: 'Execute a queued/approved execution request (internal/runtime use)',
-        inputSchema: {
-          execution_id: z.string().min(1).max(255).describe('Execution request ID'),
-          result_payload: z.record(z.string(), z.any()).optional().describe('Result payload'),
-          error_message: z.string().optional().describe('Error message if failed'),
-        },
-      }, async ({ execution_id, result_payload, error_message }) => {
-        const ctx = {
-          owner_type: 'staff' as const,
-          owner_id: 'staff-001',
-          runtime: 'claude' as const,
-        };
-        const execution = services.councilService.executeExecutionRequest(ctx, execution_id, result_payload, error_message);
-        return {
-          content: [{ type: 'text', text: JSON.stringify(execution, null, 2) }],
-        };
-      });
-
-      mcpserver.registerTool('cancel_execution_request', {
-        title: 'Cancel Execution Request',
-        description: 'Cancel an execution request (requester or Founder)',
-        inputSchema: {
-          execution_id: z.string().min(1).max(255).describe('Execution request ID'),
-        },
-      }, async ({ execution_id }) => {
-        const ctx = {
-          owner_type: 'staff' as const,
-          owner_id: 'staff-001',
-          runtime: 'claude' as const,
-        };
-        const execution = services.councilService.cancelExecutionRequest(ctx, execution_id);
-        return {
-          content: [{ type: 'text', text: JSON.stringify(execution, null, 2) }],
-        };
-      });
-
-      // Now process the request - this will trigger onsessioninitialized for initialize requests
-      await transport.handleRequest(req, res, req.body);
-
-      // After handleRequest, the session should be stored by onsessioninitialized
-      // The session might be stored under the generated sid, so look it up
-      session = sessions.get(sessionId);
-      if (!session) {
-        // Try to find by transport
-        for (const [, s] of sessions) {
-          if (s.transport === transport) {
-            session = s;
-            break;
-          }
-        }
-      }
-    } else {
-      // Existing session - just handle the request
-      await session.transport.handleRequest(req, res, req.body);
+    if (ctx.owner_type !== 'founder') {
+      return res.status(403).json({ error: 'Founder authorization required' });
     }
+
+    const result = await listTaskAutonomyLevels(db);
+    res.json(result);
   } catch (error) {
-    console.error(`[${new Date().toISOString()}] Error handling MCP request:`, error);
-    if (!res.headersSent) {
-      res.status(500).json({
-        jsonrpc: '2.0',
-        error: { code: -32603, message: 'Internal server error' },
-        id: null,
-      });
-    }
+    res.status(400).json({ error: error instanceof Error ? error.message : 'Unknown error' });
   }
 });
 
-app.listen(PORT, HOST, () => {
-  console.log(`[${new Date().toISOString()}] Council Bridge MCP server listening on http://${HOST}:${PORT}`);
-  console.log(`[${new Date().toISOString()}] MCP endpoint: http://${HOST}:${PORT}/mcp`);
-  console.log(`[${new Date().toISOString()}] Health endpoint: http://${HOST}:${PORT}/health`);
+app.get('/api/task-autonomy', authMiddleware, async (req, res) => {
+  try {
+    const levels = await listTaskAutonomyLevels(db);
+    res.json(levels);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch task autonomy levels' });
+  }
 });
+
+// Phase 7: Execution Endpoints
+app.post('/api/execution/request', authMiddleware, async (req, res) => {
+  try {
+    const input = RequestExecutionInputSchema.parse(req.body);
+    const ctx = getAuthContext(req);
+
+    const result = await requestExecution(
+      db,
+      input,
+      ctx.owner_type === 'founder' ? 'founder' :
+      ctx.owner_type === 'division' ? 'division' : 'staff',
+      ctx.owner_id
+    );
+
+    res.status(201).json(result);
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+app.get('/api/execution/:id', authMiddleware, async (req, res) => {
+  try {
+    const executionId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const input = { execution_id: executionId };
+    const result = await getExecutionRequest(db, input);
+
+    if (!result) {
+      return res.status(404).json({ error: 'Execution request not found' });
+    }
+
+    res.json(result);
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+app.get('/api/execution', authMiddleware, async (req, res) => {
+  try {
+    const input: any = {
+      status: req.query.status as any,
+      autonomy_level: req.query.autonomy_level ? parseInt(req.query.autonomy_level as string) : undefined,
+      requested_by_type: req.query.requested_by_type as any,
+      requested_by_id: req.query.requested_by_id as string | undefined,
+      task_id: req.query.task_id as string | undefined,
+      limit: req.query.limit ? parseInt(req.query.limit as string) : 50,
+      offset: req.query.offset ? parseInt(req.query.offset as string) : 0
+    };
+
+    const result = await listExecutionRequests(db, input);
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to list execution requests' });
+  }
+});
+
+// Phase 8: Approval with Founder Signature (operation-bound)
+app.post('/api/execution/approve',
+  authMiddleware,
+  founderSignatureMiddleware(config.require_founder_signature_for),
+  async (req, res) => {
+  try {
+    const input = ApproveExecutionInputSchema.parse(req.body);
+    const ctx = getAuthContext(req);
+
+    const result = await approveExecution(
+      db,
+      input,
+      ctx.owner_type === 'founder' ? 'founder' :
+      ctx.owner_type === 'division' ? 'division' : 'staff',
+      ctx.owner_id
+    );
+
+    res.json(result);
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+// Phase 7: Approval Requests
+app.get('/api/approvals', authMiddleware, async (req, res) => {
+  try {
+    const input: any = {
+      status: req.query.status as any,
+      requested_by_type: req.query.requested_by_type as any,
+      requested_by_id: req.query.requested_by_id as string | undefined,
+      limit: req.query.limit ? parseInt(req.query.limit as string) : 50,
+      offset: req.query.offset ? parseInt(req.query.offset as string) : 0
+    };
+
+    const result = await listApprovalRequests(db, input);
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to list approval requests' });
+  }
+});
+
+// Phase 7: Execution History
+app.get('/api/execution/:id/history', authMiddleware, async (req, res) => {
+  try {
+    const executionId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const input = { execution_id: executionId };
+    const result = await getExecutionHistory(db, input);
+    res.json(result);
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+// Auth management endpoints
+app.post('/api/auth/session', async (req, res) => {
+  try {
+    const { owner_type, owner_id, runtime } = req.body;
+
+    if (!owner_type || !owner_id || !runtime) {
+      return res.status(400).json({ error: 'owner_type, owner_id, and runtime required' });
+    }
+
+    if (!['founder', 'staff', 'division', 'seat'].includes(owner_type)) {
+      return res.status(400).json({ error: 'Invalid owner_type' });
+    }
+
+    if (!['claude', 'hermes'].includes(runtime)) {
+      return res.status(400).json({ error: 'Invalid runtime' });
+    }
+
+    // In production, verify caller is authorized to create sessions for this identity
+    if (PRODUCTION_MODE && owner_type === 'founder') {
+      return res.status(403).json({ error: 'Founder sessions must be created via secure channel' });
+    }
+
+    const { generateSessionToken } = await import('./auth/session.js');
+    const token = generateSessionToken({
+      owner_type,
+      owner_id,
+      runtime,
+      client_ip: req.ip,
+      user_agent: req.get('user-agent')
+    });
+
+    res.json({ session_token: token });
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+app.delete('/api/auth/session', authMiddleware, async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Session token required' });
+    }
+
+    const token = authHeader.substring(7);
+    const { invalidateSession } = await import('./auth/session.js');
+
+    // Extract session_id from token
+    const parts = token.split('|');
+    if (parts.length !== 4) {
+      return res.status(400).json({ error: 'Invalid token format' });
+    }
+
+    const session_id = parts[0];
+    const revoked = invalidateSession(session_id);
+
+    res.json({ revoked, session_id });
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+app.get('/api/auth/status', authMiddleware, async (req, res) => {
+  const ctx = getAuthContext(req);
+  const { listActiveSessions, cleanupExpiredSessions, getSessionStats } = await import('./auth/session.js');
+
+  res.json({
+    authenticated: !!ctx,
+    auth_mode: config.mode,
+    session: ctx ? {
+      owner_type: ctx.owner_type,
+      owner_id: ctx.owner_id,
+      runtime: ctx.runtime,
+      session_id: ctx.session_id,
+      expires_at: ctx.expires_at,
+      founder_signed: ctx.founder_signed
+    } : null,
+    stats: getSessionStats()
+  });
+});
+
+app.get('/api/auth/founder/public-key', async (req, res) => {
+  const publicKey = getFounderPublicKey();
+  const keyId = getFounderKeyId();
+
+  if (!publicKey) {
+    return res.status(404).json({ error: 'Founder keys not initialized' });
+  }
+
+  res.json({ public_key: publicKey, key_id: keyId });
+});
+
+// Health check
+app.get('/health', (req, res) => {
+  res.json({
+    status: 'healthy',
+    auth_mode: config.mode,
+    fallback_enabled: config.allow_hardcoded_fallback
+  });
+});
+
+// Start server
+const PORT = process.env.PORT || 3000;
+
+initDb().then(() => {
+  // Periodic session cleanup
+  setInterval(() => {
+    cleanupExpiredSessions();
+  }, 5 * 60 * 1000); // Every 5 minutes
+
+  app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT} [${config.mode.toUpperCase()}]`);
+  });
+});
+
+export default app;

@@ -195,6 +195,8 @@ export interface DatabaseInstance {
     commitTransaction: PreparedStatement;
     rollbackTransaction: PreparedStatement;
   };
+  query: (sql: string, params?: any[]) => any[];
+  runPreparedStatement: (name: string, params?: any[]) => any;
   generateId: () => string;
   close: () => void;
 }
@@ -1210,7 +1212,18 @@ function createDatabase(dbPath: string): DatabaseInstance {
     db.close();
   }
 
-  return { db, stmt, generateId, close };
+  return {
+    db,
+    stmt,
+    generateId,
+    close,
+    query: (sql: string, params?: any[]) => db.prepare(sql).all(...(params || [])),
+    runPreparedStatement: (name: string, params?: any[]) => {
+      const statement = (stmt as any)[name];
+      if (!statement) throw new Error(`Prepared statement not found: ${name}`);
+      return statement.run(...(params || []));
+    }
+  };
 }
 
 const DATA_DIR = path.join(process.cwd(), 'data');

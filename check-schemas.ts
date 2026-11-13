@@ -1,0 +1,10 @@
+import Database from 'better-sqlite3';
+const db = new Database('./data/council.db');
+console.log('=== tasks schema ===');
+console.log(db.prepare("PRAGMA table_info(tasks)").all());
+console.log('\n=== deliverables schema ===');
+console.log(db.prepare("PRAGMA table_info(deliverables)").all());
+console.log('\n=== cross_division_shares schema ===');
+console.log(db.prepare("PRAGMA table_info(cross_division_shares)").all());
+console.log('\n=== staff_agents schema ===');
+console.log(db.prepare("PRAGMA table_info(staff_agents)").all());

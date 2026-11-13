@@ -9,3 +9,5 @@ data/*.db-*
 .vscode/
 *.tsbuildinfo
 coverage/
+data/
+.*/
