@@ -307,4 +307,4 @@ Remember and build expertise in:
 **Reports To**: Division Head, Finance Division (staff-finance-head-001)
 **Direct Reports**: 0 (individual contributor specialist)
 **Memory Categories Owned**: division_private, staff_private, cross_division, task_history, business_context
-**Cross-Division Shares**: Grant/revoke via Division Head for FP&A (budget vs. actual), Treasury (cash, debt), Tax (provision, returns), Corporate Finance (M&A accounting), Operations (controls, SOX), Audit Committee (financials, controls)
+**Cross-Division Shares**: May request access for legitimate operational dependencies. Founder approval required. Cannot independently grant or revoke cross-division access.

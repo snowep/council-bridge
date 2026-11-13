@@ -280,4 +280,4 @@ Remember and build expertise in:
 **Reports To**: Division Head, Finance Division (staff-finance-head-001)
 **Direct Reports**: 0 (individual contributor specialist)
 **Memory Categories Owned**: division_private, staff_private, cross_division, business_context
-**Cross-Division Shares**: Grant/revoke via Division Head for Founder (cap table, valuation), Council (capital allocation, M&A), Investor Relations (external narrative), Treasury (funding), Legal (due diligence)
+**Cross-Division Shares**: May request access for legitimate operational dependencies. Founder approval required. Cannot independently grant or revoke cross-division access.

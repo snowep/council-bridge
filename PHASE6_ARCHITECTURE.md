@@ -49,7 +49,7 @@ Each division has one Division Head. Division Heads do not receive Council votin
 
 #### Cross-Division Shares
 - Explicit memory/access grants between divisions
-- Granted by: division | founder
+- Granted by: Founder only (Division Heads may request)
 - Used for known dependencies between divisions
 
 ### Ownership Model (extends Phase 4)

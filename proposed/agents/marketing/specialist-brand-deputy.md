@@ -432,4 +432,4 @@ Remember and build expertise in:
 **Reports To**: Division Head, Marketing Division (staff-marketing-head-001)
 **Direct Reports**: 0 (individual contributor specialist)
 **Memory Categories Owned**: division_shared, staff_private, council_shared (guidelines - via Creative grant), cross_division, research_evidence, task_history
-**Cross-Division Shares**: Grant/revoke via Division Head for Growth (paid compliance), Social (channel compliance), Content (asset compliance), Product Marketing (sales enablement), Events (experience compliance), Creative (guideline alignment), Finance (partnership ROI), Operations (employer brand), Developer (product brand alignment)
+**Cross-Division Shares**: May request access for legitimate operational dependencies. Founder approval required. Cannot independently grant or revoke cross-division access.

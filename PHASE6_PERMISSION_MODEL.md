@@ -21,7 +21,7 @@ Division Heads may:
 3. **Memory access**
    - Read/write `division_shared` memories for their division
    - Read `division_private` memories (sensitive planning)
-   - Configure `cross_division_shares` for known dependencies
+   - Request `cross_division_shares` for known dependencies (Founder approval required)
 
 ### Prohibited Actions
 Division Heads **cannot**:
@@ -60,7 +60,8 @@ Division Heads **cannot**:
 - `createDivisionHead(staff_id)` — Founder-only MCP tool
 - `assignSpecialist(staff_id, division_id)` — Division Head–only, Founder-validated
 - `updateTaskStatus(task_id, status)` — Division Head–only for their division's tasks
-- `createCrossDivisionShare(memory_id, division_id, granted_by)` — Founder-granted only. Division Heads may request; Founder approves.
+- `createCrossDivisionShare(memory_id, division_id, granted_by)` — Founder-only MCP tool. Division Heads may request via Founder.
+- `revokeCrossDivisionShare(memory_id, division_id)` — Founder-only MCP tool.
 - All tools validate: "Is this user a Division Head of the target division?"
 
 #### 3. Runtime Identity
@@ -92,11 +93,12 @@ Division Heads **cannot**:
 - No unrestricted FTS5 bypass
 
 ### Explicit Grants: `cross_division_shares`
-- Founder can grant: `division_id` → another `division_id`'s memories
-- Division Head can request; Founder approves
+- Founder grants: `division_id` → another `division_id`'s memories
+- Division Head may request; Founder approves or rejects
 - Granted stored in `cross_division_shares` table
 - Query layer adds `WHERE memory_id IN (SELECT memory_id FROM cross_division_shares WHERE division_id = ?)`
 - All grants auditable: `granted_by_type`, `granted_by_id`, `granted_at`
+- `granted_by_type` = 'founder' only; 'division' value not used
 
 ### Revocation
 - `revoke_cross_division_access` MCP tool

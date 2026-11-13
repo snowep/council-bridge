@@ -261,7 +261,7 @@
 ## Cross-Division Memory Isolation
 
 - **No silent overwrites** — Division memory never overwrites Council memory or another division's records
-- **Explicit sharing only** — `cross_division` category requires explicit grant via `cross_division_shares`
+- **Explicit sharing only** — `cross_division` category requires explicit grant via `cross_division_shares` (Founder-granted only)
 - **Founder override** — Founder can read all memory; can write `business_context` and `task_history`
 - **Council oversight** — Council can read all division/staff memory via `business_context` aggregation
 - **Revocation auditable** — `cross_division_shares.revoked_at` tracks when access removed

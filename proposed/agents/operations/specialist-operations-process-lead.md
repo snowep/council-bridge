@@ -343,4 +343,4 @@ Remember and build expertise in:
 **Reports To**: Division Head, Business Operations Division (staff-ops-head-001)
 **Direct Reports**: 0 (individual contributor specialist)
 **Memory Categories Owned**: division_shared, staff_private, cross_division, task_history, business_context
-**Cross-Division Shares**: Grant/revoke via Division Head for all Divisions (SOPs, workflows, automations, handoffs), Legal (compliance), Security (controls), Platform Engineer (automation platform)
+**Cross-Division Shares**: May request access for legitimate operational dependencies. Founder approval required. Cannot independently grant or revoke cross-division access.

@@ -7,12 +7,12 @@
 - Staff agent creation, status updates, division assignment
 - Task creation, assignment, status transitions
 - Deliverable creation, review, status changes
-- Cross-division share grant/revoke
+- Cross-division share grant/revoke (Founder-only)
 - Runtime instance tracking
 
 ### 2. Integration Tests
 - End-to-end: Division Head appointment → activation → task creation → deliverable submission
-- Cross-division coordination: request → approval → task execution
+- Cross-division coordination: Division Head request → Founder approval → task execution
 - Dual-runtime: same staff_id works on Claude + Hermes
 - Task delegation across divisions with proper authorization
 - Memory ownership: division-owned, staff-owned, founder-owned correctly enforced

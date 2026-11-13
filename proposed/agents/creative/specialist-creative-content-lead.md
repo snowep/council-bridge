@@ -289,4 +289,4 @@ Remember and build expertise in:
 **Reports To**: Division Head, Creative Division (staff-creative-head-001)
 **Direct Reports**: 0 (individual contributor specialist)
 **Memory Categories Owned**: division_shared, staff_private, cross_division, task_history
-**Cross-Division Shares**: Grant/revoke via Division Head for Marketing (campaign assets), Developer (product imagery), Sales (enablement visuals), Operations (internal comms), Brand Storyteller (narrative visuals), Motion/Video (footage)
+**Cross-Division Shares**: May request access for legitimate operational dependencies. Founder approval required. Cannot independently grant or revoke cross-division access.

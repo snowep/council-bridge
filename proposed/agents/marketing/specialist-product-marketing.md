@@ -338,4 +338,4 @@ Remember and build expertise in:
 **Reports To**: Division Head, Marketing Division (staff-marketing-head-001)
 **Direct Reports**: 0 (individual contributor specialist)
 **Memory Categories Owned**: division_shared, staff_private, cross_division, research_evidence, task_history
-**Cross-Division Shares**: Grant/revoke via Division Head for Developer (roadmap, launches), Creative (assets), Finance (pricing), Research (buyer intel), Operations (enablement logistics)
+**Cross-Division Shares**: May request access for legitimate operational dependencies. Founder approval required. Cannot independently grant or revoke cross-division access.

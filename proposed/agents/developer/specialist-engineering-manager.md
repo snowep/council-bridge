@@ -387,4 +387,4 @@ Remember and build expertise in:
 **Reports To**: Division Head, Developer Division (staff-dev-head-001)
 **Direct Reports**: Engineering team (4-8 engineers typical)
 **Memory Categories Owned**: division_shared, staff_private, cross_division, business_context, task_history
-**Cross-Division Shares**: Grant/revoke via Division Head for all Divisions (capacity), People Ops (hiring), Finance (budget)
+**Cross-Division Shares**: May request access for legitimate operational dependencies. Founder approval required. Cannot independently grant or revoke cross-division access.

@@ -189,12 +189,12 @@
   - `justification` TEXT
   - `priority` TEXT: 'low' | 'medium' | 'high' | 'critical'
   - `deadline` TEXT (ISO datetime, nullable)
-  - `approved_by_type` TEXT, `approved_by_id` TEXT (nullable)
+  - `approved_by_type` TEXT, `approved_by_id` TEXT (nullable) — always 'founder'
   - `approved_at` TEXT (nullable)
 - MCP tools for inter-division requests (with formal Zod schemas):
-  - `request_cross_division_access(from_division, to_division, memory_id, justification, priority, deadline, request_type)`
-  - `approve_cross_division_access(request_id)` — Founder
-  - `revoke_cross_division_access(request_id)`
+  - `request_cross_division_access(from_division, to_division, memory_id, justification, priority, deadline, request_type)` — Division Head requests
+  - `approve_cross_division_access(request_id)` — Founder-only
+  - `revoke_cross_division_access(request_id)` — Founder-only
   - `list_pending_cross_division_requests(division_id)`
 - Query-layer cross-division access enforcement
 - **Formal Zod schemas** (resolves A5):

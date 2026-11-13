@@ -110,7 +110,7 @@ This roadmap consolidates the 8-phase Council Bridge architecture with the 6-sta
 
 ### UI Testing
 - Jest + React Testing Library for component logic
-- Playwright end-to-end: login flow, meeting creation → evaluation → closure cycle, memory search with privacy filters, cross-division share grant/revoke, founder administrative functions
+- Playwright end-to-end: login flow, meeting creation → evaluation → closure cycle, memory search with privacy filters, cross-division share request/approval (Founder), founder administrative functions
 - Color contrast (WCAG AA), focus management, screen reader labels on all interactive elements
 
 ---

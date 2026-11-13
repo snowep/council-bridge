@@ -577,7 +577,7 @@ rawSearch: db.prepare(''),
 - **Identity from context only** — `owner_type`/`owner_id` never from request params
 - **Private categories** only returned when `owner_type` + `owner_id` match requester
 - **Division private** only for division head; **staff private** only for owning staff
-- **Cross-division** requires explicit grant via `cross_division_shares` table
+- **Cross-division** requires explicit grant via `cross_division_shares` table (Founder-granted only)
 - **Archived** excluded unless `include_archived=true`
 - **Vacant/unauthenticated** get empty results
 - **Graph traversal** applies privacy filter at each hop

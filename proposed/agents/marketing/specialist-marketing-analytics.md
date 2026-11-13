@@ -323,4 +323,4 @@ Remember and build expertise in:
 **Reports To**: Division Head, Marketing Division (staff-marketing-head-001)
 **Direct Reports**: 0 (individual contributor specialist)
 **Memory Categories Owned**: division_shared, staff_private, cross_division, research_evidence, task_history
-**Cross-Division Shares**: Grant/revoke via Division Head for Finance (CAC/LTV, forecasting), Growth (optimization), Product Marketing (launch measurement), Developer (experimentation platform), Creative (creative analytics)
+**Cross-Division Shares**: May request access for legitimate operational dependencies. Founder approval required. Cannot independently grant or revoke cross-division access.

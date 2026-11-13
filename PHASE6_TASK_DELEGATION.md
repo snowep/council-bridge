@@ -186,9 +186,9 @@ audit_log: JSON array of entries
 #### Workflow
 1. Division Head A submits request via MCP tool
 2. Request stored in pending queue (extend `cross_division_shares` with `request_type`, `status` fields during implementation — resolves A6)
-3. Division Head B reviews
-4. Division Head B approves or rejects
-5. If approved: Founder notified (optional confirmation for significant requests)
+3. Founder reviews
+4. Founder approves or rejects
+5. If approved: cross-division share created
 6. If rejected: Division Head A notified; may re-submit with revisions
 
 #### Authorization
@@ -210,8 +210,8 @@ audit_log: JSON array of entries
 ### Access Authorization
 - Default: division-level isolation
 - Explicit grants via `cross_division_shares` only
-- Query layer: `WHERE memory_id IN (SELECT memory_id FROM cross_division_shares WHERE division_id = current_division OR granted_by_type = 'founder')`
-- All grants auditable
+- Query layer: `WHERE memory_id IN (SELECT memory_id FROM cross_division_shares WHERE division_id = current_division)`
+- All grants by Founder only; auditable
 
 ### Conflict Resolution
 1. Originating Division Head's request takes priority

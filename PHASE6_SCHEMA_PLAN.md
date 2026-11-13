@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS staff_agents (
   division_id       TEXT NOT NULL,                     -- Division membership
   runtime_instances TEXT NOT NULL DEFAULT '[]',        -- JSON: ['claude', 'hermes']
   permissions       TEXT NOT NULL DEFAULT '[]',        -- JSON array of permission strings
-  status            TEXT NOT NULL DEFAULT 'active'
+  status            TEXT NOT NULL DEFAULT 'inactive'
     CHECK (status IN ('active', 'inactive', 'terminated')),
   created_at        TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at        TEXT NOT NULL DEFAULT (datetime('now')),
@@ -39,7 +39,9 @@ CREATE TABLE IF NOT EXISTS staff_agents (
 - 45 rows (one per specialist)
 - `division_id` FK to divisions
 - `status`: active | inactive | terminated
+- **Default: 'inactive'** — newly created agents are non-operational
 - `runtime_instances`: JSON array, shared across both runtimes
+- **Approval state tracked externally**: Founder approval recorded in `council_shared` memory with `memory_type: 'division_head_approval'` or `specialist_approval`. Agent remains `status = 'inactive'` until explicit Founder activation.
 
 ### Division Members
 ```sql
@@ -63,9 +65,9 @@ CREATE TABLE IF NOT EXISTS cross_division_shares (
   share_id        TEXT PRIMARY KEY,
   memory_id       TEXT NOT NULL,
   division_id     TEXT NOT NULL,                       -- Division granted access
-  granted_by_type TEXT NOT NULL                        -- 'division' | 'founder'
-    CHECK (granted_by_type IN ('division', 'founder')),
-  granted_by_id   TEXT NOT NULL,                       -- division_id | 'founder'
+  granted_by_type TEXT NOT NULL                        -- 'founder'
+    CHECK (granted_by_type IN ('founder')),
+  granted_by_id   TEXT NOT NULL,                       -- 'founder'
   granted_at      TEXT NOT NULL DEFAULT (datetime('now')),
   revoked_at      TEXT,                                -- NULL = active
   FOREIGN KEY (memory_id) REFERENCES memory_entries(memory_id) ON DELETE CASCADE,
@@ -74,7 +76,7 @@ CREATE TABLE IF NOT EXISTS cross_division_shares (
 );
 ```
 - Explicit memory access grants between divisions
-- Granted by division head or founder
+- Granted by Founder only
 - Links to `memory_entries.memory_id` via FK
 - `revoked_at` tracks revocation (NULL = active grant)
 - UNIQUE constraint prevents duplicate grants

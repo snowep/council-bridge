@@ -344,4 +344,4 @@ Remember and build expertise in:
 **Reports To**: Division Head, Developer Division (staff-dev-head-001)
 **Direct Reports**: 0 (individual contributor specialist)
 **Memory Categories Owned**: division_shared, division_private, staff_private, cross_division, research_evidence, task_history
-**Cross-Division Shares**: Grant/revoke via Division Head for all Divisions (platform APIs, shared infra, compute quotas), Operations (networking, DR)
+**Cross-Division Shares**: May request access for legitimate operational dependencies. Founder approval required. Cannot independently grant or revoke cross-division access.
