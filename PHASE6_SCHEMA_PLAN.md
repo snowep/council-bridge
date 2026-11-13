@@ -39,7 +39,7 @@ CREATE TABLE IF NOT EXISTS staff_agents (
 );
 ```
 
-**Proposed Phase 6 Target Schema (requires migration):**
+**Proposed Phase 6 Target Schema (requires migration 001):**
 ```sql
 CREATE TABLE IF NOT EXISTS staff_agents (
   staff_id          TEXT PRIMARY KEY,
@@ -59,9 +59,9 @@ CREATE TABLE IF NOT EXISTS staff_agents (
 - 45 rows (one per specialist)
 - `division_id` FK to divisions
 - `status`: active | inactive | terminated
-- **Current default: 'active'** (Phase 6 target: 'inactive' — migration required)
+- **Current default: 'active'** (Phase 6 target: 'inactive' — migration 001 required)
 - `runtime_instances`: JSON array, shared across both runtimes
-- **Approval state tracked externally**: Founder approval recorded in `council_shared` memory with `memory_type: 'division_head_approval'` or `specialist_approval`. Agent remains `status = 'inactive'` until explicit Founder activation.
+- **Approval state tracked externally**: Founder approval recorded in `council_shared` memory with `memory_type: 'division_head_approval'` or `'specialist_approval'`. Agent remains `status = 'inactive'` until explicit Founder activation.
 - **Migration required**: Change DEFAULT from 'active' to 'inactive'. See `PHASE6_DATABASE_MIGRATION_PLAN.md`.
 
 ### Division Members
@@ -99,17 +99,26 @@ CREATE TABLE IF NOT EXISTS cross_division_shares (
 );
 ```
 
-**Proposed Phase 6 Target Schema (requires migration):**
+**Proposed Phase 6 Target Schema (requires migration 002 + 005):**
 ```sql
 CREATE TABLE IF NOT EXISTS cross_division_shares (
   share_id        TEXT PRIMARY KEY,
   memory_id       TEXT NOT NULL,
   division_id     TEXT NOT NULL,                       -- Division granted access
-  granted_by_type TEXT NOT NULL                        -- 'founder'
+  granted_by_type TEXT NOT NULL                        -- 'founder' only
     CHECK (granted_by_type IN ('founder')),
   granted_by_id   TEXT NOT NULL,                       -- 'founder'
   granted_at      TEXT NOT NULL DEFAULT (datetime('now')),
   revoked_at      TEXT,                                -- NULL = active
+  -- Stage 7 additions (migration 005):
+  request_type    TEXT CHECK (request_type IN ('task_delegate', 'deliverable_share', 'memory_access', 'resource_request')),
+  status          TEXT CHECK (status IN ('pending', 'approved', 'rejected')) DEFAULT 'pending',
+  justification   TEXT,
+  priority        TEXT CHECK (priority IN ('low', 'medium', 'high', 'critical')) DEFAULT 'medium',
+  deadline        TEXT,
+  approved_by_type TEXT,
+  approved_by_id   TEXT,
+  approved_at      TEXT,
   FOREIGN KEY (memory_id) REFERENCES memory_entries(memory_id) ON DELETE CASCADE,
   FOREIGN KEY (division_id) REFERENCES divisions(division_id) ON DELETE CASCADE,
   UNIQUE(memory_id, division_id)
@@ -118,11 +127,11 @@ CREATE TABLE IF NOT EXISTS cross_division_shares (
 
 - Explicit memory access grants between divisions
 - **Current: Granted by division head or founder** (`granted_by_type` allows both)
-- **Phase 6 target: Granted by Founder only** (migration required — see `PHASE6_DATABASE_MIGRATION_PLAN.md`)
+- **Phase 6 target: Granted by Founder only** (migration 002 required — restricts CHECK constraint)
 - Links to `memory_entries.memory_id` via FK
 - `revoked_at` tracks revocation (NULL = active grant)
 - UNIQUE constraint prevents duplicate grants
-- **Migration required**: Restrict `granted_by_type` CHECK constraint to 'founder' only. Handle existing 'division' records.
+- **Migration required**: Restrict `granted_by_type` CHECK constraint to 'founder' only. Handle existing 'division' records via revocation + audit log.
 
 ### Tasks
 ```sql
@@ -143,16 +152,20 @@ CREATE TABLE IF NOT EXISTS tasks (
   budget_allocated  REAL NOT NULL DEFAULT 0,
   due_at            TEXT,
   completed_at      TEXT,
+  -- Migration 003 additions:
+  dependencies      TEXT DEFAULT '[]',                  -- JSON array of task_ids
+  deliverable_id    TEXT,                               -- FK reference (app-layer validated)
   created_at        TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at        TEXT NOT NULL DEFAULT (datetime('now'))
 );
 ```
 - Task lifecycle: pending → in_progress → review → completed/cancelled
 - Priority: low | medium | high | critical (enum, not integer)
-- Assignment types: division | staff (seat and founder removed in actual DB)
+- Assignment types: division | staff
 - Created by: founder | council | division_head
 - Budget allocation tracked per task
-- Dependencies and deliverable_id not in current DB — add during implementation if needed
+- **`dependencies`**: JSON array of task_ids for dependency tracking (migration 003)
+- **`deliverable_id`**: Reference to deliverables table — **NOT a database FK** (Option B: app-layer validated). See rationale below.
 
 ### Deliverables
 ```sql
@@ -168,15 +181,41 @@ CREATE TABLE IF NOT EXISTS deliverables (
   reviewed_by_type  TEXT,                              -- 'founder' | 'council' | 'division_head'
   reviewed_by_id    TEXT,
   reviewed_at       TEXT,
+  -- Migration 004 additions:
+  file_references   TEXT DEFAULT '[]',                 -- JSON array of file paths
+  task_relationships TEXT DEFAULT '[]',                -- JSON array of task_ids
+  audit_log         TEXT DEFAULT '[]',                 -- JSON array of {by_type, by_id, action, timestamp, before, after}
   created_at        TEXT NOT NULL DEFAULT (datetime('now')),
   FOREIGN KEY (task_id) REFERENCES tasks(task_id) ON DELETE CASCADE
 );
 ```
 - Lifecycle: submitted → accepted | rejected | revision_requested
-- Submitted by: staff | division (seat and founder removed in actual DB)
+- Submitted by: staff | division
 - Reviewed by: founder | council | division_head
-- Content: JSON payload (not file path/summary)
-- `file_references`, `task_relationships`, `audit_log` not in current DB — add during implementation if needed
+- Content: JSON payload
+- **Migration 004 additions**: `file_references`, `task_relationships`, `audit_log` (all JSON)
+
+---
+
+## Deliverable Relationship Decision: Option B — Application-Level
+
+**Decision**: `tasks.deliverable_id` is **NOT a database foreign key**. It is an application-level reference validated at the service layer.
+
+**Rationale**:
+1. **Circular FK risk**: `tasks` → `deliverables` (via `deliverable_id`) and `deliverables` → `tasks` (via existing `task_id` FK) creates a cycle SQLite cannot enforce cleanly
+2. **Temporal flexibility**: Task may exist before deliverable; deliverable may be deleted while task remains
+3. **Service-layer validation provides**:
+   - On task creation: `deliverable_id` nullable
+   - On deliverable submission: validate `deliverable.task_id === task.task_id`
+   - On deliverable deletion: clear `task.deliverable_id` or mark task for review
+   - Queries: `JOIN` available but not DB-enforced
+
+**Documentation Updated**:
+- `PHASE6_DATABASE_MIGRATION_PLAN.md`: Migration 003 description corrected
+- `PHASE6_IMPLEMENTATION_ROADMAP.md`: MCP tool contracts updated
+- This file: Explicit Option B declaration
+
+---
 
 ## Indexes (already created)
 - `idx_divisions_head` on divisions(head_staff_id)
@@ -192,21 +231,31 @@ CREATE TABLE IF NOT EXISTS deliverables (
 - `idx_deliverables_task` on deliverables(task_id)
 - `idx_deliverables_status` on deliverables(status)
 
+---
+
 ## Migration Strategy
+
+| Migration | File | Type | Target Table | Depends On |
+|-----------|------|------|--------------|------------|
+| 001 | 001_staff_agents_default_inactive.sql | Table Rebuild | staff_agents | None |
+| 002 | 002_cross_division_shares_founder_only.sql | Table Rebuild | cross_division_shares | None |
+| 003 | 003_tasks_add_columns.sql | ALTER TABLE | tasks | 001, 002 |
+| 004 | 004_deliverables_add_columns.sql | ALTER TABLE | deliverables | 001, 002 |
+| 005 | 005_cross_division_shares_stage7.sql | ALTER TABLE | cross_division_shares | 002 |
+
+**Total**: 5 logical migrations (2 rebuilds + 3 additive)
 - Tables are `CREATE TABLE IF NOT EXISTS` — idempotent, safe to re-run
 - No data to migrate (tables empty from Phases 1-4)
 - Add rows via app-layer scripts after Founder approval
 - Schema v4.0.0 already baked into Phase 4; no version bump needed
-- **Implementation additions** (empty tables, safe to ALTER):
-  - `tasks.dependencies` JSON column
-  - `tasks.deliverable_id` FK column
-  - `deliverables.file_references` JSON column
-  - `deliverables.task_relationships` JSON column
-  - `deliverables.audit_log` JSON column
+
+See `PHASE6_DATABASE_MIGRATION_PLAN.md` for complete migration details, backup/rollback procedures, and verification tests.
+
+---
 
 ## Deliverable Versioning Strategy (Resolves A1)
 
-**Approach: Single-row with `audit_log` JSON column (to be added during implementation)**
+**Approach: Single-row with `audit_log` JSON column (added by migration 004)**
 
 - Each deliverable is a single row in `deliverables` table
 - `audit_log` JSON array records every status change: `{by_type, by_id, action, timestamp, before, after}`

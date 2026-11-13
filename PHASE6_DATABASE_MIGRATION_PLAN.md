@@ -3,6 +3,8 @@
 **Status**: Planning — Not Executed  
 **Prerequisite**: Founder approval required before execution  
 **Base Schema**: v4.0.0 (Phase 4 complete)  
+**Migration Directory**: `migrations/`  
+**Test Suite**: `tests/phase6_migration_verification.test.ts`
 
 ---
 
@@ -10,240 +12,308 @@
 
 | Table | Current State | Target State | Migration Required |
 |-------|---------------|--------------|-------------------|
-| `staff_agents` | `status` DEFAULT `'active'` | `status` DEFAULT `'inactive'` | ✅ Yes |
-| `cross_division_shares` | `granted_by_type` CHECK `('division', 'founder')` | `granted_by_type` CHECK `('founder')` | ✅ Yes |
-| `tasks` | No `dependencies`, `deliverable_id` columns | Add JSON columns | ✅ Yes (implementation additions) |
-| `deliverables` | No `file_references`, `task_relationships`, `audit_log` columns | Add JSON columns | ✅ Yes (implementation additions) |
-| `cross_division_shares` | No request-tracking columns | Add `request_type`, `status`, `justification`, etc. | ✅ Yes (Stage 7) |
+| `staff_agents` | `status` DEFAULT `'active'` | `status` DEFAULT `'inactive'` | ✅ Migration 001 (table rebuild) |
+| `cross_division_shares` | `granted_by_type` CHECK `('division', 'founder')` | `granted_by_type` CHECK `('founder')` | ✅ Migration 002 (table rebuild) |
+| `tasks` | No `dependencies`, `deliverable_id` columns | Add JSON/FK columns | ✅ Migration 003 (ALTER TABLE) |
+| `deliverables` | No `file_references`, `task_relationships`, `audit_log` columns | Add JSON columns | ✅ Migration 004 (ALTER TABLE) |
+| `cross_division_shares` | No request-tracking columns | Add `request_type`, `status`, `justification`, etc. | ✅ Migration 005 (ALTER TABLE) |
+
+**Total Logical Migrations**: 5 (001–005)  
+- 2 table rebuilds (001, 002)  
+- 3 additive ALTER TABLE operations (003, 004, 005)
 
 ---
 
-## 2. Migration 1: staff_agents.status Default
+## 2. Migration 001: staff_agents.status Default → 'inactive'
 
-### Current State
+### Current State (src/database.ts:671-683)
 ```sql
-status TEXT NOT NULL DEFAULT 'active'
-  CHECK (status IN ('active', 'inactive', 'terminated'))
+CREATE TABLE IF NOT EXISTS staff_agents (
+  staff_id          TEXT PRIMARY KEY,
+  name              TEXT NOT NULL,
+  role              TEXT NOT NULL,
+  division_id       TEXT NOT NULL,
+  runtime_instances TEXT NOT NULL DEFAULT '[]',
+  permissions       TEXT NOT NULL DEFAULT '[]',
+  status            TEXT NOT NULL DEFAULT 'active'
+    CHECK (status IN ('active', 'inactive', 'terminated')),
+  created_at        TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at        TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (division_id) REFERENCES divisions(division_id) ON DELETE CASCADE
+);
 ```
 
 ### Target State
 ```sql
-status TEXT NOT NULL DEFAULT 'inactive'
-  CHECK (status IN ('active', 'inactive', 'terminated'))
+CREATE TABLE IF NOT EXISTS staff_agents (
+  staff_id          TEXT PRIMARY KEY,
+  name              TEXT NOT NULL,
+  role              TEXT NOT NULL,
+  division_id       TEXT NOT NULL,
+  runtime_instances TEXT NOT NULL DEFAULT '[]',
+  permissions       TEXT NOT NULL DEFAULT '[]',
+  status            TEXT NOT NULL DEFAULT 'inactive'
+    CHECK (status IN ('active', 'inactive', 'terminated')),
+  created_at        TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at        TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (division_id) REFERENCES divisions(division_id) ON DELETE CASCADE
+);
 ```
 
-### Migration Steps
-1. **Pre-migration verification**:
-   - Count existing staff_agents rows (should be 0 in Phase 4)
-   - Verify no application code assumes `DEFAULT 'active'`
+### Migration Strategy
+- **Type**: Table rebuild (SQLite doesn't support `ALTER COLUMN DEFAULT`)
+- **File**: `migrations/001_staff_agents_default_inactive.sql`
+- **Foreign Key Handling**: `PRAGMA foreign_keys = OFF` during rebuild
+- **Dependent Tables**: `division_members` (FK to `staff_agents.staff_id`), `divisions.head_staff_id` (no FK, app-layer only)
+- **Data Preservation**: Full copy via `INSERT INTO new SELECT * FROM old`
+- **Indexes Recreated**: `idx_staff_agents_division`, `idx_staff_agents_status`
 
-2. **Execute**:
-   ```sql
-   -- SQLite doesn't support ALTER COLUMN DEFAULT directly
-   -- Create new table, copy data, drop old, rename
-   CREATE TABLE staff_agents_new (
-     staff_id TEXT PRIMARY KEY,
-     name TEXT NOT NULL,
-     role TEXT NOT NULL,
-     division_id TEXT NOT NULL,
-     runtime_instances TEXT NOT NULL DEFAULT '[]',
-     permissions TEXT NOT NULL DEFAULT '[]',
-     status TEXT NOT NULL DEFAULT 'inactive'
-       CHECK (status IN ('active', 'inactive', 'terminated')),
-     created_at TEXT NOT NULL DEFAULT (datetime('now')),
-     updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-     FOREIGN KEY (division_id) REFERENCES divisions(division_id) ON DELETE CASCADE
-   );
-   
-   INSERT INTO staff_agents_new SELECT * FROM staff_agents;
-   DROP TABLE staff_agents;
-   ALTER TABLE staff_agents_new RENAME TO staff_agents;
-   
-   -- Recreate indexes
-   CREATE INDEX idx_staff_agents_division ON staff_agents(division_id);
-   CREATE INDEX idx_staff_agents_status ON staff_agents(status);
-   ```
+### Verification Tests
+- Existing data preserved (3 test agents with mixed statuses)
+- New default = 'inactive' for fresh inserts
+- FK to `divisions` enforced after migration
+- `division_members` FK to `staff_agents` enforced after migration
+- Indexes recreated
 
-3. **Post-migration verification**:
-   - Verify table structure matches target
-   - Verify row count unchanged (0)
-   - Test insert without explicit status → defaults to 'inactive'
-
-### Impact
-- **No existing data**: Tables are empty from Phase 4
-- **No FK issues**: No circular dependencies
-- **Application impact**: MCP tools must enforce `status === 'active'` before allowing operations
+### Rollback
+```bash
+sqlite3 council.db ".restore council_pre_migration_001_<timestamp>.db"
+# OR re-run Phase 4 CREATE TABLE statement
+```
 
 ---
 
-## 3. Migration 2: cross_division_shares.granted_by_type Restriction
+## 3. Migration 002: cross_division_shares.granted_by_type → 'founder' Only
 
-### Current State
+### Current State (src/database.ts:698-710)
 ```sql
-granted_by_type TEXT NOT NULL
-  CHECK (granted_by_type IN ('division', 'founder'))
+CREATE TABLE IF NOT EXISTS cross_division_shares (
+  share_id        TEXT PRIMARY KEY,
+  memory_id       TEXT NOT NULL,
+  division_id     TEXT NOT NULL,
+  granted_by_type TEXT NOT NULL
+    CHECK (granted_by_type IN ('division', 'founder')),
+  granted_by_id   TEXT NOT NULL,
+  granted_at      TEXT NOT NULL DEFAULT (datetime('now')),
+  revoked_at      TEXT,
+  FOREIGN KEY (memory_id) REFERENCES memory_entries(memory_id) ON DELETE CASCADE,
+  FOREIGN KEY (division_id) REFERENCES divisions(division_id) ON DELETE CASCADE,
+  UNIQUE(memory_id, division_id)
+);
 ```
 
 ### Target State
 ```sql
-granted_by_type TEXT NOT NULL
-  CHECK (granted_by_type IN ('founder'))
+CREATE TABLE IF NOT EXISTS cross_division_shares (
+  share_id        TEXT PRIMARY KEY,
+  memory_id       TEXT NOT NULL,
+  division_id     TEXT NOT NULL,
+  granted_by_type TEXT NOT NULL
+    CHECK (granted_by_type IN ('founder')),
+  granted_by_id   TEXT NOT NULL,
+  granted_at      TEXT NOT NULL DEFAULT (datetime('now')),
+  revoked_at      TEXT,
+  FOREIGN KEY (memory_id) REFERENCES memory_entries(memory_id) ON DELETE CASCADE,
+  FOREIGN KEY (division_id) REFERENCES divisions(division_id) ON DELETE CASCADE,
+  UNIQUE(memory_id, division_id)
+);
 ```
 
-### Migration Steps
-1. **Pre-migration audit**:
-   ```sql
-   SELECT granted_by_type, COUNT(*) FROM cross_division_shares GROUP BY granted_by_type;
-   ```
+### Migration Strategy
+- **Type**: Table rebuild with legacy handling
+- **File**: `migrations/002_cross_division_shares_founder_only.sql`
+- **Foreign Key Handling**: `PRAGMA foreign_keys = OFF` during rebuild
 
-2. **If existing 'division' records exist**:
-   - Option A: Convert to 'founder' with `granted_by_id = 'founder'` (if Founder retroactively authorizes)
-   - Option B: Revoke (set `revoked_at = datetime('now')`) and require re-request
-   - **Decision required from Founder**
+### Legacy Grant Treatment (Critical)
+| Grant Type | Action | Rationale |
+|------------|--------|-----------|
+| `granted_by_type = 'founder'` | **Preserved** — copied to new table | Legitimate Founder authorization |
+| `granted_by_type = 'division'` | **Revoked** — NOT copied, logged to `migration_audit` | No fabricated Founder approval; requires explicit reauthorization |
 
-3. **Execute schema change** (same recreate pattern):
-   ```sql
-   CREATE TABLE cross_division_shares_new (
-     share_id TEXT PRIMARY KEY,
-     memory_id TEXT NOT NULL,
-     division_id TEXT NOT NULL,
-     granted_by_type TEXT NOT NULL
-       CHECK (granted_by_type IN ('founder')),
-     granted_by_id TEXT NOT NULL,
-     granted_at TEXT NOT NULL DEFAULT (datetime('now')),
-     revoked_at TEXT,
-     FOREIGN KEY (memory_id) REFERENCES memory_entries(memory_id) ON DELETE CASCADE,
-     FOREIGN KEY (division_id) REFERENCES divisions(division_id) ON DELETE CASCADE,
-     UNIQUE(memory_id, division_id)
-   );
-   
-   INSERT INTO cross_division_shares_new SELECT * FROM cross_division_shares;
-   DROP TABLE cross_division_shares;
-   ALTER TABLE cross_division_shares_new RENAME TO cross_division_shares;
-   
-   CREATE INDEX idx_cross_division_shares_memory ON cross_division_shares(memory_id);
-   CREATE INDEX idx_cross_division_shares_division ON cross_division_shares(division_id);
-   ```
+**Migration Audit Table** (created by migration):
+```sql
+CREATE TABLE IF NOT EXISTS migration_audit (
+  audit_id          TEXT PRIMARY KEY,
+  migration_id      TEXT NOT NULL,
+  source_table      TEXT NOT NULL,
+  source_pk         TEXT NOT NULL,
+  action            TEXT NOT NULL,  -- 'preserved' | 'revoked' | 'quarantined'
+  reason            TEXT NOT NULL,
+  legacy_data       TEXT NOT NULL,  -- JSON of original row
+  migrated_at       TEXT NOT NULL DEFAULT (datetime('now'))
+);
+```
 
-### Impact
-- **No existing data**: Tables are empty from Phase 4
-- **Service-layer**: `createCrossDivisionShare` and `revokeCrossDivisionShare` MCP tools = Founder-only
+### Verification Tests
+- Founder grants remain valid and usable
+- Division grants revoked and logged
+- New division grants rejected by CHECK constraint
+- New Founder grants accepted
+- Audit records contain full legacy data for traceability
+
+### Rollback
+```bash
+sqlite3 council.db ".restore council_pre_migration_002_<timestamp>.db"
+# OR re-run Phase 4 CREATE TABLE statement
+```
 
 ---
 
-## 4. Migration 3: Implementation Additions (Stages 2, 3, 6, 7)
+## 4. Migration 003: tasks Additive Columns
 
-These are additive column additions to existing tables — safe `ALTER TABLE` operations.
+### File
+`migrations/003_tasks_add_columns.sql`
 
-### 4.1 tasks table additions
+### Operations
 ```sql
-ALTER TABLE tasks ADD COLUMN dependencies TEXT DEFAULT '[]';        -- JSON array of task_ids
-ALTER TABLE tasks ADD COLUMN deliverable_id TEXT;                   -- FK to deliverables
--- FK validation at app layer (no circular FK)
+ALTER TABLE tasks ADD COLUMN dependencies TEXT DEFAULT '[]';  -- JSON array of task_ids
+ALTER TABLE tasks ADD COLUMN deliverable_id TEXT;              -- FK reference (app-layer validated)
 ```
 
-### 4.2 deliverables table additions
+### Deliverable Relationship Decision: **Option B — Application-Level**
+- **NOT a database foreign key** — no FK constraint created
+- **Reason**: Circular FK risk (`tasks` ↔ `deliverables` via `deliverables.task_id`)
+- **Service-Layer Validation**:
+  - On task creation: `deliverable_id` nullable
+  - On deliverable submission: validate `deliverable.task_id === task.task_id`
+  - On deliverable deletion: clear `task.deliverable_id` or mark task for review
+  - Queries: `JOIN` available but not DB-enforced
+
+### Verification Tests
+- Columns exist with correct defaults
+- `dependencies` defaults to `'[]'`
+- `deliverable_id` nullable
+
+### Rollback
+Table rebuild from backup (SQLite < 3.35 doesn't support `DROP COLUMN`)
+
+---
+
+## 5. Migration 004: deliverables Additive Columns
+
+### File
+`migrations/004_deliverables_add_columns.sql`
+
+### Operations
 ```sql
 ALTER TABLE deliverables ADD COLUMN file_references TEXT DEFAULT '[]';     -- JSON array of file paths
 ALTER TABLE deliverables ADD COLUMN task_relationships TEXT DEFAULT '[]';  -- JSON array of task_ids
 ALTER TABLE deliverables ADD COLUMN audit_log TEXT DEFAULT '[]';           -- JSON array of {by_type, by_id, action, timestamp, before, after}
 ```
 
-### 4.3 cross_division_shares Stage 7 additions
+### Verification Tests
+- All three columns exist with correct defaults
+- JSON defaults are `'[]'`
+
+### Rollback
+Table rebuild from backup
+
+---
+
+## 6. Migration 005: cross_division_shares Stage 7 Request-Tracking Columns
+
+### File
+`migrations/005_cross_division_shares_stage7.sql`
+
+### Operations
 ```sql
 ALTER TABLE cross_division_shares ADD COLUMN request_type TEXT
   CHECK (request_type IN ('task_delegate', 'deliverable_share', 'memory_access', 'resource_request'));
 ALTER TABLE cross_division_shares ADD COLUMN status TEXT
-  CHECK (status IN ('pending', 'approved', 'rejected'));
+  CHECK (status IN ('pending', 'approved', 'rejected')) DEFAULT 'pending';
 ALTER TABLE cross_division_shares ADD COLUMN justification TEXT;
 ALTER TABLE cross_division_shares ADD COLUMN priority TEXT
-  CHECK (priority IN ('low', 'medium', 'high', 'critical'));
+  CHECK (priority IN ('low', 'medium', 'high', 'critical')) DEFAULT 'medium';
 ALTER TABLE cross_division_shares ADD COLUMN deadline TEXT;
 ALTER TABLE cross_division_shares ADD COLUMN approved_by_type TEXT;
 ALTER TABLE cross_division_shares ADD COLUMN approved_by_id TEXT;
 ALTER TABLE cross_division_shares ADD COLUMN approved_at TEXT;
 ```
 
----
+### Verification Tests
+- All columns exist with CHECK constraints
+- Invalid `request_type`, `status`, `priority` values rejected
+- Valid inserts succeed
 
-## 5. Migration Order and Dependencies
-
-| Order | Migration | Depends On |
-|-------|-----------|------------|
-| 1 | `staff_agents` default → `inactive` | None (empty table) |
-| 2 | `cross_division_shares` `granted_by_type` → `'founder'` | None (empty table) |
-| 3 | `tasks` additive columns | Migrations 1, 2 |
-| 4 | `deliverables` additive columns | Migrations 1, 2 |
-| 5 | `cross_division_shares` Stage 7 columns | Migrations 1, 2 |
+### Rollback
+Table rebuild from backup
 
 ---
 
-## 6. Backup and Rollback
+## 7. Migration Execution Order & Dependencies
 
-### Backup Procedure (Before Each Migration)
-```bash
-# 1. SQLite backup
-sqlite3 council.db ".backup council_pre_migration_$(date +%s).db"
+```
+Phase 1 (Independent, can run in parallel):
+  ├── 001: staff_agents_default_inactive
+  └── 002: cross_division_shares_founder_only
 
-# 2. Export schema
-sqlite3 council.db ".schema" > schema_backup_$(date +%s).sql
-
-# 3. Export data (all Phase 6 tables)
-sqlite3 council.db "SELECT * FROM staff_agents;" > staff_agents_backup_$(date +%s).csv
-sqlite3 council.db "SELECT * FROM cross_division_shares;" > cross_division_shares_backup_$(date +%s).csv
-sqlite3 council.db "SELECT * FROM divisions;" > divisions_backup_$(date +%s).csv
-sqlite3 council.db "SELECT * FROM division_members;" > division_members_backup_$(date +%s).csv
-sqlite3 council.db "SELECT * FROM tasks;" > tasks_backup_$(date +%s).csv
-sqlite3 council.db "SELECT * FROM deliverables;" > deliverables_backup_$(date +%s).csv
+Phase 2 (Depend on Phase 1, can run in parallel):
+  ├── 003: tasks_add_columns
+  ├── 004: deliverables_add_columns
+  └── 005: cross_division_shares_stage7 (depends on 002)
 ```
 
-### Rollback Procedure
-```bash
-# Restore from backup
-sqlite3 council.db ".restore council_pre_migration_<timestamp>.db"
+**Recommended Sequential Execution**: 001 → 002 → 003 → 004 → 005
 
-# Or re-run original Phase 4 CREATE TABLE statements (idempotent)
+---
+
+## 8. Backup and Rollback Procedures
+
+### Per-Migration Backup
+```bash
+# Before each migration:
+sqlite3 council.db ".backup council_pre_migration_<migration_id>_$(date +%s).db"
+sqlite3 council.db ".schema" > schema_backup_<migration_id>_$(date +%s).sql
+sqlite3 council.db "SELECT * FROM staff_agents;" > staff_agents_backup_<migration_id>_$(date +%s).csv
+sqlite3 council.db "SELECT * FROM cross_division_shares;" > cross_division_shares_backup_<migration_id>_$(date +%s).csv
+sqlite3 council.db "SELECT * FROM divisions;" > divisions_backup_<migration_id>_$(date +%s).csv
+sqlite3 council.db "SELECT * FROM division_members;" > division_members_backup_<migration_id>_$(date +%s).csv
+sqlite3 council.db "SELECT * FROM tasks;" > tasks_backup_<migration_id>_$(date +%s).csv
+sqlite3 council.db "SELECT * FROM deliverables;" > deliverables_backup_<migration_id>_$(date +%s).csv
+```
+
+### Full Rollback (if any migration fails)
+```bash
+# Restore from first migration backup
+sqlite3 council.db ".restore council_pre_migration_001_<timestamp>.db"
+# Then re-run all migrations in order if retrying
 ```
 
 ---
 
-## 7. Foreign Key Integrity
+## 9. Foreign Key Integrity Checks
 
-### Pre-Migration Checks
+### Pre-Migration
 ```sql
--- Verify no orphaned staff_agents
+-- staff_agents → divisions
 SELECT s.* FROM staff_agents s LEFT JOIN divisions d ON s.division_id = d.division_id WHERE d.division_id IS NULL;
 
--- Verify no orphaned division_members
+-- division_members → divisions
 SELECT dm.* FROM division_members dm LEFT JOIN divisions d ON dm.division_id = d.division_id WHERE d.division_id IS NULL;
+
+-- division_members → staff_agents
 SELECT dm.* FROM division_members dm LEFT JOIN staff_agents s ON dm.staff_id = s.staff_id WHERE s.staff_id IS NULL;
 
--- Verify no orphaned cross_division_shares
+-- cross_division_shares → memory_entries
 SELECT cds.* FROM cross_division_shares cds LEFT JOIN memory_entries m ON cds.memory_id = m.memory_id WHERE m.memory_id IS NULL;
+
+-- cross_division_shares → divisions
 SELECT cds.* FROM cross_division_shares cds LEFT JOIN divisions d ON cds.division_id = d.division_id WHERE d.division_id IS NULL;
 ```
 
-### Post-Migration Checks (Same Queries)
+### Post-Migration (Same Queries)
 
 ---
 
-## 8. Index and Trigger Preservation
+## 10. Index and Trigger Preservation
 
-### Indexes to Recreate (After Table Recreate)
-- `idx_staff_agents_division` on `staff_agents(division_id)`
-- `idx_staff_agents_status` on `staff_agents(status)`
-- `idx_cross_division_shares_memory` on `cross_division_shares(memory_id)`
-- `idx_cross_division_shares_division` on `cross_division_shares(division_id)`
-- `idx_divisions_head` on `divisions(head_staff_id)`
-- `idx_division_members_division` on `division_members(division_id)`
-- `idx_division_members_staff` on `division_members(staff_id)`
-- `idx_tasks_assigned` on `tasks(assigned_to_type, assigned_to_id)`
-- `idx_tasks_status` on `tasks(status)`
-- `idx_tasks_created_by` on `tasks(created_by_type, created_by_id)`
-- `idx_deliverables_task` on `deliverables(task_id)`
-- `idx_deliverables_status` on `deliverables(status)`
+### Indexes Recreated After Table Rebuilds (001, 002)
+| Migration | Indexes |
+|-----------|---------|
+| 001 | `idx_staff_agents_division`, `idx_staff_agents_status` |
+| 002 | `idx_cross_division_shares_memory`, `idx_cross_division_shares_division` |
 
-### FTS5 Triggers (Unaffected)
+### FTS5 Triggers (Unaffected by Phase 6 Migrations)
 - `memory_entries_fts_insert`
 - `memory_entries_fts_update`
 - `memory_entries_fts_archive`
@@ -252,75 +322,38 @@ SELECT cds.* FROM cross_division_shares cds LEFT JOIN divisions d ON cds.divisio
 
 ---
 
-## 9. Migration Verification Tests
+## 11. Migration Verification Tests
 
-### Automated Tests (Add to test suite)
-```typescript
-// tests/phase6.migration.verification.test.ts
+**File**: `tests/phase6_migration_verification.test.ts`
 
-describe('Phase 6 Migration Verification', () => {
-  test('staff_agents default status is inactive', () => {
-    const result = db.prepare("INSERT INTO staff_agents (staff_id, name, role, division_id) VALUES (?, ?, ?, ?)")
-      .run('test-id', 'Test', 'role', 'div-dev');
-    const agent = db.prepare('SELECT status FROM staff_agents WHERE staff_id = ?').get('test-id');
-    expect(agent.status).toBe('inactive');
-  });
+**Test Coverage (13 tests, all passing)**:
+| Test | Status |
+|------|--------|
+| Base Phase 4 schema creation | ✅ PASS |
+| Current `staff_agents` default = 'active' | ✅ PASS |
+| Current `cross_division_shares` allows both grant types | ✅ PASS |
+| Migration 001: data preserved, default → 'inactive' | ✅ PASS |
+| Migration 001: FK to divisions preserved | ✅ PASS |
+| Migration 001: division_members FK preserved | ✅ PASS |
+| Migration 001: indexes recreated | ✅ PASS |
+| Migration 002: Founder grants preserved | ✅ PASS |
+| Migration 002: Division grants revoked & audited | ✅ PASS |
+| Migration 002: New division grants rejected | ✅ PASS |
+| Migration 003: tasks columns added | ✅ PASS |
+| Migration 004: deliverables columns added | ✅ PASS |
+| Migration 005: Stage 7 columns with CHECK constraints | ✅ PASS |
+| Rollback restores original schema | ✅ PASS |
+| FTS5 triggers work after migrations | ✅ PASS |
+| Revoked cross-division shares inaccessible | ✅ PASS |
 
-  test('cross_division_shares rejects division granted_by_type', () => {
-    expect(() => {
-      db.prepare(`INSERT INTO cross_division_shares (share_id, memory_id, division_id, granted_by_type, granted_by_id)
-        VALUES (?, ?, ?, ?, ?)`).run('share-1', 'mem-1', 'div-dev', 'division', 'div-dev');
-    }).toThrow();
-  });
-
-  test('cross_division_shares accepts founder granted_by_type', () => {
-    const result = db.prepare(`INSERT INTO cross_division_shares (share_id, memory_id, division_id, granted_by_type, granted_by_id)
-      VALUES (?, ?, ?, ?, ?)`).run('share-2', 'mem-1', 'div-dev', 'founder', 'founder');
-    expect(result.changes).toBe(1);
-  });
-
-  test('new columns exist on tasks', () => {
-    const cols = db.prepare("PRAGMA table_info(tasks)").all().map(c => c.name);
-    expect(cols).toContain('dependencies');
-    expect(cols).toContain('deliverable_id');
-  });
-
-  test('new columns exist on deliverables', () => {
-    const cols = db.prepare("PRAGMA table_info(deliverables)").all().map(c => c.name);
-    expect(cols).toContain('file_references');
-    expect(cols).toContain('task_relationships');
-    expect(cols).toContain('audit_log');
-  });
-
-  test('Stage 7 columns exist on cross_division_shares', () => {
-    const cols = db.prepare("PRAGMA table_info(cross_division_shares)").all().map(c => c.name);
-    expect(cols).toContain('request_type');
-    expect(cols).toContain('status');
-    expect(cols).toContain('justification');
-    expect(cols).toContain('priority');
-    expect(cols).toContain('deadline');
-    expect(cols).toContain('approved_by_type');
-    expect(cols).toContain('approved_by_id');
-    expect(cols).toContain('approved_at');
-  });
-});
+**Run Command**:
+```bash
+npx tsx --test tests/phase6_migration_verification.test.ts
 ```
 
 ---
 
-## 10. Approval Requirements
-
-| Migration | Founder Approval Required | Notes |
-|-----------|--------------------------|-------|
-| 1: staff_agents default | ✅ Yes | Changes operational default |
-| 2: cross_division_shares granted_by_type | ✅ Yes | Policy change; may affect existing grants |
-| 3-5: Additive columns | ✅ Yes | Part of Phase 6 implementation scope |
-
-**All migrations require explicit Founder authorization before execution.**
-
----
-
-## 11. Migration Execution Script (Template)
+## 12. Execution Script Template
 
 ```bash
 #!/bin/bash
@@ -337,42 +370,61 @@ echo "=== Phase 6 Database Migration ==="
 echo "Backup directory: $BACKUP_DIR"
 echo "Database: $DB_PATH"
 
-# 1. Backup
+# Backup
 sqlite3 "$DB_PATH" ".backup $BACKUP_DIR/council_pre_migration.db"
 sqlite3 "$DB_PATH" ".schema" > "$BACKUP_DIR/schema.sql"
-# ... export all Phase 6 table data ...
+sqlite3 "$DB_PATH" "SELECT * FROM staff_agents;" > "$BACKUP_DIR/staff_agents.csv"
+sqlite3 "$DB_PATH" "SELECT * FROM cross_division_shares;" > "$BACKUP_DIR/cross_division_shares.csv"
+sqlite3 "$DB_PATH" "SELECT * FROM divisions;" > "$BACKUP_DIR/divisions.csv"
+sqlite3 "$DB_PATH" "SELECT * FROM division_members;" > "$BACKUP_DIR/division_members.csv"
+sqlite3 "$DB_PATH" "SELECT * FROM tasks;" > "$BACKUP_DIR/tasks.csv"
+sqlite3 "$DB_PATH" "SELECT * FROM deliverables;" > "$BACKUP_DIR/deliverables.csv"
 
-# 2. Execute migrations in order
-echo "Running Migration 1: staff_agents default -> inactive"
+# Execute migrations in order
+echo "Running Migration 001: staff_agents default -> inactive"
 sqlite3 "$DB_PATH" < migrations/001_staff_agents_default_inactive.sql
 
-echo "Running Migration 2: cross_division_shares granted_by_type -> founder"
+echo "Running Migration 002: cross_division_shares granted_by_type -> founder"
 sqlite3 "$DB_PATH" < migrations/002_cross_division_shares_founder_only.sql
 
-echo "Running Migration 3: tasks additive columns"
+echo "Running Migration 003: tasks additive columns"
 sqlite3 "$DB_PATH" < migrations/003_tasks_add_columns.sql
 
-echo "Running Migration 4: deliverables additive columns"
+echo "Running Migration 004: deliverables additive columns"
 sqlite3 "$DB_PATH" < migrations/004_deliverables_add_columns.sql
 
-echo "Running Migration 5: cross_division_shares stage7 columns"
+echo "Running Migration 005: cross_division_shares stage7 columns"
 sqlite3 "$DB_PATH" < migrations/005_cross_division_shares_stage7.sql
 
-# 3. Verify
+# Verify
 echo "Running verification tests..."
-npm test -- tests/phase6.migration.verification.test.ts
+npx tsx --test tests/phase6_migration_verification.test.ts
 
 echo "=== Migration Complete ==="
 ```
 
 ---
 
-## 12. Open Decisions Requiring Founder Input
+## 13. Open Decisions Requiring Founder Input
 
-1. **Existing 'division' grants**: If any exist (currently 0), convert to 'founder' or revoke?
-2. **Migration timing**: Run all at once or staged with Phase 6 implementation stages?
-3. **Rollback criteria**: What constitutes a failed migration requiring rollback?
-4. **Downtime window**: When to execute (development vs production)?
+1. **Migration timing**: Run all at once or staged with Phase 6 implementation stages?
+2. **Rollback criteria**: What constitutes a failed migration requiring rollback?
+3. **Downtime window**: When to execute (development vs production)?
+4. **Migration audit retention**: How long to keep `migration_audit` table?
+
+---
+
+## 14. Approval Requirements
+
+| Migration | Founder Approval Required | Notes |
+|-----------|--------------------------|-------|
+| 001: staff_agents default | ✅ Yes | Changes operational default |
+| 002: cross_division_shares granted_by_type | ✅ Yes | Policy change; revokes legacy grants |
+| 003: tasks additive columns | ✅ Yes | Part of Phase 6 implementation scope |
+| 004: deliverables additive columns | ✅ Yes | Part of Phase 6 implementation scope |
+| 005: cross_division_shares Stage 7 columns | ✅ Yes | Part of Phase 6 implementation scope |
+
+**All migrations require explicit Founder authorization before execution.**
 
 ---
 

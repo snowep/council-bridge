@@ -285,6 +285,10 @@
 
 8. **Schema sync completed**: Planning docs now match actual DB schema for `tasks`, `deliverables`, `cross_division_shares`. No further sync needed before Stage 2.
 
+9. **Deliverable relationship clarified**: `tasks.deliverable_id` is application-level (Option B), not a database FK. Migration 003 adds column without FK constraint. Service-layer validation handles the relationship.
+
+10. **Migration files created**: 5 SQL migration files in `migrations/` directory with manifest and verification tests.
+
 ## Success Criteria for Phase 6 Acceptance
 
 - [ ] All 6 Division Heads appointed with Founder approval

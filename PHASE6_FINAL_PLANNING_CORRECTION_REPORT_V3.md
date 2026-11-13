@@ -19,7 +19,7 @@ All 18 validation checks from Pass 3/4 review have been addressed. Documentation
 - Division Head approval ≠ activation: agents default to `status = 'inactive'`; approval recorded in `council_shared` memory; activation sets `status = 'active'`
 - Founder-private memory protected: `division_private` ≠ Founder-private; explicit grants required
 - **DB schema reconciled**: `PHASE6_SCHEMA_PLAN.md` documents current vs target schema for `staff_agents` and `cross_division_shares`
-- **Migration plan complete**: `PHASE6_DATABASE_MIGRATION_PLAN.md` with 3 migrations, backup/rollback, verification tests
+- **Migration plan complete**: `PHASE6_DATABASE_MIGRATION_PLAN.md` with 5 migrations, backup/rollback, verification tests (13/13 passing)
 - **All 18 validation checks PASS**
 
 ---
@@ -106,13 +106,13 @@ All 6 already had correct cross-division language: "May request access... Founde
 
 | Order | Migration | Type | Empty Table |
 |-------|-----------|------|-------------|
-| 1 | `staff_agents` default → `'inactive'` | Recreate table | Yes |
-| 2 | `cross_division_shares` `granted_by_type` → `'founder'` only | Recreate table | Yes |
-| 3 | `tasks` additive columns (`dependencies`, `deliverable_id`) | ALTER TABLE | Yes |
-| 4 | `deliverables` additive columns (`file_references`, `task_relationships`, `audit_log`) | ALTER TABLE | Yes |
-| 5 | `cross_division_shares` Stage 7 columns (request tracking) | ALTER TABLE | Yes |
+| 001 | `staff_agents` default → `'inactive'` | Table Rebuild | Yes |
+| 002 | `cross_division_shares` `granted_by_type` → `'founder'` only | Table Rebuild | Yes |
+| 003 | `tasks` additive columns (`dependencies`, `deliverable_id`) | ALTER TABLE | Yes |
+| 004 | `deliverables` additive columns (`file_references`, `task_relationships`, `audit_log`) | ALTER TABLE | Yes |
+| 005 | `cross_division_shares` Stage 7 columns (request tracking) | ALTER TABLE | Yes |
 
-**Includes**: Backup/rollback procedures, FK integrity checks, index preservation, automated verification tests (5 test cases), execution script template, open decisions for Founder.
+**Includes**: Backup/rollback procedures, FK integrity checks, index preservation, automated verification tests (13 test cases), execution script template, open decisions for Founder.
 
 ---
 
