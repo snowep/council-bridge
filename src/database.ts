@@ -174,6 +174,22 @@ export interface DatabaseInstance {
     listDeliverablesByTask: PreparedStatement;
     updateDeliverable: PreparedStatement;
 
+    // Phase 7: Autonomy, Permissions and Execution
+    insertTaskAutonomyLevel: PreparedStatement;
+    getTaskAutonomyLevel: PreparedStatement;
+    listTaskAutonomyLevels: PreparedStatement;
+    insertExecutionRequest: PreparedStatement;
+    getExecutionRequest: PreparedStatement;
+    listExecutionRequests: PreparedStatement;
+    updateExecutionRequest: PreparedStatement;
+    insertApprovalRequest: PreparedStatement;
+    getApprovalRequest: PreparedStatement;
+    listApprovalRequests: PreparedStatement;
+    updateApprovalRequest: PreparedStatement;
+    insertExecutionHistory: PreparedStatement;
+    getExecutionHistory: PreparedStatement;
+    listExecutionHistoryByExecution: PreparedStatement;
+
     // Transaction support
     beginTransaction: PreparedStatement;
     commitTransaction: PreparedStatement;
@@ -771,6 +787,97 @@ function createDatabase(dbPath: string): DatabaseInstance {
 
     CREATE INDEX IF NOT EXISTS idx_deliverables_task ON deliverables(task_id);
     CREATE INDEX IF NOT EXISTS idx_deliverables_status ON deliverables(status);
+
+    -- Phase 7: Autonomy, Permissions and Execution
+    CREATE TABLE IF NOT EXISTS task_autonomy_levels (
+      task_type       TEXT PRIMARY KEY,
+      autonomy_level  INTEGER NOT NULL
+        CHECK (autonomy_level IN (1, 2, 3)),
+      description     TEXT NOT NULL DEFAULT '',
+      created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS execution_requests (
+      execution_id          TEXT PRIMARY KEY,
+      task_id               TEXT NOT NULL,
+      requested_by_type     TEXT NOT NULL
+        CHECK (requested_by_type IN ('staff', 'division', 'founder')),
+      requested_by_id       TEXT NOT NULL,
+      autonomy_level        INTEGER NOT NULL
+        CHECK (autonomy_level IN (1, 2, 3)),
+      action_description    TEXT NOT NULL,
+      action_payload        TEXT NOT NULL DEFAULT '{}',
+      status                TEXT NOT NULL DEFAULT 'proposed'
+        CHECK (status IN ('proposed', 'permission_check', 'approval_required', 'approved', 'rejected', 'queued', 'running', 'completed', 'failed', 'cancelled')),
+      approval_request_id   TEXT,
+      approval_id           TEXT,
+      permission_grants     TEXT NOT NULL DEFAULT '[]',
+      error_message         TEXT,
+      result_payload        TEXT,
+      started_at            TEXT,
+      completed_at          TEXT,
+      created_at            TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at            TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (task_id) REFERENCES tasks(task_id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS approval_requests (
+      approval_request_id   TEXT PRIMARY KEY,
+      execution_id          TEXT NOT NULL UNIQUE,
+      requested_by_type     TEXT NOT NULL
+        CHECK (requested_by_type IN ('staff', 'division', 'founder')),
+      requested_by_id       TEXT NOT NULL,
+      action_description    TEXT NOT NULL,
+      action_payload        TEXT NOT NULL DEFAULT '{}',
+      justification         TEXT NOT NULL,
+      priority              TEXT NOT NULL DEFAULT 'medium'
+        CHECK (priority IN ('low', 'medium', 'high', 'critical')),
+      deadline              TEXT,
+      status                TEXT NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending', 'approved', 'rejected', 'expired', 'cancelled')),
+      approved_by_type      TEXT,
+      approved_by_id        TEXT,
+      approved_at           TEXT,
+      rejection_reason      TEXT,
+      created_at            TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at            TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (execution_id) REFERENCES execution_requests(execution_id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS execution_history (
+      history_id            TEXT PRIMARY KEY,
+      execution_id          TEXT NOT NULL,
+      task_id               TEXT NOT NULL,
+      requested_by_type     TEXT NOT NULL,
+      requested_by_id       TEXT NOT NULL,
+      autonomy_level        INTEGER NOT NULL,
+      action_description    TEXT NOT NULL,
+      action_payload        TEXT NOT NULL,
+      status_before         TEXT NOT NULL,
+      status_after          TEXT NOT NULL,
+      approval_reference    TEXT,
+      permission_grants     TEXT NOT NULL DEFAULT '[]',
+      result_payload        TEXT,
+      error_message         TEXT,
+      executed_by_type      TEXT,
+      executed_by_id        TEXT,
+      started_at            TEXT,
+      completed_at          TEXT,
+      recorded_at           TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (execution_id) REFERENCES execution_requests(execution_id) ON DELETE CASCADE,
+      FOREIGN KEY (task_id) REFERENCES tasks(task_id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_execution_requests_task ON execution_requests(task_id);
+    CREATE INDEX IF NOT EXISTS idx_execution_requests_status ON execution_requests(status);
+    CREATE INDEX IF NOT EXISTS idx_execution_requests_requested ON execution_requests(requested_by_type, requested_by_id);
+    CREATE INDEX IF NOT EXISTS idx_execution_requests_autonomy ON execution_requests(autonomy_level);
+    CREATE INDEX IF NOT EXISTS idx_approval_requests_execution ON approval_requests(execution_id);
+    CREATE INDEX IF NOT EXISTS idx_approval_requests_status ON approval_requests(status);
+    CREATE INDEX IF NOT EXISTS idx_execution_history_execution ON execution_history(execution_id);
+    CREATE INDEX IF NOT EXISTS idx_execution_history_task ON execution_history(task_id);
+    CREATE INDEX IF NOT EXISTS idx_task_autonomy_levels_level ON task_autonomy_levels(autonomy_level);
   `);
 
   const stmt = {
@@ -1051,6 +1158,45 @@ function createDatabase(dbPath: string): DatabaseInstance {
     getDeliverableById: db.prepare('SELECT * FROM deliverables WHERE deliverable_id = ?') as PreparedStatement,
     listDeliverablesByTask: db.prepare('SELECT * FROM deliverables WHERE task_id = ? ORDER BY created_at DESC') as PreparedStatement,
     updateDeliverable: db.prepare('UPDATE deliverables SET status = ?, reviewed_by_type = ?, reviewed_by_id = ?, reviewed_at = ? WHERE deliverable_id = ?') as PreparedStatement,
+
+    // Phase 7: Autonomy, Permissions and Execution
+    insertTaskAutonomyLevel: db.prepare(`
+      INSERT INTO task_autonomy_levels (task_type, autonomy_level, description)
+      VALUES (?, ?, ?)
+    `) as PreparedStatement,
+    getTaskAutonomyLevel: db.prepare('SELECT * FROM task_autonomy_levels WHERE task_type = ?') as PreparedStatement,
+    listTaskAutonomyLevels: db.prepare('SELECT * FROM task_autonomy_levels ORDER BY autonomy_level, task_type') as PreparedStatement,
+
+    insertExecutionRequest: db.prepare(`
+      INSERT INTO execution_requests (execution_id, task_id, requested_by_type, requested_by_id, autonomy_level, action_description, action_payload, status, approval_request_id, approval_id, permission_grants, error_message, result_payload, started_at, completed_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `) as PreparedStatement,
+    getExecutionRequest: db.prepare('SELECT * FROM execution_requests WHERE execution_id = ?') as PreparedStatement,
+    listExecutionRequests: db.prepare('SELECT * FROM execution_requests ORDER BY created_at DESC') as PreparedStatement,
+    updateExecutionRequest: db.prepare(`
+      UPDATE execution_requests
+      SET task_id = ?, requested_by_type = ?, requested_by_id = ?, autonomy_level = ?, action_description = ?, action_payload = ?, status = ?, approval_request_id = ?, approval_id = ?, permission_grants = ?, error_message = ?, result_payload = ?, started_at = ?, completed_at = ?, updated_at = datetime('now')
+      WHERE execution_id = ?
+    `) as PreparedStatement,
+
+    insertApprovalRequest: db.prepare(`
+      INSERT INTO approval_requests (approval_request_id, execution_id, requested_by_type, requested_by_id, action_description, action_payload, justification, priority, deadline, status, approved_by_type, approved_by_id, approved_at, rejection_reason)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `) as PreparedStatement,
+    getApprovalRequest: db.prepare('SELECT * FROM approval_requests WHERE approval_request_id = ?') as PreparedStatement,
+    listApprovalRequests: db.prepare('SELECT * FROM approval_requests ORDER BY created_at DESC') as PreparedStatement,
+    updateApprovalRequest: db.prepare(`
+      UPDATE approval_requests
+      SET execution_id = ?, requested_by_type = ?, requested_by_id = ?, action_description = ?, action_payload = ?, justification = ?, priority = ?, deadline = ?, status = ?, approved_by_type = ?, approved_by_id = ?, approved_at = ?, rejection_reason = ?, updated_at = datetime('now')
+      WHERE approval_request_id = ?
+    `) as PreparedStatement,
+
+    insertExecutionHistory: db.prepare(`
+      INSERT INTO execution_history (history_id, execution_id, task_id, requested_by_type, requested_by_id, autonomy_level, action_description, action_payload, status_before, status_after, approval_reference, permission_grants, result_payload, error_message, executed_by_type, executed_by_id, started_at, completed_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `) as PreparedStatement,
+    getExecutionHistory: db.prepare('SELECT * FROM execution_history WHERE history_id = ?') as PreparedStatement,
+    listExecutionHistoryByExecution: db.prepare('SELECT * FROM execution_history WHERE execution_id = ? ORDER BY recorded_at') as PreparedStatement,
   };
 
   // Stamp the schema version so migrations can detect the current schema.

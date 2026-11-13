@@ -835,6 +835,223 @@ app.post('/mcp', async (req, res) => {
         };
       });
 
+      // Phase 7: Autonomy, Permissions and Execution MCP Tools
+      mcpserver.registerTool('create_task_autonomy_level', {
+        title: 'Create Task Autonomy Level',
+        description: 'Define autonomy level for a task type (Founder-only)',
+        inputSchema: {
+          task_type: z.string().min(1).max(255).describe('Task type (e.g., research, deployment)'),
+          autonomy_level: z.union([z.literal(1), z.literal(2), z.literal(3)]).describe('Autonomy level: 1=autonomous, 2=bounded, 3=founder approval'),
+          description: z.string().optional().describe('Description'),
+        },
+      }, async ({ task_type, autonomy_level, description }) => {
+        const ctx = {
+          owner_type: 'founder' as const,
+          owner_id: 'founder',
+          runtime: 'claude' as const,
+        };
+        const level = services.councilService.createTaskAutonomyLevel(ctx, { task_type, autonomy_level, description });
+        return {
+          content: [{ type: 'text', text: JSON.stringify(level, null, 2) }],
+        };
+      });
+
+      mcpserver.registerTool('get_task_autonomy_level', {
+        title: 'Get Task Autonomy Level',
+        description: 'Get autonomy level for a task type',
+        inputSchema: {
+          task_type: z.string().min(1).max(255).describe('Task type'),
+        },
+      }, async ({ task_type }) => {
+        const ctx = {
+          owner_type: 'seat' as const,
+          owner_id: 'seat-001',
+          runtime: 'claude' as const,
+        };
+        const level = services.councilService.getTaskAutonomyLevel(ctx, task_type);
+        return {
+          content: [{ type: 'text', text: JSON.stringify(level, null, 2) }],
+        };
+      });
+
+      mcpserver.registerTool('list_task_autonomy_levels', {
+        title: 'List Task Autonomy Levels',
+        description: 'List all defined task autonomy levels',
+        inputSchema: {},
+      }, async () => {
+        const ctx = {
+          owner_type: 'seat' as const,
+          owner_id: 'seat-001',
+          runtime: 'claude' as const,
+        };
+        const levels = services.councilService.listTaskAutonomyLevels(ctx);
+        return {
+          content: [{ type: 'text', text: JSON.stringify(levels, null, 2) }],
+        };
+      });
+
+      mcpserver.registerTool('request_execution', {
+        title: 'Request Execution',
+        description: 'Request execution of an action (Staff, Division Head, or Founder)',
+        inputSchema: {
+          task_id: z.string().min(1).max(255).describe('Task ID'),
+          autonomy_level: z.union([z.literal(1), z.literal(2), z.literal(3)]).optional().describe('Override autonomy level'),
+          action_description: z.string().min(1).max(1000).describe('Description of proposed action'),
+          action_payload: z.record(z.string(), z.any()).default({}).describe('JSON payload with action parameters'),
+        },
+      }, async ({ task_id, autonomy_level, action_description, action_payload }) => {
+        // Determine ctx from session - in production this comes from auth
+        const ctx = {
+          owner_type: 'staff' as const,
+          owner_id: 'staff-001',
+          runtime: 'claude' as const,
+        };
+        const execution = services.councilService.requestExecution(ctx, { task_id, autonomy_level: autonomy_level as 1 | 2 | 3 | undefined, action_description, action_payload });
+        return {
+          content: [{ type: 'text', text: JSON.stringify(execution, null, 2) }],
+        };
+      });
+
+      mcpserver.registerTool('get_execution_request', {
+        title: 'Get Execution Request',
+        description: 'Get execution request details',
+        inputSchema: {
+          execution_id: z.string().min(1).max(255).describe('Execution request ID'),
+        },
+      }, async ({ execution_id }) => {
+        const ctx = {
+          owner_type: 'seat' as const,
+          owner_id: 'seat-001',
+          runtime: 'claude' as const,
+        };
+        const execution = services.councilService.getExecutionRequest(ctx, { execution_id });
+        return {
+          content: [{ type: 'text', text: JSON.stringify(execution, null, 2) }],
+        };
+      });
+
+      mcpserver.registerTool('list_execution_requests', {
+        title: 'List Execution Requests',
+        description: 'List execution requests with filters',
+        inputSchema: {
+          status: z.enum(['proposed', 'permission_check', 'approval_required', 'approved', 'rejected', 'queued', 'running', 'completed', 'failed', 'cancelled']).optional().describe('Filter by status'),
+          autonomy_level: z.union([z.literal(1), z.literal(2), z.literal(3)]).optional().describe('Filter by autonomy level'),
+          requested_by_type: z.enum(['staff', 'division', 'founder']).optional().describe('Filter by requester type'),
+          requested_by_id: z.string().optional().describe('Filter by requester ID'),
+          task_id: z.string().optional().describe('Filter by task ID'),
+          limit: z.number().int().positive().max(100).default(50).describe('Result limit'),
+          offset: z.number().int().nonnegative().default(0).describe('Result offset'),
+        },
+      }, async ({ status, autonomy_level, requested_by_type, requested_by_id, task_id, limit, offset }) => {
+        const ctx = {
+          owner_type: 'seat' as const,
+          owner_id: 'seat-001',
+          runtime: 'claude' as const,
+        };
+        const executions = services.councilService.listExecutionRequests(ctx, { status, autonomy_level, requested_by_type, requested_by_id, task_id, limit, offset });
+        return {
+          content: [{ type: 'text', text: JSON.stringify(executions, null, 2) }],
+        };
+      });
+
+      mcpserver.registerTool('approve_execution', {
+        title: 'Approve Execution',
+        description: 'Approve or reject an execution request (Founder-only)',
+        inputSchema: {
+          approval_request_id: z.string().min(1).max(255).describe('Approval request ID'),
+          approved: z.boolean().describe('Approve or reject'),
+          rejection_reason: z.string().optional().describe('Reason if rejected'),
+        },
+      }, async ({ approval_request_id, approved, rejection_reason }) => {
+        const ctx = {
+          owner_type: 'founder' as const,
+          owner_id: 'founder',
+          runtime: 'claude' as const,
+        };
+        const result = services.councilService.approveExecution(ctx, { approval_request_id, approved, rejection_reason });
+        return {
+          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+        };
+      });
+
+      mcpserver.registerTool('list_approval_requests', {
+        title: 'List Approval Requests',
+        description: 'List approval requests (Founder-only)',
+        inputSchema: {
+          status: z.enum(['pending', 'approved', 'rejected', 'expired', 'cancelled']).optional().describe('Filter by status'),
+          requested_by_type: z.enum(['staff', 'division', 'founder']).optional().describe('Filter by requester type'),
+          requested_by_id: z.string().optional().describe('Filter by requester ID'),
+          limit: z.number().int().positive().max(100).default(50).describe('Result limit'),
+          offset: z.number().int().nonnegative().default(0).describe('Result offset'),
+        },
+      }, async ({ status, requested_by_type, requested_by_id, limit, offset }) => {
+        const ctx = {
+          owner_type: 'founder' as const,
+          owner_id: 'founder',
+          runtime: 'claude' as const,
+        };
+        const approvals = services.councilService.listApprovalRequests(ctx, { status, requested_by_type, requested_by_id, limit, offset });
+        return {
+          content: [{ type: 'text', text: JSON.stringify(approvals, null, 2) }],
+        };
+      });
+
+      mcpserver.registerTool('get_execution_history', {
+        title: 'Get Execution History',
+        description: 'Get execution history (audit trail) for an execution request',
+        inputSchema: {
+          execution_id: z.string().min(1).max(255).describe('Execution request ID'),
+        },
+      }, async ({ execution_id }) => {
+        const ctx = {
+          owner_type: 'seat' as const,
+          owner_id: 'seat-001',
+          runtime: 'claude' as const,
+        };
+        const history = services.councilService.getExecutionHistory(ctx, { execution_id });
+        return {
+          content: [{ type: 'text', text: JSON.stringify(history, null, 2) }],
+        };
+      });
+
+      mcpserver.registerTool('execute_execution_request', {
+        title: 'Execute Execution Request',
+        description: 'Execute a queued/approved execution request (internal/runtime use)',
+        inputSchema: {
+          execution_id: z.string().min(1).max(255).describe('Execution request ID'),
+          result_payload: z.record(z.string(), z.any()).optional().describe('Result payload'),
+          error_message: z.string().optional().describe('Error message if failed'),
+        },
+      }, async ({ execution_id, result_payload, error_message }) => {
+        const ctx = {
+          owner_type: 'staff' as const,
+          owner_id: 'staff-001',
+          runtime: 'claude' as const,
+        };
+        const execution = services.councilService.executeExecutionRequest(ctx, execution_id, result_payload, error_message);
+        return {
+          content: [{ type: 'text', text: JSON.stringify(execution, null, 2) }],
+        };
+      });
+
+      mcpserver.registerTool('cancel_execution_request', {
+        title: 'Cancel Execution Request',
+        description: 'Cancel an execution request (requester or Founder)',
+        inputSchema: {
+          execution_id: z.string().min(1).max(255).describe('Execution request ID'),
+        },
+      }, async ({ execution_id }) => {
+        const ctx = {
+          owner_type: 'staff' as const,
+          owner_id: 'staff-001',
+          runtime: 'claude' as const,
+        };
+        const execution = services.councilService.cancelExecutionRequest(ctx, execution_id);
+        return {
+          content: [{ type: 'text', text: JSON.stringify(execution, null, 2) }],
+        };
+      });
+
       // Now process the request - this will trigger onsessioninitialized for initialize requests
       await transport.handleRequest(req, res, req.body);
 

@@ -648,6 +648,150 @@ export const ListPendingCrossDivisionRequestsInputSchema = z.object({
 });
 export type ListPendingCrossDivisionRequestsInput = z.infer<typeof ListPendingCrossDivisionRequestsInputSchema>;
 
+// Phase 7: Autonomy, Permissions and Execution Schemas
+
+export const AutonomyLevelSchema = z.union([z.literal(1), z.literal(2), z.literal(3)]);
+export type AutonomyLevel = z.infer<typeof AutonomyLevelSchema>;
+
+export const ExecutionStatusSchema = z.enum([
+  'proposed', 'permission_check', 'approval_required', 'approved', 'rejected',
+  'queued', 'running', 'completed', 'failed', 'cancelled'
+]);
+export type ExecutionStatus = z.infer<typeof ExecutionStatusSchema>;
+
+export const ApprovalStatusSchema = z.enum(['pending', 'approved', 'rejected', 'expired', 'cancelled']);
+export type ApprovalStatus = z.infer<typeof ApprovalStatusSchema>;
+
+export const TaskAutonomyLevelSchema = z.object({
+  task_type: z.string().min(1).max(255),
+  autonomy_level: AutonomyLevelSchema,
+  description: z.string().default(''),
+});
+export type TaskAutonomyLevel = z.infer<typeof TaskAutonomyLevelSchema> & {
+  created_at: string;
+  updated_at: string;
+};
+
+export const ExecutionRequestSchema = z.object({
+  execution_id: z.string().min(1).max(255),
+  task_id: z.string().min(1).max(255),
+  requested_by_type: z.enum(['staff', 'division', 'founder']),
+  requested_by_id: z.string().min(1).max(255),
+  autonomy_level: AutonomyLevelSchema,
+  action_description: z.string().min(1).max(2000),
+  action_payload: z.record(z.string(), z.any()).default({}),
+  status: ExecutionStatusSchema.default('proposed'),
+  approval_request_id: z.string().optional(),
+  approval_id: z.string().optional(),
+  permission_grants: z.array(z.string()).default([]),
+  error_message: z.string().optional(),
+  result_payload: z.record(z.string(), z.any()).optional(),
+  started_at: z.string().optional(),
+  completed_at: z.string().optional(),
+});
+export type ExecutionRequest = z.infer<typeof ExecutionRequestSchema> & {
+  created_at: string;
+  updated_at: string;
+};
+
+export const ApprovalRequestSchema = z.object({
+  approval_request_id: z.string().min(1).max(255),
+  execution_id: z.string().min(1).max(255),
+  requested_by_type: z.enum(['staff', 'division', 'founder']),
+  requested_by_id: z.string().min(1).max(255),
+  action_description: z.string().min(1).max(2000),
+  action_payload: z.record(z.string(), z.any()).default({}),
+  justification: z.string().min(1).max(5000),
+  priority: z.enum(['low', 'medium', 'high', 'critical']).default('medium'),
+  deadline: z.string().optional(),
+  status: ApprovalStatusSchema.default('pending'),
+  approved_by_type: z.string().optional(),
+  approved_by_id: z.string().optional(),
+  approved_at: z.string().optional(),
+  rejection_reason: z.string().optional(),
+});
+export type ApprovalRequest = z.infer<typeof ApprovalRequestSchema> & {
+  created_at: string;
+  updated_at: string;
+};
+
+export const ExecutionHistorySchema = z.object({
+  history_id: z.string().min(1).max(255),
+  execution_id: z.string().min(1).max(255),
+  task_id: z.string().min(1).max(255),
+  requested_by_type: z.enum(['staff', 'division', 'founder']),
+  requested_by_id: z.string().min(1).max(255),
+  autonomy_level: AutonomyLevelSchema,
+  action_description: z.string().min(1).max(2000),
+  action_payload: z.record(z.string(), z.any()),
+  status_before: z.string(),
+  status_after: z.string(),
+  approval_reference: z.string().optional(),
+  permission_grants: z.array(z.string()).default([]),
+  result_payload: z.record(z.string(), z.any()).optional(),
+  error_message: z.string().optional(),
+  executed_by_type: z.string().optional(),
+  executed_by_id: z.string().optional(),
+  started_at: z.string().optional(),
+  completed_at: z.string().optional(),
+});
+export type ExecutionHistory = z.infer<typeof ExecutionHistorySchema> & {
+  recorded_at: string;
+};
+
+// Input schemas for MCP tools
+export const CreateTaskAutonomyLevelInputSchema = z.object({
+  task_type: z.string().min(1).max(255),
+  autonomy_level: AutonomyLevelSchema,
+  description: z.string().optional(),
+});
+export type CreateTaskAutonomyLevelInput = z.infer<typeof CreateTaskAutonomyLevelInputSchema>;
+
+export const RequestExecutionInputSchema = z.object({
+  task_id: z.string().min(1).max(255),
+  action_description: z.string().min(1).max(2000),
+  action_payload: z.record(z.string(), z.any()).default({}),
+  autonomy_level: AutonomyLevelSchema.optional(),
+});
+export type RequestExecutionInput = z.infer<typeof RequestExecutionInputSchema>;
+
+export const ApproveExecutionInputSchema = z.object({
+  approval_request_id: z.string().min(1).max(255),
+  approved: z.boolean(),
+  rejection_reason: z.string().optional(),
+});
+export type ApproveExecutionInput = z.infer<typeof ApproveExecutionInputSchema>;
+
+export const GetExecutionRequestInputSchema = z.object({
+  execution_id: z.string().min(1).max(255),
+});
+export type GetExecutionRequestInput = z.infer<typeof GetExecutionRequestInputSchema>;
+
+export const ListExecutionRequestsInputSchema = z.object({
+  status: ExecutionStatusSchema.optional(),
+  autonomy_level: AutonomyLevelSchema.optional(),
+  requested_by_type: z.enum(['staff', 'division', 'founder']).optional(),
+  requested_by_id: z.string().optional(),
+  task_id: z.string().optional(),
+  limit: z.number().int().positive().max(100).default(50),
+  offset: z.number().int().nonnegative().default(0),
+});
+export type ListExecutionRequestsInput = z.infer<typeof ListExecutionRequestsInputSchema>;
+
+export const ListApprovalRequestsInputSchema = z.object({
+  status: ApprovalStatusSchema.optional(),
+  requested_by_type: z.enum(['staff', 'division', 'founder']).optional(),
+  requested_by_id: z.string().optional(),
+  limit: z.number().int().positive().max(100).default(50),
+  offset: z.number().int().nonnegative().default(0),
+});
+export type ListApprovalRequestsInput = z.infer<typeof ListApprovalRequestsInputSchema>;
+
+export const GetExecutionHistoryInputSchema = z.object({
+  execution_id: z.string().min(1).max(255),
+});
+export type GetExecutionHistoryInput = z.infer<typeof GetExecutionHistoryInputSchema>;
+
 function toCouncilSeat(row: any): CouncilSeat {
   return {
     ...row,
@@ -766,6 +910,35 @@ function toTask(row: any): Task {
 
 function toDeliverable(row: any): Deliverable {
   return row;
+}
+
+function toTaskAutonomyLevel(row: any): TaskAutonomyLevel {
+  return row;
+}
+
+function toExecutionRequest(row: any): ExecutionRequest {
+  return {
+    ...row,
+    action_payload: row.action_payload ? JSON.parse(row.action_payload) : {},
+    result_payload: row.result_payload ? JSON.parse(row.result_payload) : undefined,
+    permission_grants: row.permission_grants ? JSON.parse(row.permission_grants) : [],
+  };
+}
+
+function toApprovalRequest(row: any): ApprovalRequest {
+  return {
+    ...row,
+    action_payload: row.action_payload ? JSON.parse(row.action_payload) : {},
+  };
+}
+
+function toExecutionHistory(row: any): ExecutionHistory {
+  return {
+    ...row,
+    action_payload: row.action_payload ? JSON.parse(row.action_payload) : {},
+    result_payload: row.result_payload ? JSON.parse(row.result_payload) : undefined,
+    permission_grants: row.permission_grants ? JSON.parse(row.permission_grants) : [],
+  };
 }
 
 export function createCouncilService(dbInstance: DatabaseInstance) {
@@ -2640,8 +2813,8 @@ export function createCouncilService(dbInstance: DatabaseInstance) {
 
     isDivisionHead(ctx: { owner_type: MemoryOwnerType; owner_id: string }, divisionId: string): boolean {
       if (ctx.owner_type !== 'division') return false;
-      const division = dbInstance.stmt.getDivisionById.get(divisionId) as Division | undefined;
-      return division?.head_staff_id === ctx.owner_id;
+      // Division acts as its head - ctx.owner_id is the division_id
+      return ctx.owner_id === divisionId;
     },
 
     isDivisionMember(ctx: { owner_type: MemoryOwnerType; owner_id: string }, divisionId: string): boolean {
@@ -2699,16 +2872,11 @@ export function createCouncilService(dbInstance: DatabaseInstance) {
         null,
         input.budget_limit ?? 0,
         JSON.stringify(input.permissions ?? []),
-        JSON.stringify(input.strategic_objectives ?? []),
-        now,
-        now
+        JSON.stringify(input.strategic_objectives ?? [])
       );
 
-      // Log access
-      dbInstance.stmt.insertMemoryAccess.run(
-        dbInstance.generateId(), divisionId, null,
-        ctx.owner_type, ctx.owner_id, ctx.runtime, 'create', now
-      );
+      // Note: Divisions are not memory_entries, so we don't log to memory_access table
+      // (memory_access FK references memory_entries, not divisions)
 
       return toDivision(dbInstance.stmt.getDivisionById.get(divisionId) as any);
     },
@@ -2874,11 +3042,8 @@ export function createCouncilService(dbInstance: DatabaseInstance) {
       // Insert into division_members (role: specialist)
       dbInstance.stmt.insertDivisionMember.run(input.division_id, input.staff_id, 'specialist');
 
-      // Log access
-      dbInstance.stmt.insertMemoryAccess.run(
-        dbInstance.generateId(), input.staff_id, null,
-        ctx.owner_type, ctx.owner_id, ctx.runtime, 'create', now
-      );
+      // Note: Staff agents are not memory_entries, so we don't log to memory_access table
+      // (memory_access FK references memory_entries, not staff_agents)
 
       return toStaffAgent(dbInstance.stmt.getStaffAgentById.get(input.staff_id) as any);
     },
@@ -2904,15 +3069,10 @@ export function createCouncilService(dbInstance: DatabaseInstance) {
         staff.runtime_instances,
         staff.permissions,
         input.status,
-        now,
         input.staff_id
       );
 
-      // Log access
-      dbInstance.stmt.insertMemoryAccess.run(
-        dbInstance.generateId(), input.staff_id, null,
-        ctx.owner_type, ctx.owner_id, ctx.runtime, 'update', now
-      );
+      // Note: Staff agents are not memory_entries, so we don't log to memory_access table
 
       return toStaffAgent(dbInstance.stmt.getStaffAgentById.get(input.staff_id) as any);
     },
@@ -3055,11 +3215,8 @@ export function createCouncilService(dbInstance: DatabaseInstance) {
         input.deliverable_id ?? null
       );
 
-      // Log access
-      dbInstance.stmt.insertMemoryAccess.run(
-        dbInstance.generateId(), taskId, null,
-        ctx.owner_type, ctx.owner_id, ctx.runtime, 'create', now
-      );
+      // Note: Tasks are not memory_entries, so we don't log to memory_access table
+      // (memory_access FK references memory_entries, not tasks)
 
       return toTask(dbInstance.stmt.getTaskById.get(taskId) as any);
     },
@@ -3483,6 +3640,540 @@ export function createCouncilService(dbInstance: DatabaseInstance) {
 
       const shares = dbInstance.stmt.getSharesByDivision.all(input.division_id) as CrossDivisionShare[];
       return shares.filter(s => s.status === 'pending' || s.granted_by_type === 'division');
+    },
+
+    // --- Phase 7: Autonomy, Permissions and Execution ---
+
+    // Task Autonomy Levels
+    createTaskAutonomyLevel(
+      ctx: { owner_type: MemoryOwnerType; owner_id: string; runtime: 'claude' | 'hermes' },
+      input: z.infer<typeof CreateTaskAutonomyLevelInputSchema>
+    ): TaskAutonomyLevel {
+      if (!this.isFounder(ctx)) {
+        throw new Error('Only Founder can define task autonomy levels');
+      }
+
+      const existing = dbInstance.stmt.getTaskAutonomyLevel.get(input.task_type) as TaskAutonomyLevel | undefined;
+      if (existing) {
+        throw new Error(`Task autonomy level for '${input.task_type}' already exists`);
+      }
+
+      const now = new Date().toISOString();
+      dbInstance.stmt.insertTaskAutonomyLevel.run(input.task_type, input.autonomy_level, input.description ?? '');
+
+      // Note: Task autonomy levels are not memory_entries, so we don't log to memory_access table
+
+      return toTaskAutonomyLevel(dbInstance.stmt.getTaskAutonomyLevel.get(input.task_type) as any);
+    },
+
+    getTaskAutonomyLevel(
+      ctx: { owner_type: MemoryOwnerType; owner_id: string; runtime: 'claude' | 'hermes' },
+      taskType: string
+    ): TaskAutonomyLevel | undefined {
+      return toTaskAutonomyLevel(dbInstance.stmt.getTaskAutonomyLevel.get(taskType) as any);
+    },
+
+    listTaskAutonomyLevels(
+      ctx: { owner_type: MemoryOwnerType; owner_id: string; runtime: 'claude' | 'hermes' }
+    ): TaskAutonomyLevel[] {
+      return (dbInstance.stmt.listTaskAutonomyLevels.all() as any[]).map(toTaskAutonomyLevel);
+    },
+
+    // Execution Requests
+    requestExecution(
+      ctx: { owner_type: MemoryOwnerType; owner_id: string; runtime: 'claude' | 'hermes' },
+      input: z.infer<typeof RequestExecutionInputSchema>
+    ): ExecutionRequest {
+      // Validate task exists
+      const task = dbInstance.stmt.getTaskById.get(input.task_id) as Task | undefined;
+      if (!task) {
+        throw new Error(`Task '${input.task_id}' not found`);
+      }
+
+      // Validate requester permissions
+      if (ctx.owner_type === 'staff') {
+        if (!this.isStaffAgent(ctx, ctx.owner_id)) {
+          throw new Error('Staff agent not found or not active');
+        }
+        // Staff can only request execution for tasks assigned to them
+        if (task.assigned_to_type === 'staff' && task.assigned_to_id !== ctx.owner_id) {
+          throw new Error('Staff can only request execution for their own tasks');
+        }
+        if (task.assigned_to_type === 'division') {
+          const members = dbInstance.stmt.getDivisionMembers.all(task.assigned_to_id) as DivisionMember[];
+          if (!members.find(m => m.staff_id === ctx.owner_id)) {
+            throw new Error('Staff not a member of assigned division');
+          }
+        }
+      } else if (ctx.owner_type === 'division') {
+        if (!this.isDivisionHead(ctx, ctx.owner_id)) {
+          throw new Error('Only Division Head can request execution for division');
+        }
+        // Division Head can only request for their own division
+        if (task.assigned_to_type === 'division' && task.assigned_to_id !== ctx.owner_id) {
+          throw new Error('Division Head can only request execution for their own division tasks');
+        }
+        if (task.assigned_to_type === 'staff') {
+          const staff = dbInstance.stmt.getStaffAgentById.get(task.assigned_to_id) as StaffAgent | undefined;
+          if (!staff || staff.division_id !== ctx.owner_id) {
+            throw new Error('Division Head can only request execution for their own division members');
+          }
+        }
+      } else if (!this.isFounder(ctx)) {
+        throw new Error('Only Founder, Division Head, or assigned Staff can request execution');
+      }
+
+      // Determine autonomy level from task type if not specified
+      let autonomyLevel: AutonomyLevel = input.autonomy_level ?? 1;
+      if (!input.autonomy_level) {
+        const autonomyDef = dbInstance.stmt.getTaskAutonomyLevel.get(task.title) as TaskAutonomyLevel | undefined;
+        autonomyLevel = (autonomyDef?.autonomy_level as AutonomyLevel) ?? 1;
+      }
+
+      const executionId = dbInstance.generateId();
+      const now = new Date().toISOString();
+
+      let status: ExecutionStatus = 'proposed';
+      let approvalRequestId: string | undefined;
+
+      // Level 1: Autonomous - proceed directly to queued
+      // Level 2: Bounded - permission check required
+      // Level 3: Founder approval required
+      if (autonomyLevel === 1) {
+        status = 'queued';
+      } else if (autonomyLevel === 2) {
+        status = 'permission_check';
+      } else if (autonomyLevel === 3) {
+        status = 'approval_required';
+        // Will create approval request after execution request is inserted
+        approvalRequestId = dbInstance.generateId();
+      }
+
+      // Insert execution request first (approval_requests FK references execution_requests)
+      dbInstance.stmt.insertExecutionRequest.run(
+        executionId,
+        input.task_id,
+        ctx.owner_type,
+        ctx.owner_id,
+        autonomyLevel,
+        input.action_description,
+        JSON.stringify(input.action_payload),
+        status,
+        approvalRequestId ?? null,
+        null,
+        '[]',
+        null,
+        null,
+        null,
+        null
+      );
+
+      // Create approval request for Level 3 (after execution request exists)
+      if (autonomyLevel === 3 && approvalRequestId) {
+        dbInstance.stmt.insertApprovalRequest.run(
+          approvalRequestId,
+          executionId,
+          ctx.owner_type,
+          ctx.owner_id,
+          input.action_description,
+          JSON.stringify(input.action_payload),
+          `Autonomy Level 3 action requires Founder approval: ${input.action_description}`,
+          'medium',
+          null,
+          'pending',
+          null, null, null, null
+        );
+      }
+
+      // Record creation history: proposed → actual status
+      dbInstance.stmt.insertExecutionHistory.run(
+        dbInstance.generateId(),
+        executionId,
+        input.task_id,
+        ctx.owner_type,
+        ctx.owner_id,
+        autonomyLevel,
+        input.action_description,
+        JSON.stringify(input.action_payload),
+        'proposed',
+        status,
+        approvalRequestId ?? null,
+        '[]',
+        null,
+        null,
+        ctx.owner_type,
+        ctx.owner_id,
+        now,
+        null
+      );
+
+      // Note: Execution requests are not memory_entries, so we don't log to memory_access table
+
+      return toExecutionRequest(dbInstance.stmt.getExecutionRequest.get(executionId) as any);
+    },
+
+    getExecutionRequest(
+      ctx: { owner_type: MemoryOwnerType; owner_id: string; runtime: 'claude' | 'hermes' },
+      input: z.infer<typeof GetExecutionRequestInputSchema>
+    ): ExecutionRequest | undefined {
+      const execution = dbInstance.stmt.getExecutionRequest.get(input.execution_id) as ExecutionRequest | undefined;
+      if (!execution) return undefined;
+
+      // Check access
+      if (!this.isFounder(ctx)) {
+        if (execution.requested_by_type === 'staff' && execution.requested_by_id !== ctx.owner_id) {
+          throw new Error('Access denied to execution request');
+        }
+        if (execution.requested_by_type === 'division' && !this.isDivisionMember(ctx, execution.requested_by_id)) {
+          throw new Error('Access denied to execution request');
+        }
+      }
+
+      return toExecutionRequest(execution);
+    },
+
+    listExecutionRequests(
+      ctx: { owner_type: MemoryOwnerType; owner_id: string; runtime: 'claude' | 'hermes' },
+      input: z.infer<typeof ListExecutionRequestsInputSchema>
+    ): ExecutionRequest[] {
+      let executions = dbInstance.stmt.listExecutionRequests.all() as ExecutionRequest[];
+
+      // Filter by access
+      if (!this.isFounder(ctx)) {
+        executions = executions.filter(e => {
+          if (e.requested_by_type === 'staff') return e.requested_by_id === ctx.owner_id;
+          if (e.requested_by_type === 'division') return this.isDivisionMember(ctx, e.requested_by_id);
+          return false;
+        });
+      }
+
+      // Apply filters
+      if (input.status) {
+        executions = executions.filter(e => e.status === input.status);
+      }
+      if (input.autonomy_level) {
+        executions = executions.filter(e => e.autonomy_level === input.autonomy_level);
+      }
+      if (input.requested_by_type) {
+        executions = executions.filter(e => e.requested_by_type === input.requested_by_type);
+      }
+      if (input.requested_by_id) {
+        executions = executions.filter(e => e.requested_by_id === input.requested_by_id);
+      }
+      if (input.task_id) {
+        executions = executions.filter(e => e.task_id === input.task_id);
+      }
+
+      // Pagination
+      const offset = input.offset ?? 0;
+      const limit = input.limit ?? 50;
+      return executions.slice(offset, offset + limit).map(toExecutionRequest);
+    },
+
+    // Approval Workflow (Founder only)
+    approveExecution(
+      ctx: { owner_type: MemoryOwnerType; owner_id: string; runtime: 'claude' | 'hermes' },
+      input: z.infer<typeof ApproveExecutionInputSchema>
+    ): { success: boolean; approval_request_id: string; status: string; execution_id?: string } {
+      if (!this.isFounder(ctx)) {
+        throw new Error('Only Founder can approve execution requests');
+      }
+
+      const approval = dbInstance.stmt.getApprovalRequest.get(input.approval_request_id) as ApprovalRequest | undefined;
+      if (!approval) {
+        throw new Error(`Approval request '${input.approval_request_id}' not found`);
+      }
+
+      if (approval.status !== 'pending') {
+        throw new Error(`Approval request '${input.approval_request_id}' is not pending (status: ${approval.status})`);
+      }
+
+      // Prevent self-approval
+      if (approval.requested_by_type === 'founder' && approval.requested_by_id === ctx.owner_id) {
+        throw new Error('Self-approval is not allowed');
+      }
+
+      const now = new Date().toISOString();
+      const newStatus = input.approved ? 'approved' : 'rejected';
+
+      // Update approval request
+      dbInstance.stmt.updateApprovalRequest.run(
+        approval.execution_id,
+        approval.requested_by_type,
+        approval.requested_by_id,
+        approval.action_description,
+        approval.action_payload,
+        approval.justification,
+        approval.priority,
+        approval.deadline,
+        newStatus,
+        input.approved ? 'founder' : null,
+        input.approved ? 'founder' : null,
+        input.approved ? now : null,
+        input.rejection_reason ?? null,
+        input.approval_request_id
+      );
+
+      // Update execution request
+      const execution = dbInstance.stmt.getExecutionRequest.get(approval.execution_id) as ExecutionRequest | undefined;
+      if (execution) {
+        const execStatus = input.approved ? 'approved' : 'rejected';
+        dbInstance.stmt.updateExecutionRequest.run(
+          execution.task_id,
+          execution.requested_by_type,
+          execution.requested_by_id,
+          execution.autonomy_level,
+          execution.action_description,
+          execution.action_payload,
+          execStatus,
+          execution.approval_request_id,
+          input.approved ? approval.approval_request_id : null,
+          execution.permission_grants,
+          input.approved ? null : (input.rejection_reason ?? 'Rejected by Founder'),
+          execution.result_payload,
+          execution.started_at,
+          execution.completed_at,
+          approval.execution_id
+        );
+      }
+
+      // Note: Approval requests are not memory_entries, so we don't log to memory_access table
+
+      return { success: true, approval_request_id: input.approval_request_id, status: newStatus, execution_id: approval.execution_id };
+    },
+
+    listApprovalRequests(
+      ctx: { owner_type: MemoryOwnerType; owner_id: string; runtime: 'claude' | 'hermes' },
+      input: z.infer<typeof ListApprovalRequestsInputSchema>
+    ): ApprovalRequest[] {
+      if (!this.isFounder(ctx)) {
+        throw new Error('Only Founder can list approval requests');
+      }
+
+      let approvals = dbInstance.stmt.listApprovalRequests.all() as ApprovalRequest[];
+
+      if (input.status) {
+        approvals = approvals.filter(a => a.status === input.status);
+      }
+      if (input.requested_by_type) {
+        approvals = approvals.filter(a => a.requested_by_type === input.requested_by_type);
+      }
+      if (input.requested_by_id) {
+        approvals = approvals.filter(a => a.requested_by_id === input.requested_by_id);
+      }
+
+      const offset = input.offset ?? 0;
+      const limit = input.limit ?? 50;
+      return approvals.slice(offset, offset + limit).map(toApprovalRequest);
+    },
+
+    // Execution History
+    getExecutionHistory(
+      ctx: { owner_type: MemoryOwnerType; owner_id: string; runtime: 'claude' | 'hermes' },
+      input: z.infer<typeof GetExecutionHistoryInputSchema>
+    ): ExecutionHistory[] {
+      const execution = dbInstance.stmt.getExecutionRequest.get(input.execution_id) as ExecutionRequest | undefined;
+      if (!execution) {
+        throw new Error(`Execution request '${input.execution_id}' not found`);
+      }
+
+      // Check access
+      if (!this.isFounder(ctx)) {
+        if (execution.requested_by_type === 'staff' && execution.requested_by_id !== ctx.owner_id) {
+          throw new Error('Access denied to execution history');
+        }
+        if (execution.requested_by_type === 'division' && !this.isDivisionMember(ctx, execution.requested_by_id)) {
+          throw new Error('Access denied to execution history');
+        }
+      }
+
+      return (dbInstance.stmt.listExecutionHistoryByExecution.all(input.execution_id) as any[]).map(toExecutionHistory);
+    },
+
+    // Internal: Execute a queued/approved execution request
+    executeExecutionRequest(
+      ctx: { owner_type: MemoryOwnerType; owner_id: string; runtime: 'claude' | 'hermes' },
+      executionId: string,
+      resultPayload?: Record<string, any>,
+      errorMessage?: string
+    ): ExecutionRequest {
+      const execution = dbInstance.stmt.getExecutionRequest.get(executionId) as ExecutionRequest | undefined;
+      if (!execution) {
+        throw new Error(`Execution request '${executionId}' not found`);
+      }
+
+      // Re-validate permissions before execution (check Level 3 approval first)
+      if (execution.autonomy_level === 3 && execution.status !== 'approved') {
+        throw new Error('Level 3 execution requires Founder approval');
+      }
+
+      // Validate can execute
+      const validExecStatuses = ['queued', 'approved'];
+      if (!validExecStatuses.includes(execution.status)) {
+        throw new Error(`Execution request '${executionId}' is not ready for execution (status: ${execution.status})`);
+      }
+
+      const now = new Date().toISOString();
+      const statusBefore = execution.status;
+      const statusAfter = errorMessage ? 'failed' : 'running';
+
+      // Update to running
+      dbInstance.stmt.updateExecutionRequest.run(
+        execution.task_id,
+        execution.requested_by_type,
+        execution.requested_by_id,
+        execution.autonomy_level,
+        execution.action_description,
+        execution.action_payload,
+        statusAfter,
+        execution.approval_request_id,
+        execution.approval_id,
+        execution.permission_grants,
+        errorMessage ?? null,
+        execution.result_payload,
+        now,
+        null,
+        executionId
+      );
+
+      // Record history
+      dbInstance.stmt.insertExecutionHistory.run(
+        dbInstance.generateId(),
+        executionId,
+        execution.task_id,
+        execution.requested_by_type,
+        execution.requested_by_id,
+        execution.autonomy_level,
+        execution.action_description,
+        execution.action_payload,
+        statusBefore,
+        statusAfter,
+        execution.approval_request_id ?? null,
+        execution.permission_grants,
+        null,
+        null,
+        ctx.owner_type,
+        ctx.owner_id,
+        now,
+        null
+      );
+
+      // If completed immediately (simulated), mark completed
+      const finalStatus = errorMessage ? 'failed' : 'completed';
+      const completedAt = errorMessage ? null : now;
+
+      dbInstance.stmt.updateExecutionRequest.run(
+        execution.task_id,
+        execution.requested_by_type,
+        execution.requested_by_id,
+        execution.autonomy_level,
+        execution.action_description,
+        execution.action_payload,
+        finalStatus,
+        execution.approval_request_id,
+        execution.approval_id,
+        execution.permission_grants,
+        errorMessage ?? null,
+        resultPayload ? JSON.stringify(resultPayload) : null,
+        execution.started_at ?? now,
+        completedAt,
+        executionId
+      );
+
+      // Record completion history
+      dbInstance.stmt.insertExecutionHistory.run(
+        dbInstance.generateId(),
+        executionId,
+        execution.task_id,
+        execution.requested_by_type,
+        execution.requested_by_id,
+        execution.autonomy_level,
+        execution.action_description,
+        execution.action_payload,
+        statusAfter,
+        finalStatus,
+        execution.approval_request_id ?? null,
+        execution.permission_grants,
+        resultPayload ? JSON.stringify(resultPayload) : null,
+        errorMessage ?? null,
+        ctx.owner_type,
+        ctx.owner_id,
+        now,
+        completedAt
+      );
+
+      return toExecutionRequest(dbInstance.stmt.getExecutionRequest.get(executionId) as any);
+    },
+
+    cancelExecutionRequest(
+      ctx: { owner_type: MemoryOwnerType; owner_id: string; runtime: 'claude' | 'hermes' },
+      executionId: string
+    ): ExecutionRequest {
+      const execution = dbInstance.stmt.getExecutionRequest.get(executionId) as ExecutionRequest | undefined;
+      if (!execution) {
+        throw new Error(`Execution request '${executionId}' not found`);
+      }
+
+      // Check ownership
+      if (!this.isFounder(ctx)) {
+        if (execution.requested_by_type === 'staff' && execution.requested_by_id !== ctx.owner_id) {
+          throw new Error('Only requester or Founder can cancel execution');
+        }
+        if (execution.requested_by_type === 'division' && !this.isDivisionHead(ctx, execution.requested_by_id)) {
+          throw new Error('Only Division Head or Founder can cancel execution');
+        }
+      }
+
+      // Only cancel if not completed/failed
+      const nonCancellable = ['completed', 'failed', 'cancelled'];
+      if (nonCancellable.includes(execution.status)) {
+        throw new Error(`Cannot cancel execution with status: ${execution.status}`);
+      }
+
+      const now = new Date().toISOString();
+      const statusBefore = execution.status;
+
+      dbInstance.stmt.updateExecutionRequest.run(
+        execution.task_id,
+        execution.requested_by_type,
+        execution.requested_by_id,
+        execution.autonomy_level,
+        execution.action_description,
+        execution.action_payload,
+        'cancelled',
+        execution.approval_request_id,
+        execution.approval_id,
+        execution.permission_grants,
+        'Cancelled by user',
+        execution.result_payload,
+        execution.started_at,
+        now,
+        executionId
+      );
+
+      // Record history
+      dbInstance.stmt.insertExecutionHistory.run(
+        dbInstance.generateId(),
+        executionId,
+        execution.task_id,
+        execution.requested_by_type,
+        execution.requested_by_id,
+        execution.autonomy_level,
+        execution.action_description,
+        execution.action_payload,
+        statusBefore,
+        'cancelled',
+        execution.approval_request_id ?? null,
+        execution.permission_grants,
+        null,
+        'Cancelled by user',
+        ctx.owner_type,
+        ctx.owner_id,
+        now,
+        now
+      );
+
+      return toExecutionRequest(dbInstance.stmt.getExecutionRequest.get(executionId) as any);
     },
   };
 }
