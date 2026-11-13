@@ -326,29 +326,30 @@ SELECT cds.* FROM cross_division_shares cds LEFT JOIN divisions d ON cds.divisio
 
 **File**: `tests/phase6_migration_verification.test.ts`
 
-**Test Coverage (15 tests, all passing)**:
-| Test Category | Tests | Status |
-|---------------|-------|--------|
-| Migration 001 (actual SQL): staff_agents default → inactive | 1 | ✅ PASS |
-| Migration 002 (actual SQL): cross_division_shares founder-only | 1 | ✅ PASS |
-| Migration 003 (actual SQL): tasks additive columns | 1 | ✅ PASS |
-| Migration 004 (actual SQL): deliverables additive columns | 1 | ✅ PASS |
-| Migration 005 (actual SQL): cross_division_shares Stage 7 columns | 1 | ✅ PASS |
-| Full migration sequence (001-005 in order) | 1 | ✅ PASS |
-| Table rebuild preservation (indexes, triggers, FK records) | 2 | ✅ PASS |
-| Rollback using actual backups (file-backed database) | 1 | ✅ PASS |
-| Migration execution tracking (ledger, duplicate prevention) | 1 | ✅ PASS |
-| Test classification (unit/integration/application-layer) | 5 | ✅ PASS |
+**Test Coverage (16 tests, all passing)**:
+| Test Category | Tests | Type | Status |
+|---------------|-------|------|--------|
+| Migration 001 (actual SQL): staff_agents default → inactive | 1 | Substantive | ✅ PASS |
+| Migration 002 (actual SQL): cross_division_shares founder-only | 1 | Substantive | ✅ PASS |
+| Migration 003 (actual SQL): tasks additive columns | 1 | Substantive | ✅ PASS |
+| Migration 004 (actual SQL): deliverables additive columns | 1 | Substantive | ✅ PASS |
+| Migration 005 (actual SQL): cross_division_shares Stage 7 columns | 1 | Substantive | ✅ PASS |
+| Full migration sequence (001-005 in order) | 1 | Substantive (Integration) | ✅ PASS |
+| Table rebuild preservation (indexes, triggers, FK records) | 2 | Substantive (Integration) | ✅ PASS |
+| Rollback using actual backups (file-backed database) | 1 | Substantive (Integration) | ✅ PASS |
+| Migration execution tracking (ledger, duplicate prevention) | 2 | Design Validation (Proposed) | ✅ PASS |
+| Test classification (unit/integration/application-layer) | 5 | Placeholder (Documentation) | ✅ PASS |
+| **TOTAL** | **16** | **11 Substantive + 5 Placeholder** | **✅ ALL PASS** |
 
 **Verification Scope**:
-- ✅ All five committed SQL files executed by tests
+- ✅ All five committed SQL files executed by tests (read from disk, not reconstructed)
 - ✅ Legacy grant conversion tested against actual Migration 002 file
-- ✅ Foreign-key checks pass after table rebuilds (`PRAGMA foreign_key_check`)
-- ✅ Indexes recreated after table rebuilds (standard indexes documented in migration SQL)
-- ✅ Dependent records survive table rebuilds (division_members → staff_agents FK)
+- ✅ Foreign-key checks pass after table rebuilds (`PRAGMA foreign_key_check` returns 0 violations)
+- ✅ Standard indexes recreated after table rebuilds (as specified in migration SQL)
+- ✅ Dependent records survive table rebuilds (division_members → staff_agents FK verified)
 - ✅ Backup restoration tested against file-backed temporary database (file copy method)
-- ✅ Migration ledger design validated (SHA-256 checksums, transaction boundaries); **proposed mechanism — no production runner implemented**
-- ✅ Tests distinguish: actual SQL file execution, full sequence integration, backup/rollback integration, application-layer (NOT tested here)
+- ✅ Migration ledger design validated: SHA-256 checksums, transaction atomicity; **proposed mechanism — no production runner implemented**
+- ✅ Clear test classification: actual SQL file execution tests, full sequence integration, backup/rollback integration, ledger design validation, application-layer (NOT tested here)
 
 **Run Command**:
 ```bash

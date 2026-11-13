@@ -154,15 +154,16 @@ Run against temporary database:
 npx tsx --test tests/phase6_migration_verification.test.ts
 ```
 
-**Test Coverage (15 tests, all passing)**:
-| Category | Tests | Description |
-|----------|-------|-------------|
-| Actual SQL execution (001-005) | 5 | Each migration file read and executed directly |
-| Full sequence integration | 1 | All 5 migrations in order on same DB |
-| Table rebuild preservation | 2 | Indexes, FK records, dependent tables |
-| Backup & rollback (file-backed) | 1 | File copy backup, migration, restore, FK check |
-| Migration ledger design validation | 1 | SHA-256 checksum tracking, transaction boundaries (proposed mechanism) |
-| Test classification | 5 | Unit, integration, application-layer distinction |
+**Test Coverage (16 tests, all passing)**:
+| Category | Tests | Type | Description |
+|----------|-------|------|-------------|
+| Actual SQL execution (001-005) | 5 | Substantive | Each migration file read and executed directly |
+| Full sequence integration | 1 | Substantive (Integration) | All 5 migrations in order on same DB |
+| Table rebuild preservation | 2 | Substantive (Integration) | Indexes, FK records, dependent tables |
+| Backup & rollback (file-backed) | 1 | Substantive (Integration) | File copy backup, migration, restore, FK check |
+| Migration ledger design validation | 2 | Design Validation (Proposed) | SHA-256 checksum tracking, transaction boundaries |
+| Test classification | 5 | Placeholder (Documentation) | Unit, integration, application-layer distinction |
+| **TOTAL** | **16** | **11 Substantive + 5 Placeholder** | |
 
 **Verification Scope**:
 - All five committed SQL files executed by tests
