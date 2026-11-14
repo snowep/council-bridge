@@ -69,7 +69,26 @@ let db: DatabaseInstance;
 
 // Initialize database
 async function initDb() {
-  db = await createDatabase(process.env.DATABASE_PATH || ':memory:');
+  try {
+    const dbPath = process.env.DATABASE_PATH;
+    const isProduction = process.env.NODE_ENV === 'production';
+
+    // In production, DATABASE_PATH is required and must not be :memory:
+    if (isProduction && (!dbPath || dbPath === ':memory:')) {
+      console.error('❌ PRODUCTION ERROR: DATABASE_PATH environment variable is required and must point to a persistent database file. In-memory database (:memory:) is not allowed in production.');
+      process.exit(1);
+    }
+
+    // In development/test, if no DATABASE_PATH is provided, createDatabase will use its default
+    const effectiveDbPath = dbPath || (isProduction ? '' : undefined);
+    db = createDatabase(effectiveDbPath);
+  } catch (error) {
+    console.error('❌ Database initialization failed:', error instanceof Error ? error.message : 'Unknown error');
+    if (process.env.NODE_ENV === 'production') {
+      process.exit(1);
+    }
+    throw error;
+  }
 }
 
 // Auth mode configuration

@@ -208,13 +208,31 @@ export interface DatabaseInstance {
 // Phase 4 schema version. Bumped when createDatabase() adds tables.
 export const SCHEMA_VERSION = '4.0.0';
 
-function createDatabase(dbPath: string): DatabaseInstance {
-  const dir = path.dirname(dbPath);
+function createDatabase(dbPath?: string): DatabaseInstance {
+  const isProduction = process.env.NODE_ENV === 'production';
+  const isTest = process.env.NODE_ENV === 'test';
+
+  // Production: require explicit persistent DATABASE_PATH
+  if (isProduction) {
+    if (!dbPath || dbPath === ':memory:') {
+      throw new Error('Production requires explicit DATABASE_PATH environment variable. In-memory database not allowed in production.');
+    }
+  }
+
+  // Development: default to persistent local database
+  if (!isProduction && !isTest && (!dbPath || dbPath === ':memory:')) {
+    dbPath = path.join(process.cwd(), 'data', 'council.db');
+  }
+
+  // At this point, dbPath should be defined (validated in production, defaulted in dev/test)
+  const effectiveDbPath = dbPath!;
+
+  const dir = path.dirname(effectiveDbPath);
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
 
-  const db = new Database(dbPath);
+  const db = new Database(effectiveDbPath);
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
 
