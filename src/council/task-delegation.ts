@@ -540,11 +540,11 @@ export function validateDivisionHeadAuthority(db: DatabaseInstance, ctx: Operati
 export interface StaffAgentRecord {
   staff_id: string;
   status: string;
-  runtime_instances: string[];
+  runtime_instances: string; // JSON string in database
   division_id: string;
 }
 
-export function validateActiveStaffIdentity(db: DatabaseInstance, staffId: string, runtime: string): StaffAgentRecord {
+export function validateActiveStaffIdentity(db: DatabaseInstance, staffId: string, runtime: string): Omit<StaffAgentRecord, 'runtime_instances'> & { runtime_instances: string[] } {
   const staff = db.query('SELECT * FROM staff_agents WHERE staff_id = ?', [staffId]);
   if (staff.length === 0) {
     throw new Error(`Staff agent '${staffId}' not found`);
@@ -553,7 +553,7 @@ export function validateActiveStaffIdentity(db: DatabaseInstance, staffId: strin
   if (record.status !== 'active') {
     throw new Error('Staff agent is not active');
   }
-  const instances = JSON.parse(record.runtime_instances || '[]');
+  const instances = (JSON.parse(record.runtime_instances || '[]') as unknown) as string[];
   if (!instances.includes(runtime)) {
     throw new Error(`Staff agent not registered for runtime: ${runtime}`);
   }
