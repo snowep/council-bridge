@@ -298,13 +298,7 @@ export function verifyFounderOperation(
     return { valid: false, error: 'NONCE_MALFORMED' };
   }
 
-  // Check and consume nonce atomically via SQLite unique constraint
-  const nonceConsumed = checkAndConsumeNonce(keyId, operation, nonce, now);
-  if (!nonceConsumed) {
-    return { valid: false, error: 'NONCE_REPLAY' };
-  }
-
-  // Canonicalize and verify signature
+  // Canonicalize and verify signature FIRST - before consuming nonce
   try {
     const data = canonicalizeForSigning(operation, body, timestamp, nonce, keyId);
     const verifier = crypto.createVerify('RSA-SHA256');
@@ -313,15 +307,19 @@ export function verifyFounderOperation(
     const valid = verifier.verify(keys.public_key, signature, 'base64');
 
     if (!valid) {
-      // Note: nonce was already consumed but signature invalid
-      // This prevents nonce reuse but doesn't create auth path
       return { valid: false, error: 'INVALID_SIGNATURE' };
     }
-
-    return { valid: true };
   } catch (error) {
     return { valid: false, error: 'VERIFICATION_ERROR' };
   }
+
+  // Signature valid - NOW atomically consume nonce via SQLite unique constraint
+  const nonceConsumed = checkAndConsumeNonce(keyId, operation, nonce, now);
+  if (!nonceConsumed) {
+    return { valid: false, error: 'NONCE_REPLAY' };
+  }
+
+  return { valid: true };
 }
 
 export function requireFounderSignature(
