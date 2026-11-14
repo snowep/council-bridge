@@ -2,6 +2,7 @@ import { afterEach, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createDatabase, DatabaseInstance } from '../src/database.js';
 import { createCouncilService, CouncilService } from '../src/council.js';
+import crypto from 'crypto';
 
 let db: DatabaseInstance;
 let council: CouncilService;
@@ -17,12 +18,17 @@ afterEach(() => {
   db.close();
 });
 
+function uniqueName(prefix: string): string {
+  return `${prefix}-${crypto.randomUUID().slice(0, 8)}`;
+}
+
 describe('service-layer authorization', () => {
   it('rejects unauthenticated service calls and creator identity substitution', () => {
     setup();
-    const division = council.createDivision(founder, { name: 'Research' });
+    const division = council.createDivision(founder, { name: uniqueName('Research') });
+    const staffId = uniqueName('staff');
     const staff = council.registerStaffAgent(founder, {
-      staff_id: 'staff-001',
+      staff_id: staffId,
       name: 'Researcher',
       role: 'Researcher',
       division_id: division.division_id,
@@ -53,8 +59,10 @@ describe('service-layer authorization', () => {
 
   it('filters task and deliverable lookups by assignment ownership', () => {
     setup();
-    const division = council.createDivision(founder, { name: 'Research' });
-    for (const staffId of ['staff-001', 'staff-002']) {
+    const division = council.createDivision(founder, { name: uniqueName('Research') });
+    const staffId1 = uniqueName('staff');
+    const staffId2 = uniqueName('staff');
+    for (const staffId of [staffId1, staffId2]) {
       council.registerStaffAgent(founder, {
         staff_id: staffId,
         name: staffId,
@@ -68,22 +76,22 @@ describe('service-layer authorization', () => {
     const task = council.createTask(founder, {
       title: 'Private task',
       assigned_to_type: 'staff',
-      assigned_to_id: 'staff-001',
+      assigned_to_id: staffId1,
       created_by_type: 'founder',
       created_by_id: 'founder',
     });
     const deliverable = council.createDeliverable({
       owner_type: 'staff',
-      owner_id: 'staff-001',
+      owner_id: staffId1,
       runtime: 'claude',
     }, {
       deliverable_id: 'deliverable-001',
       task_id: task.task_id,
       submitted_by_type: 'staff',
-      submitted_by_id: 'staff-001',
+      submitted_by_id: staffId1,
       content: 'Result',
     });
-    const otherStaff = { owner_type: 'staff' as const, owner_id: 'staff-002', runtime: 'claude' as const };
+    const otherStaff = { owner_type: 'staff' as const, owner_id: staffId2, runtime: 'claude' as const };
 
     assert.equal(council.getTaskById(otherStaff, task.task_id), undefined);
     assert.equal(council.getDeliverableById(otherStaff, deliverable.deliverable_id), undefined);
@@ -95,16 +103,18 @@ describe('service-layer authorization', () => {
 
   it('does not expose another staff member\'s private memory', () => {
     setup();
-    const division = council.createDivision(founder, { name: 'Research' });
+    const division = council.createDivision(founder, { name: uniqueName('Research') });
+    const ownerId = uniqueName('staff');
+    const readerId = uniqueName('staff');
     const owner = council.registerStaffAgent(founder, {
-      staff_id: 'staff-owner',
+      staff_id: ownerId,
       name: 'Owner',
       role: 'Researcher',
       division_id: division.division_id,
       runtime_instances: ['claude'],
     });
     council.registerStaffAgent(founder, {
-      staff_id: 'staff-reader',
+      staff_id: readerId,
       name: 'Reader',
       role: 'Researcher',
       division_id: division.division_id,
@@ -120,15 +130,17 @@ describe('service-layer authorization', () => {
 
     assert.equal(council.getMemoryById({
       owner_type: 'staff',
-      owner_id: 'staff-reader',
+      owner_id: readerId,
       runtime: 'claude',
     }, memory.memory_id), undefined);
   });
 
   it('prevents a peer from reading or executing another staff member\'s request', () => {
     setup();
-    const division = council.createDivision(founder, { name: 'Research' });
-    for (const staffId of ['staff-requester', 'staff-peer']) {
+    const division = council.createDivision(founder, { name: uniqueName('Research') });
+    const requesterId = uniqueName('staff');
+    const peerId = uniqueName('staff');
+    for (const staffId of [requesterId, peerId]) {
       council.registerStaffAgent(founder, {
         staff_id: staffId,
         name: staffId,
@@ -141,20 +153,20 @@ describe('service-layer authorization', () => {
     const task = council.createTask(founder, {
       title: 'research',
       assigned_to_type: 'staff',
-      assigned_to_id: 'staff-requester',
+      assigned_to_id: requesterId,
       created_by_type: 'founder',
       created_by_id: 'founder',
     });
-    council.createTaskAutonomyLevel(founder, { task_type: 'research', autonomy_level: 1 });
+    council.createTaskAutonomyLevel(founder, { task_type: uniqueName('research'), autonomy_level: 1 });
     const request = council.requestExecution({
       owner_type: 'staff',
-      owner_id: 'staff-requester',
+      owner_id: requesterId,
       runtime: 'claude',
     }, {
       task_id: task.task_id,
       action_description: 'Run research',
     });
-    const peer = { owner_type: 'staff' as const, owner_id: 'staff-peer', runtime: 'claude' as const };
+    const peer = { owner_type: 'staff' as const, owner_id: peerId, runtime: 'claude' as const };
 
     assert.throws(() => council.getExecutionRequest(peer, { execution_id: request.execution_id }), /Access denied/);
     assert.throws(() => council.executeExecutionRequest(peer, request.execution_id), /Access denied/);
@@ -162,26 +174,28 @@ describe('service-layer authorization', () => {
 
   it('rolls back execution state when history recording fails', () => {
     setup();
-    const division = council.createDivision(founder, { name: 'Research' });
+    const division = council.createDivision(founder, { name: uniqueName('Research') });
+    const staffId = uniqueName('staff');
     council.registerStaffAgent(founder, {
-      staff_id: 'staff-001',
+      staff_id: staffId,
       name: 'Researcher',
       role: 'Researcher',
       division_id: division.division_id,
       runtime_instances: ['claude'],
     });
-    council.updateStaffStatus(founder, { staff_id: 'staff-001', status: 'active' });
+    council.updateStaffStatus(founder, { staff_id: staffId, status: 'active' });
     const task = council.createTask(founder, {
       title: 'research',
       assigned_to_type: 'staff',
-      assigned_to_id: 'staff-001',
+      assigned_to_id: staffId,
       created_by_type: 'founder',
       created_by_id: 'founder',
     });
-    council.createTaskAutonomyLevel(founder, { task_type: 'research', autonomy_level: 1 });
+    const taskType = uniqueName('research');
+    council.createTaskAutonomyLevel(founder, { task_type: taskType, autonomy_level: 1 });
     const request = council.requestExecution({
       owner_type: 'staff',
-      owner_id: 'staff-001',
+      owner_id: staffId,
       runtime: 'claude',
     }, {
       task_id: task.task_id,

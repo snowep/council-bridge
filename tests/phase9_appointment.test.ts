@@ -1,7 +1,7 @@
 // Phase 9 Batch 1: Appointment Ceremony Tests
 // Tests for approveDivisionHead, approveSpecialist, activateStaffAgent
 
-import { describe, it, before, after, beforeEach } from 'node:test';
+import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
 import { createDatabase, DatabaseInstance } from '../src/database.js';
 import {
@@ -15,29 +15,31 @@ import {
   activateStaffAgent,
   addDivisionMember
 } from '../src/council/divisions.js';
-import { createMemory } from '../src/council/memory.js';
+import crypto from 'crypto';
 
-let db: DatabaseInstance;
+const founderCtx = { owner_type: 'founder' as const, owner_id: 'founder' };
+const staffCtx = { owner_type: 'staff' as const, owner_id: 'staff-001' };
 
-const founderCtx = { owner_type: 'founder', owner_id: 'founder' };
-const staffCtx = { owner_type: 'staff', owner_id: 'staff-001' };
-const divisionCtx = { owner_type: 'division', owner_id: 'div-001' };
+function uniqueName(prefix: string): string {
+  return `${prefix}-${crypto.randomUUID().slice(0, 8)}`;
+}
+
+function uniqueStaffId(prefix: string): string {
+  return `${prefix}-${crypto.randomUUID().slice(0, 8)}`;
+}
 
 describe('Phase 9 Batch 1: Appointment Ceremony', () => {
-  before(() => {
+  let db: DatabaseInstance;
+
+  beforeEach(() => {
     db = createDatabase(':memory:');
   });
 
-  after(() => {
+  afterEach(() => {
     db.close();
   });
 
-  beforeEach(() => {
-    // Reset database by recreating tables
-    db = createDatabase(':memory:');
-  });
-
-  function setupDivision(db: DatabaseInstance, divisionId: string, name: string) {
+  function setupDivision(divisionId: string, name: string) {
     return createDivision(db, {
       division_id: divisionId,
       name,
@@ -45,7 +47,7 @@ describe('Phase 9 Batch 1: Appointment Ceremony', () => {
     });
   }
 
-  function setupStaff(db: DatabaseInstance, staffId: string, name: string, role: string, divisionId: string, status: 'active' | 'inactive' = 'inactive') {
+  function setupStaff(staffId: string, name: string, role: string, divisionId: string, status: 'active' | 'inactive' = 'inactive') {
     return registerStaffAgent(db, {
       staff_id: staffId,
       name,
@@ -60,93 +62,112 @@ describe('Phase 9 Batch 1: Appointment Ceremony', () => {
   // --- approveDivisionHead Tests ---
 
   it('should approve Division Head with founder context', () => {
-    setupDivision(db, 'Developer Division', 'Developer');
-    setupStaff(db, 'staff-dev-head-001', 'Dev Head', 'Division Head, Developer Division', 'Developer Division', 'active');
+    const divName = uniqueName('Developer');
+    setupDivision(divName, divName);
+    const staffId = uniqueStaffId('dev-head');
+    setupStaff(staffId, 'Dev Head', 'Division Head, Developer Division', divName, 'active');
 
     const result = approveDivisionHead(db, founderCtx, {
-      division_id: 'Developer Division',
-      staff_id: 'staff-dev-head-001'
+      division_id: divName,
+      staff_id: staffId
     });
 
-    assert.strictEqual(result.head_staff_id, 'staff-dev-head-001');
-    assert.strictEqual(result.division_id, 'Developer Division');
+    assert.strictEqual(result.head_staff_id, staffId);
+    assert.strictEqual(result.division_id, divName);
   });
 
   it('should reject Division Head approval from non-founder', () => {
-    setupDivision(db, 'Developer Division', 'Developer');
-    setupStaff(db, 'staff-dev-head-001', 'Dev Head', 'Division Head', 'Developer Division', 'active');
+    const divName = uniqueName('Developer');
+    setupDivision(divName, divName);
+    const staffId = uniqueStaffId('dev-head');
+    setupStaff(staffId, 'Dev Head', 'Division Head', divName, 'active');
 
     assert.throws(() => {
       approveDivisionHead(db, staffCtx, {
-        division_id: 'Developer Division',
-        staff_id: 'staff-dev-head-001'
+        division_id: divName,
+        staff_id: staffId
       });
     }, /Only Founder can approve Division Head appointments/);
   });
 
   it('should reject Division Head approval for non-existent division', () => {
-    setupDivision(db, 'Developer Division', 'Developer');
-    setupStaff(db, 'staff-dev-head-001', 'Dev Head', 'Division Head', 'Developer Division', 'active');
+    const testDb = freshDb();
+    const divName = uniqueName('Developer');
+    setupDivision(testDb, divName, divName);
+    const staffId = uniqueStaffId('dev-head');
+    setupStaff(testDb, staffId, 'Dev Head', 'Division Head', divName, 'active');
 
     assert.throws(() => {
-      approveDivisionHead(db, founderCtx, {
+      approveDivisionHead(testDb, founderCtx, {
         division_id: 'Non-existent Division',
-        staff_id: 'staff-dev-head-001'
+        staff_id: staffId
       });
     }, /Division 'Non-existent Division' not found/);
   });
 
   it('should reject Division Head approval for non-existent staff', () => {
-    setupDivision(db, 'Developer Division', 'Developer');
+    const testDb = freshDb();
+    const divName = uniqueName('Developer');
+    setupDivision(testDb, divName, divName);
 
     assert.throws(() => {
-      approveDivisionHead(db, founderCtx, {
-        division_id: 'Developer Division',
+      approveDivisionHead(testDb, founderCtx, {
+        division_id: divName,
         staff_id: 'non-existent-staff'
       });
     }, /Staff agent 'non-existent-staff' not found/);
   });
 
   it('should reject Division Head approval when staff belongs to different division', () => {
-    setupDivision(db, 'Developer Division', 'Developer');
-    setupDivision(db, 'Marketing Division', 'Marketing');
-    setupStaff(db, 'staff-marketing-head-001', 'Marketing Head', 'Division Head, Marketing Division', 'Marketing Division', 'active');
+    const testDb = freshDb();
+    const devName = uniqueName('Developer');
+    const marketingName = uniqueName('Marketing');
+    setupDivision(testDb, devName, devName);
+    setupDivision(testDb, marketingName, marketingName);
+    const staffId = uniqueStaffId('marketing-head');
+    setupStaff(testDb, staffId, 'Marketing Head', 'Division Head, Marketing Division', marketingName, 'active');
 
     assert.throws(() => {
-      approveDivisionHead(db, founderCtx, {
-        division_id: 'Developer Division',
-        staff_id: 'staff-marketing-head-001'
+      approveDivisionHead(testDb, founderCtx, {
+        division_id: devName,
+        staff_id: staffId
       });
-    }, /Staff agent 'staff-marketing-head-001' is not a member of division 'Developer Division'/);
+    }, new RegExp(`Staff agent '${staffId}' is not a member of division '${devName}'`));
   });
 
   it('should reject duplicate Division Head appointment', () => {
-    setupDivision(db, 'Developer Division', 'Developer');
-    setupStaff(db, 'staff-dev-head-001', 'Dev Head', 'Division Head', 'Developer Division', 'active');
+    const testDb = freshDb();
+    const divName = uniqueName('Developer');
+    setupDivision(testDb, divName, divName);
+    const staffId = uniqueStaffId('dev-head');
+    setupStaff(testDb, staffId, 'Dev Head', 'Division Head', divName, 'active');
 
-    approveDivisionHead(db, founderCtx, {
-      division_id: 'Developer Division',
-      staff_id: 'staff-dev-head-001'
+    approveDivisionHead(testDb, founderCtx, {
+      division_id: divName,
+      staff_id: staffId
     });
 
     assert.throws(() => {
-      approveDivisionHead(db, founderCtx, {
-        division_id: 'Developer Division',
-        staff_id: 'staff-dev-head-001'
+      approveDivisionHead(testDb, founderCtx, {
+        division_id: divName,
+        staff_id: staffId
       });
     }, /already the Division Head/);
   });
 
   it('should create audit memory entry on Division Head approval', () => {
-    setupDivision(db, 'Developer Division', 'Developer');
-    setupStaff(db, 'staff-dev-head-001', 'Dev Head', 'Division Head', 'Developer Division', 'active');
+    const testDb = freshDb();
+    const divName = uniqueName('Developer');
+    setupDivision(testDb, divName, divName);
+    const staffId = uniqueStaffId('dev-head');
+    setupStaff(testDb, staffId, 'Dev Head', 'Division Head', divName, 'active');
 
-    approveDivisionHead(db, founderCtx, {
-      division_id: 'Developer Division',
-      staff_id: 'staff-dev-head-001'
+    approveDivisionHead(testDb, founderCtx, {
+      division_id: divName,
+      staff_id: staffId
     });
 
-    const memories = db.query(
+    const memories = testDb.query(
       'SELECT * FROM memory_entries WHERE category = ? AND memory_type = ?',
       ['council_shared', 'appointment_record']
     );
@@ -154,53 +175,59 @@ describe('Phase 9 Batch 1: Appointment Ceremony', () => {
     assert.strictEqual(memories.length, 1);
     const content = JSON.parse(memories[0].content);
     assert.strictEqual(content.action, 'approve_division_head');
-    assert.strictEqual(content.division_id, 'Developer Division');
-    assert.strictEqual(content.staff_id, 'staff-dev-head-001');
+    assert.strictEqual(content.division_id, divName);
+    assert.strictEqual(content.staff_id, staffId);
   });
 
   // --- approveSpecialist Tests ---
 
+  // --- approveSpecialist Tests ---
+
   it('should approve specialist with founder context', () => {
+    const divName = uniqueName('Developer');
     const division = createDivision(db, {
-      division_id: 'Developer Division',
-      name: 'Developer'
+      division_id: divName,
+      name: divName
     });
+    const staffId = uniqueStaffId('dev-platform');
 
     const staff = registerStaffAgent(db, {
-      staff_id: 'staff-dev-platform-001',
+      staff_id: staffId,
       name: 'Platform Engineer',
       role: 'Platform Engineering Lead',
-      division_id: 'Developer Division',
+      division_id: division.division_id,
       runtime_instances: [],
       permissions: [],
       status: 'inactive'
     });
 
     const result = approveSpecialist(db, founderCtx, {
-      staff_id: 'staff-dev-platform-001',
-      division_id: 'Developer Division'
+      staff_id: staffId,
+      division_id: division.division_id
     });
 
     // Approval does not change status - activation is separate
     assert.strictEqual(result.status, 'inactive');
-    assert.strictEqual(result.staff_id, 'staff-dev-platform-001');
+    assert.strictEqual(result.staff_id, staffId);
 
     // But division membership should be created
     const members = db.query(
       'SELECT * FROM division_members WHERE division_id = ? AND staff_id = ?',
-      ['Developer Division', 'staff-dev-platform-001']
+      [division.division_id, staffId]
     );
     assert.strictEqual(members.length, 1);
     assert.strictEqual(members[0].role, 'specialist');
   });
 
   it('should reject specialist approval from non-founder', () => {
-    const division = createDivision(db, { division_id: 'Developer Division', name: 'Developer' });
+    const divName = uniqueName('Developer');
+    const div = createDivision(db, { division_id: divName, name: divName });
+    const staffId = uniqueStaffId('dev-platform');
     const staff = registerStaffAgent(db, {
-      staff_id: 'staff-dev-platform-001',
+      staff_id: staffId,
       name: 'Platform Engineer',
       role: 'Platform Engineering Lead',
-      division_id: 'Developer Division',
+      division_id: div.division_id,
       runtime_instances: [],
       permissions: [],
       status: 'inactive'
@@ -208,30 +235,33 @@ describe('Phase 9 Batch 1: Appointment Ceremony', () => {
 
     assert.throws(() => {
       approveSpecialist(db, staffCtx, {
-        staff_id: 'staff-dev-platform-001',
-        division_id: 'Developer Division'
+        staff_id: staffId,
+        division_id: div.division_id
       });
     }, /Only Founder can approve specialist appointments/);
   });
 
   it('should reject specialist approval for non-existent staff', () => {
-    const division = createDivision(db, { division_id: 'Developer Division', name: 'Developer' });
+    const divName = uniqueName('Developer');
+    const div = createDivision(db, { division_id: divName, name: divName });
 
     assert.throws(() => {
       approveSpecialist(db, founderCtx, {
         staff_id: 'non-existent-staff',
-        division_id: 'Developer Division'
+        division_id: div.division_id
       });
     }, /Staff agent 'non-existent-staff' not found/);
   });
 
   it('should reject specialist approval for non-existent division', () => {
-    createDivision(db, { division_id: 'Developer Division', name: 'Developer' });
+    const divName = uniqueName('Developer');
+    const division = createDivision(db, { division_id: divName, name: divName });
+    const staffId = uniqueStaffId('dev-platform');
     const staff = registerStaffAgent(db, {
-      staff_id: 'staff-dev-platform-001',
+      staff_id: staffId,
       name: 'Platform Engineer',
       role: 'Platform Engineering Lead',
-      division_id: 'Developer Division',
+      division_id: division.division_id,
       runtime_instances: [],
       permissions: [],
       status: 'inactive'
@@ -246,14 +276,15 @@ describe('Phase 9 Batch 1: Appointment Ceremony', () => {
   });
 
   it('should reject specialist approval when staff registered to different division', () => {
-    const devDivision = createDivision(db, { division_id: 'Developer Division', name: 'Developer' });
-    const marketingDivision = createDivision(db, { division_id: 'Marketing Division', name: 'Marketing' });
+    const devDivision = createDivision(db, { division_id: uniqueName('Developer'), name: uniqueName('Developer') });
+    const marketingDivision = createDivision(db, { division_id: uniqueName('Marketing'), name: uniqueName('Marketing') });
 
+    const staffId = uniqueStaffId('marketing-growth');
     const staff = registerStaffAgent(db, {
-      staff_id: 'staff-marketing-growth-001',
+      staff_id: staffId,
       name: 'Growth Lead',
       role: 'Growth/Acquisition Lead',
-      division_id: 'Marketing Division',
+      division_id: marketingDivision.division_id,
       runtime_instances: [],
       permissions: [],
       status: 'inactive'
@@ -261,19 +292,20 @@ describe('Phase 9 Batch 1: Appointment Ceremony', () => {
 
     assert.throws(() => {
       approveSpecialist(db, founderCtx, {
-        staff_id: 'staff-marketing-growth-001',
-        division_id: 'Developer Division'
+        staff_id: staffId,
+        division_id: devDivision.division_id
       });
-    }, /Staff agent 'staff-marketing-growth-001' is not registered to division 'Developer Division'/);
+    }, new RegExp(`Staff agent '${staffId}' is not registered to division '${devDivision.division_id}'`));
   });
 
   it('should allow specialist approval regardless of current status (activation is separate)', () => {
-    const division = createDivision(db, { division_id: 'Developer Division', name: 'Developer' });
+    const division = createDivision(db, { division_id: uniqueName('Developer'), name: uniqueName('Developer') });
+    const staffId = uniqueStaffId('dev-platform');
     const staff = registerStaffAgent(db, {
-      staff_id: 'staff-dev-platform-001',
+      staff_id: staffId,
       name: 'Platform Engineer',
       role: 'Platform Engineering Lead',
-      division_id: 'Developer Division',
+      division_id: division.division_id,
       runtime_instances: [],
       permissions: [],
       status: 'active'
@@ -281,8 +313,8 @@ describe('Phase 9 Batch 1: Appointment Ceremony', () => {
 
     // Should not throw - approval is separate from activation
     const result = approveSpecialist(db, founderCtx, {
-      staff_id: 'staff-dev-platform-001',
-      division_id: 'Developer Division'
+      staff_id: staffId,
+      division_id: division.division_id
     });
 
     // Staff status should remain unchanged (approval doesn't activate)
@@ -290,25 +322,26 @@ describe('Phase 9 Batch 1: Appointment Ceremony', () => {
   });
 
   it('should add division member record on specialist approval', () => {
-    const division = createDivision(db, { division_id: 'Developer Division', name: 'Developer' });
+    const division = createDivision(db, { division_id: uniqueName('Developer'), name: uniqueName('Developer') });
+    const staffId = uniqueStaffId('dev-platform');
     const staff = registerStaffAgent(db, {
-      staff_id: 'staff-dev-platform-001',
+      staff_id: staffId,
       name: 'Platform Engineer',
       role: 'Platform Engineering Lead',
-      division_id: 'Developer Division',
+      division_id: division.division_id,
       runtime_instances: [],
       permissions: [],
       status: 'inactive'
     });
 
     approveSpecialist(db, founderCtx, {
-      staff_id: 'staff-dev-platform-001',
-      division_id: 'Developer Division'
+      staff_id: staffId,
+      division_id: division.division_id
     });
 
     const members = db.query(
       'SELECT * FROM division_members WHERE division_id = ? AND staff_id = ?',
-      ['Developer Division', 'staff-dev-platform-001']
+      [division.division_id, staffId]
     );
 
     assert.strictEqual(members.length, 1);
@@ -316,20 +349,21 @@ describe('Phase 9 Batch 1: Appointment Ceremony', () => {
   });
 
   it('should create audit memory entry on specialist approval', () => {
-    const division = createDivision(db, { division_id: 'Developer Division', name: 'Developer' });
+    const division = createDivision(db, { division_id: uniqueName('Developer'), name: uniqueName('Developer') });
+    const staffId = uniqueStaffId('dev-platform');
     const staff = registerStaffAgent(db, {
-      staff_id: 'staff-dev-platform-001',
+      staff_id: staffId,
       name: 'Platform Engineer',
       role: 'Platform Engineering Lead',
-      division_id: 'Developer Division',
+      division_id: division.division_id,
       runtime_instances: [],
       permissions: [],
       status: 'inactive'
     });
 
     approveSpecialist(db, founderCtx, {
-      staff_id: 'staff-dev-platform-001',
-      division_id: 'Developer Division'
+      staff_id: staffId,
+      division_id: division.division_id
     });
 
     const memories = db.query(
@@ -340,19 +374,20 @@ describe('Phase 9 Batch 1: Appointment Ceremony', () => {
     assert.strictEqual(memories.length, 1);
     const content = JSON.parse(memories[0].content);
     assert.strictEqual(content.action, 'approve_specialist');
-    assert.strictEqual(content.staff_id, 'staff-dev-platform-001');
+    assert.strictEqual(content.staff_id, staffId);
     assert.strictEqual(content.role, 'Platform Engineering Lead');
   });
 
   // --- activateStaffAgent Tests ---
 
   it('should activate staff agent with founder context', () => {
-    const division = createDivision(db, { division_id: 'Developer Division', name: 'Developer' });
+    const division = createDivision(db, { division_id: uniqueName('Developer'), name: uniqueName('Developer') });
+    const staffId = uniqueStaffId('dev-platform');
     const staff = registerStaffAgent(db, {
-      staff_id: 'staff-dev-platform-001',
+      staff_id: staffId,
       name: 'Platform Engineer',
       role: 'Platform Engineering Lead',
-      division_id: 'Developer Division',
+      division_id: division.division_id,
       runtime_instances: [],
       permissions: [],
       status: 'inactive'
@@ -360,8 +395,8 @@ describe('Phase 9 Batch 1: Appointment Ceremony', () => {
 
     // Must approve first to create division membership
     approveSpecialist(db, founderCtx, {
-      staff_id: 'staff-dev-platform-001',
-      division_id: 'Developer Division'
+      staff_id: staffId,
+      division_id: division.division_id
     });
 
     const result = activateStaffAgent(db, founderCtx, {
@@ -376,12 +411,12 @@ describe('Phase 9 Batch 1: Appointment Ceremony', () => {
   });
 
   it('should reject staff activation from non-founder', () => {
-    const division = createDivision(db, { division_id: 'Developer Division', name: 'Developer' });
+    const division = createDivision(db, { division_id: uniqueName('Developer'), name: 'Developer' });
     const staff = registerStaffAgent(db, {
       staff_id: 'staff-dev-platform-001',
       name: 'Platform Engineer',
       role: 'Platform Engineering Lead',
-      division_id: 'Developer Division',
+      division_id: division.division_id,
       runtime_instances: [],
       permissions: [],
       status: 'active'
@@ -405,12 +440,12 @@ describe('Phase 9 Batch 1: Appointment Ceremony', () => {
   });
 
   it('should reject activation for non-approved staff', () => {
-    const division = createDivision(db, { division_id: 'Developer Division', name: 'Developer' });
+    const division = createDivision(db, { division_id: uniqueName('Developer'), name: 'Developer' });
     const staff = registerStaffAgent(db, {
       staff_id: 'staff-dev-platform-001',
       name: 'Platform Engineer',
       role: 'Platform Engineering Lead',
-      division_id: 'Developer Division',
+      division_id: division.division_id,
       runtime_instances: [],
       permissions: [],
       status: 'inactive'
@@ -425,12 +460,12 @@ describe('Phase 9 Batch 1: Appointment Ceremony', () => {
   });
 
   it('should create runtime persona records on activation', () => {
-    const division = createDivision(db, { division_id: 'Developer Division', name: 'Developer' });
+    const division = createDivision(db, { division_id: uniqueName('Developer'), name: 'Developer' });
     const staff = registerStaffAgent(db, {
       staff_id: 'staff-dev-platform-001',
       name: 'Platform Engineer',
       role: 'Platform Engineering Lead',
-      division_id: 'Developer Division',
+      division_id: division.division_id,
       runtime_instances: [],
       permissions: [],
       status: 'inactive'
@@ -439,7 +474,7 @@ describe('Phase 9 Batch 1: Appointment Ceremony', () => {
     // Must approve first to create division membership
     approveSpecialist(db, founderCtx, {
       staff_id: 'staff-dev-platform-001',
-      division_id: 'Developer Division'
+      division_id: division.division_id
     });
 
     activateStaffAgent(db, founderCtx, {
@@ -458,12 +493,12 @@ describe('Phase 9 Batch 1: Appointment Ceremony', () => {
   });
 
   it('should create audit memory entry on staff activation', () => {
-    const division = createDivision(db, { division_id: 'Developer Division', name: 'Developer' });
+    const division = createDivision(db, { division_id: uniqueName('Developer'), name: 'Developer' });
     const staff = registerStaffAgent(db, {
       staff_id: 'staff-dev-platform-001',
       name: 'Platform Engineer',
       role: 'Platform Engineering Lead',
-      division_id: 'Developer Division',
+      division_id: division.division_id,
       runtime_instances: [],
       permissions: [],
       status: 'inactive'
@@ -472,7 +507,7 @@ describe('Phase 9 Batch 1: Appointment Ceremony', () => {
     // Must approve first to create division membership
     approveSpecialist(db, founderCtx, {
       staff_id: 'staff-dev-platform-001',
-      division_id: 'Developer Division'
+      division_id: division.division_id
     });
 
     activateStaffAgent(db, founderCtx, {
@@ -493,12 +528,12 @@ describe('Phase 9 Batch 1: Appointment Ceremony', () => {
   });
 
   it('should not duplicate runtime personas on re-activation', () => {
-    const division = createDivision(db, { division_id: 'Developer Division', name: 'Developer' });
+    const division = createDivision(db, { division_id: uniqueName('Developer'), name: 'Developer' });
     const staff = registerStaffAgent(db, {
       staff_id: 'staff-dev-platform-001',
       name: 'Platform Engineer',
       role: 'Platform Engineering Lead',
-      division_id: 'Developer Division',
+      division_id: division.division_id,
       runtime_instances: [],
       permissions: [],
       status: 'inactive'
@@ -507,7 +542,7 @@ describe('Phase 9 Batch 1: Appointment Ceremony', () => {
     // Must approve first to create division membership
     approveSpecialist(db, founderCtx, {
       staff_id: 'staff-dev-platform-001',
-      division_id: 'Developer Division'
+      division_id: division.division_id
     });
 
     // First activation
@@ -535,7 +570,7 @@ describe('Phase 9 Batch 1: Appointment Ceremony', () => {
   it('should complete full Division Head appointment and activation workflow', () => {
     // 1. Create division
     const division = createDivision(db, {
-      division_id: 'Developer Division',
+      division_id: uniqueName('Developer'),
       name: 'Developer',
       description: 'Software development division',
       strategic_objectives: ['Platform stability', 'Developer experience']

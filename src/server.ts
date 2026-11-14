@@ -4,6 +4,7 @@
 import express, { Request, Response, NextFunction } from 'express';
 import { z } from 'zod/v4';
 import crypto from 'crypto';
+import rateLimit from 'express-rate-limit';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 
@@ -119,6 +120,16 @@ console.log(`🔐 Hardcoded Fallback: ${config.allow_hardcoded_fallback ? 'ENABL
 console.log(`🔐 Session Timeout: ${config.session_timeout_ms / 1000 / 60} minutes`);
 console.log(`🔐 Founder Key ID: ${getFounderKeyId() ?? 'NOT INITIALIZED'}`);
 
+// Rate limiting for founder-signature endpoints (DoS protection)
+// 10 requests per minute per IP for signature-verified operations
+const founderSignatureRateLimit = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 10,
+  message: { error: 'Too many founder signature attempts', code: 'RATE_LIMITED' },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
 // Founder signature middleware for privileged operations
 // Verifies operation-bound signature with replay protection
 function founderSignatureMiddleware(requiredOperations: string[]) {
@@ -201,7 +212,7 @@ function founderSignatureMiddleware(requiredOperations: string[]) {
 }
 
 // Phase 7: Task Autonomy Level Endpoints
-app.post('/api/task-autonomy', authMiddleware, async (req, res) => {
+app.post('/api/task-autonomy', authMiddleware, founderSignatureRateLimit, async (req, res) => {
   try {
     const input = CreateTaskAutonomyLevelInputSchema.parse(req.body);
     const ctx = getAuthContext(req)!; // authMiddleware guarantees authContext in production
@@ -279,6 +290,7 @@ app.get('/api/execution', authMiddleware, async (req, res) => {
 // Phase 8: Approval with Founder Signature (operation-bound)
 app.post('/api/execution/approve',
   authMiddleware,
+  founderSignatureRateLimit,
   founderSignatureMiddleware(config.require_founder_signature_for),
   async (req, res) => {
   try {
@@ -327,6 +339,7 @@ app.get('/api/execution/:id/history', authMiddleware, async (req, res) => {
 // Phase 7: Execute Execution Request (Level 1/2: requester or founder; Level 3: approved only)
 app.post('/api/execution/:id/execute',
   authMiddleware,
+  founderSignatureRateLimit,
   founderSignatureMiddleware(config.require_founder_signature_for),
   async (req, res) => {
   try {
@@ -340,7 +353,7 @@ app.post('/api/execution/:id/execute',
 });
 
 // Phase 7: Cancel Execution Request
-app.post('/api/execution/:id/cancel', authMiddleware, async (req, res) => {
+app.post('/api/execution/:id/cancel', authMiddleware, founderSignatureRateLimit, async (req, res) => {
   try {
     const executionId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
     const { error_message } = req.body;
@@ -381,7 +394,7 @@ async function validateIdentityForSession(db: DatabaseInstance, owner_type: stri
 }
 
 // Auth management endpoints
-app.post('/api/auth/session', async (req, res) => {
+app.post('/api/auth/session', founderSignatureRateLimit, async (req, res) => {
   try {
     const { owner_type, owner_id, runtime } = req.body;
 

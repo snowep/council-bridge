@@ -71,6 +71,8 @@ function checkAndConsumeNonce(keyId: string, operation: string, nonce: string, n
 }
 
 function cleanupExpiredNonces(): void {
+  // Run probabilistically (1% of calls) to avoid DB overhead on hot path
+  if (Math.random() > 0.01) return;
   try {
     const db = getDb();
     db.stmt.cleanupFounderNonces.run();
