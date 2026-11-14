@@ -138,8 +138,7 @@ const CreateDeliverableDraftSchema = z.object({
 });
 
 const SubmitDeliverableSchema = z.object({
-  task_id: z.string().min(1).max(255).describe('Task ID'),
-  content: z.string().min(1).describe('Deliverable content'),
+  deliverable_id: z.string().min(1).max(255).describe('Deliverable ID'),
   quality_score: z.number().int().min(0).max(100).optional().describe('Quality score (0-100)'),
 });
 

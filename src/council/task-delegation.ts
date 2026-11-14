@@ -30,8 +30,8 @@ export interface RejectDelegationInput {
   reason?: string;
 }
 
-// Input for submitting a deliverable
-export interface SubmitDeliverableInput {
+// Input for creating a deliverable draft
+export interface CreateDeliverableDraftInput {
   task_id: string;
   content: string;
   quality_score?: number;
@@ -922,7 +922,7 @@ export function submitDeliverable(
   db: DatabaseInstance,
   ctx: OperationContext,
   input: SubmitDeliverableInput
-): { deliverable_id: string; task_id: string; status: string; version: number; created_at: string } {
+): { deliverable_id: string; task_id: string; status: string; version: number; quality_score: number | null; created_at: string } {
   const identity = requireAuthenticated(ctx);
 
   // Get the draft deliverable
@@ -1184,7 +1184,7 @@ export function resubmitDeliverable(
   db: DatabaseInstance,
   ctx: OperationContext,
   input: ResubmitDeliverableInput
-): { deliverable_id: string; task_id: string; status: string; version: number; created_at: string } {
+): { deliverable_id: string; task_id: string; status: string; version: number; quality_score: number | null; created_at: string } {
   const identity = requireAuthenticated(ctx);
 
   // Get deliverable
@@ -1284,7 +1284,7 @@ export function resubmitDeliverable(
     task_id: deliverable[0].task_id,
     status: 'submitted',
     version: newVersion,
-    quality_score: input.quality_score,
+    quality_score: input.quality_score ?? null,
     created_at: deliverable[0].created_at
   };
 }
