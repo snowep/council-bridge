@@ -60,6 +60,8 @@ import {
   cancelExecutionRequest
 } from './council/operations.js';
 
+import { registerMcpTools } from './mcp/tools.js';
+
 // Initialize crypto module for operations
 setCryptoModule(crypto);
 
@@ -426,19 +428,21 @@ app.get('/api/auth/founder/public-key', async (req, res) => {
   res.json({ public_key: publicKey, key_id: keyId });
 });
 
-// MCP Streamable HTTP endpoint
-const mcpServer = new McpServer({ name: 'council-bridge', version: '1.0.0' }, { capabilities: { tools: {} } });
-const mcpTransport = new StreamableHTTPServerTransport();
-
-await mcpServer.connect(mcpTransport);
-
+// MCP endpoint - create new server+transport per request for stateless operation
 // Apply Phase 8 authentication to ALL MCP requests (initialization, notifications, tools)
 // Fail-closed in production, no hardcoded identity fallbacks
 // Bind authenticated identity to MCP request context - prevent caller override
 app.all('/mcp', authMiddleware, async (req, res) => {
   // Auth context is bound by authMiddleware - prevent caller from overriding
   // req.authContext is set by authMiddleware and cannot be supplied by caller
-  await mcpTransport.handleRequest(req, res, req.body);
+  // Create a new transport for each request to support stateless operation
+  const requestTransport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+  const requestMcpServer = new McpServer({ name: 'council-bridge', version: '1.0.0' }, { capabilities: { tools: {} } });
+  await requestMcpServer.connect(requestTransport);
+  // Pass the authenticated context directly to tools
+  const authContext = getAuthContext(req);
+  registerMcpTools(requestMcpServer, db, () => authContext);
+  await requestTransport.handleRequest(req, res, req.body);
 });
 
 // Health check
