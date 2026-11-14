@@ -40,7 +40,9 @@ import {
   isProductionMode,
   isDevelopmentMode,
   AuthContext,
-  validateAuthMode
+  validateAuthMode,
+  authMiddleware,
+  getAuthContext
 } from './auth/index.js';
 
 import {
@@ -114,51 +116,6 @@ console.log(`🔐 Hardcoded Fallback: ${config.allow_hardcoded_fallback ? 'ENABL
 console.log(`🔐 Session Timeout: ${config.session_timeout_ms / 1000 / 60} minutes`);
 console.log(`🔐 Founder Key ID: ${getFounderKeyId() ?? 'NOT INITIALIZED'}`);
 
-// Auth middleware - Production: require valid session; Development: optional with fallback
-function authMiddleware(req: Request, res: Response, next: NextFunction) {
-  const authHeader = req.headers.authorization;
-  const clientIp = req.ip || req.socket.remoteAddress;
-
-  if (authHeader && authHeader.startsWith('Bearer ')) {
-    const token = authHeader.substring(7);
-    const session = validateSessionToken(token, undefined, clientIp);
-
-    if (session) {
-      (req as any).authContext = {
-        owner_type: session.owner_type,
-        owner_id: session.owner_id,
-        runtime: session.runtime,
-        session_id: session.session_id,
-        permissions: session.permissions,
-        expires_at: session.expires_at,
-        issued_at: session.issued_at,
-        founder_signed: session.owner_type === 'founder',
-        client_ip: clientIp
-      };
-      return next();
-    }
-
-    // Invalid/expired token
-    return res.status(401).json({
-      error: 'Invalid or expired session token',
-      code: 'AUTH_INVALID_TOKEN'
-    });
-  }
-
-  // No token provided
-  if (PRODUCTION_MODE) {
-    // Production: fail closed - no fallback to hardcoded identities
-    return res.status(401).json({
-      error: 'Authentication required',
-      code: 'AUTH_REQUIRED',
-      message: 'Provide Authorization: Bearer <session_token> header'
-    });
-  }
-
-  // Development: allow fallback to hardcoded context for backward compatibility
-  next();
-}
-
 // Founder signature middleware for privileged operations
 // Verifies operation-bound signature with replay protection
 function founderSignatureMiddleware(requiredOperations: string[]) {
@@ -224,20 +181,6 @@ function founderSignatureMiddleware(requiredOperations: string[]) {
 
     next();
   };
-}
-
-// Get auth context from request
-function getAuthContext(req: Request): AuthContext {
-  return (req as any).authContext || (DEVELOPMENT_MODE ? {
-    owner_type: 'division',
-    owner_id: 'div-001',
-    runtime: 'claude',
-    session_id: 'default',
-    permissions: [],
-    expires_at: Date.now() + 3600000,
-    issued_at: Date.now(),
-    founder_signed: false
-  } : null)!;
 }
 
 // Phase 7: Task Autonomy Level Endpoints
@@ -489,7 +432,12 @@ const mcpTransport = new StreamableHTTPServerTransport();
 
 await mcpServer.connect(mcpTransport);
 
-app.all('/mcp', async (req, res) => {
+// Apply Phase 8 authentication to ALL MCP requests (initialization, notifications, tools)
+// Fail-closed in production, no hardcoded identity fallbacks
+// Bind authenticated identity to MCP request context - prevent caller override
+app.all('/mcp', authMiddleware, async (req, res) => {
+  // Auth context is bound by authMiddleware - prevent caller from overriding
+  // req.authContext is set by authMiddleware and cannot be supplied by caller
   await mcpTransport.handleRequest(req, res, req.body);
 });
 
