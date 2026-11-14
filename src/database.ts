@@ -178,6 +178,15 @@ export interface DatabaseInstance {
     listDeliverablesByTask: PreparedStatement;
     updateDeliverable: PreparedStatement;
 
+    // Phase 9 Batch 4: Deliverable Workflow
+    insertDeliverableVersion: PreparedStatement;
+    getDeliverableVersion: PreparedStatement;
+    listDeliverableVersions: PreparedStatement;
+    insertQualityThreshold: PreparedStatement;
+    getQualityThreshold: PreparedStatement;
+    listQualityThresholds: PreparedStatement;
+    updateQualityThreshold: PreparedStatement;
+
     // Phase 7: Autonomy, Permissions and Execution
     insertTaskAutonomyLevel: PreparedStatement;
     getTaskAutonomyLevel: PreparedStatement;
@@ -817,16 +826,63 @@ function createDatabase(dbPath?: string): DatabaseInstance {
       submitted_by_id   TEXT NOT NULL,
       content           TEXT NOT NULL,                     -- JSON payload
       status            TEXT NOT NULL DEFAULT 'submitted'
-        CHECK (status IN ('submitted', 'accepted', 'rejected', 'revision_requested')),
+        CHECK (status IN ('draft', 'submitted', 'accepted', 'rejected', 'revision_requested')),
       reviewed_by_type  TEXT,                              -- 'founder' | 'council' | 'division_head'
       reviewed_by_id    TEXT,
       reviewed_at       TEXT,
       created_at        TEXT NOT NULL DEFAULT (datetime('now')),
+      version           INTEGER NOT NULL DEFAULT 1,
+      quality_score     INTEGER CHECK (quality_score BETWEEN 0 AND 100),
+      reviewer_type     TEXT CHECK (reviewer_type IN ('founder', 'council', 'division_head')),
+      reviewer_id       TEXT,
+      approved_at       TEXT,
+      approved_by_type  TEXT CHECK (approved_by_type IN ('founder', 'council', 'division_head')),
+      approved_by_id    TEXT,
+      founder_signature TEXT,
+      founder_signed_at TEXT,
+      revision_notes    TEXT,
       FOREIGN KEY (task_id) REFERENCES tasks(task_id) ON DELETE CASCADE
     );
 
     CREATE INDEX IF NOT EXISTS idx_deliverables_task ON deliverables(task_id);
     CREATE INDEX IF NOT EXISTS idx_deliverables_status ON deliverables(status);
+
+    -- Phase 9 Batch 4: Deliverable versions table
+    CREATE TABLE IF NOT EXISTS deliverable_versions (
+      version_id        TEXT PRIMARY KEY,
+      deliverable_id    TEXT NOT NULL,
+      version_num       INTEGER NOT NULL,
+      content           TEXT NOT NULL,
+      quality_score     INTEGER,
+      status            TEXT NOT NULL,
+      submitted_by_type TEXT NOT NULL,
+      submitted_by_id   TEXT NOT NULL,
+      revision_notes    TEXT,
+      created_at        TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (deliverable_id) REFERENCES deliverables(deliverable_id) ON DELETE CASCADE,
+      UNIQUE(deliverable_id, version_num)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_deliverable_versions_deliverable ON deliverable_versions(deliverable_id);
+
+    -- Phase 9 Batch 4: Quality thresholds table
+    CREATE TABLE IF NOT EXISTS quality_thresholds (
+      threshold_id      TEXT PRIMARY KEY,
+      division_id       TEXT,
+      task_type         TEXT,
+      min_quality_score INTEGER NOT NULL DEFAULT 70 CHECK (min_quality_score BETWEEN 0 AND 100),
+      requires_review   INTEGER NOT NULL DEFAULT 1 CHECK (requires_review IN (0, 1)),
+      created_at        TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at        TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (division_id) REFERENCES divisions(division_id) ON DELETE CASCADE,
+      UNIQUE(division_id, task_type)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_quality_thresholds_division ON quality_thresholds(division_id);
+
+    -- Insert global default threshold
+    INSERT OR IGNORE INTO quality_thresholds (threshold_id, division_id, task_type, min_quality_score, requires_review)
+    VALUES ('default-global', NULL, NULL, 70, 1);
 
     -- Phase 7: Autonomy, Permissions and Execution
     CREATE TABLE IF NOT EXISTS task_autonomy_levels (
@@ -1225,12 +1281,27 @@ function createDatabase(dbPath?: string): DatabaseInstance {
     updateTask: db.prepare('UPDATE tasks SET title = ?, description = ?, assigned_to_type = ?, assigned_to_id = ?, created_by_type = ?, created_by_id = ?, status = ?, priority = ?, budget_allocated = ?, due_at = ?, completed_at = ?, updated_at = datetime(\'now\') WHERE task_id = ?') as PreparedStatement,
 
     insertDeliverable: db.prepare(`
-      INSERT INTO deliverables (deliverable_id, task_id, submitted_by_type, submitted_by_id, content, status, reviewed_by_type, reviewed_by_id, reviewed_at, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO deliverables (deliverable_id, task_id, submitted_by_type, submitted_by_id, content, status, reviewed_by_type, reviewed_by_id, reviewed_at, created_at, version, quality_score, reviewer_type, reviewer_id, approved_at, approved_by_type, approved_by_id, founder_signature, founder_signed_at, revision_notes)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `) as PreparedStatement,
     getDeliverableById: db.prepare('SELECT * FROM deliverables WHERE deliverable_id = ?') as PreparedStatement,
     listDeliverablesByTask: db.prepare('SELECT * FROM deliverables WHERE task_id = ? ORDER BY created_at DESC') as PreparedStatement,
-    updateDeliverable: db.prepare('UPDATE deliverables SET content = ?, status = ?, reviewed_by_type = ?, reviewed_by_id = ?, reviewed_at = ? WHERE deliverable_id = ?') as PreparedStatement,
+    updateDeliverable: db.prepare('UPDATE deliverables SET content = ?, status = ?, reviewed_by_type = ?, reviewed_by_id = ?, reviewed_at = ?, version = ?, quality_score = ?, reviewer_type = ?, reviewer_id = ?, approved_at = ?, approved_by_type = ?, approved_by_id = ?, founder_signature = ?, founder_signed_at = ?, revision_notes = ? WHERE deliverable_id = ?') as PreparedStatement,
+
+    // Phase 9 Batch 4: Deliverable Workflow
+    insertDeliverableVersion: db.prepare(`
+      INSERT INTO deliverable_versions (version_id, deliverable_id, version_num, content, quality_score, status, submitted_by_type, submitted_by_id, revision_notes, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `) as PreparedStatement,
+    getDeliverableVersion: db.prepare('SELECT * FROM deliverable_versions WHERE deliverable_id = ? AND version_num = ?') as PreparedStatement,
+    listDeliverableVersions: db.prepare('SELECT * FROM deliverable_versions WHERE deliverable_id = ? ORDER BY version_num ASC') as PreparedStatement,
+    insertQualityThreshold: db.prepare(`
+      INSERT INTO quality_thresholds (threshold_id, division_id, task_type, min_quality_score, requires_review)
+      VALUES (?, ?, ?, ?, ?)
+    `) as PreparedStatement,
+    getQualityThreshold: db.prepare('SELECT * FROM quality_thresholds WHERE threshold_id = ?') as PreparedStatement,
+    listQualityThresholds: db.prepare('SELECT * FROM quality_thresholds ORDER BY created_at DESC') as PreparedStatement,
+    updateQualityThreshold: db.prepare('UPDATE quality_thresholds SET min_quality_score = ?, requires_review = ?, updated_at = datetime(\'now\') WHERE threshold_id = ?') as PreparedStatement,
 
     // Phase 7: Autonomy, Permissions and Execution
     insertTaskAutonomyLevel: db.prepare(`
@@ -1298,6 +1369,11 @@ function createDatabase(dbPath?: string): DatabaseInstance {
   }
 
   function close(): void {
+    try {
+      db.pragma('wal_checkpoint(TRUNCATE)');
+    } catch (e) {
+      // Ignore checkpoint errors
+    }
     db.close();
   }
 

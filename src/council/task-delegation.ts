@@ -3,7 +3,7 @@
 
 import { DatabaseInstance } from '../database.js';
 import { Task, MemoryOwnerType } from './types.js';
-import { OperationContext, requireAuthenticated } from './operations.js';
+import { OperationContext, requireAuthenticated, requireFounder } from './operations.js';
 import { createMemory } from './memory.js';
 import { randomUUID } from 'node:crypto';
 
@@ -398,62 +398,6 @@ export function listDelegationTasks(
   ).map(row => row as Task);
 }
 
-// Submit a deliverable for a task
-export function submitDeliverable(db: DatabaseInstance, ctx: OperationContext, input: SubmitDeliverableInput): { deliverable_id: string; task_id: string; status: string; created_at: string } {
-  const identity = requireAuthenticated(ctx);
-
-  // Verify task exists and user has access
-  const task = getDelegationTaskById(db, null, input.task_id);
-
-  // Only task assignee or founder can submit
-  if (identity.owner_type !== 'founder') {
-    if (task.assigned_to_type === 'staff' && task.assigned_to_id !== identity.owner_id) {
-      throw new Error('Only the assigned staff agent or Founder can submit deliverable');
-    }
-    if (task.assigned_to_type === 'division') {
-      const membership = db.query(
-        'SELECT 1 FROM division_members WHERE staff_id = ? AND division_id = ?',
-        [identity.owner_id, task.assigned_to_id]
-      );
-      if (membership.length === 0) {
-        throw new Error('Authorization denied');
-      }
-    }
-  }
-
-  // Validate quality score
-  if (input.quality_score !== undefined && (input.quality_score < 0 || input.quality_score > 100)) {
-    throw new Error('Quality score must be between 0 and 100');
-  }
-
-  const deliverableId = uniqueId('del');
-  const now = new Date().toISOString();
-
-  db.runPreparedStatement('insertDeliverable', [
-    deliverableId,
-    input.task_id,
-    identity.owner_type as 'staff' | 'division',
-    identity.owner_id,
-    input.content,
-    'submitted',
-    null, // reviewed_by_type
-    null, // reviewed_by_id
-    null, // reviewed_at
-    now   // created_at
-  ]);
-
-  // Update task status
-  db.db.prepare('UPDATE tasks SET status = ?, updated_at = ? WHERE task_id = ?').run(
-    'completed', now, input.task_id
-  );
-
-  return {
-    deliverable_id: deliverableId,
-    task_id: input.task_id,
-    status: 'submitted',
-    created_at: now
-  };
-}
 
 // Validation helper functions for boundary tests
 
@@ -752,4 +696,914 @@ export function reviewDeliverable(db: DatabaseInstance, ctx: OperationContext, i
     now,
     input.deliverable_id
   );
+}
+
+// ============================================================
+// PHASE 9 BATCH 4: DELIVERABLE WORKFLOW EXTENSIONS
+// ============================================================
+
+// Deliverable statuses
+export type DeliverableStatus = 'draft' | 'submitted' | 'accepted' | 'rejected' | 'revision_requested';
+
+// Input types for deliverable workflow
+export interface CreateDeliverableDraftInput {
+  task_id: string;
+  content: string;
+  quality_score?: number;
+}
+
+export interface SubmitDeliverableInput {
+  deliverable_id: string;
+  quality_score?: number;
+}
+
+export interface AssignReviewerInput {
+  deliverable_id: string;
+  reviewer_type: 'founder' | 'council' | 'division_head';
+  reviewer_id: string;
+}
+
+export interface RequestRevisionInput {
+  deliverable_id: string;
+  revision_notes: string;
+}
+
+export interface ResubmitDeliverableInput {
+  deliverable_id: string;
+  content: string;
+  quality_score?: number;
+}
+
+export interface ApproveDeliverableInput {
+  deliverable_id: string;
+  quality_score?: number;
+  founder_signature?: string;
+}
+
+export interface RejectDeliverableInput {
+  deliverable_id: string;
+  rejection_reason: string;
+}
+
+export interface QualityThresholdInput {
+  division_id?: string;
+  task_type?: string;
+  min_quality_score: number;
+  requires_review: boolean;
+}
+
+// Get quality threshold for a task
+export function getQualityThreshold(db: DatabaseInstance, task: Task): { min_quality_score: number; requires_review: boolean } {
+  // Try division-specific + task_type
+  let threshold = db.query(
+    'SELECT * FROM quality_thresholds WHERE division_id = ? AND task_type = ?',
+    [task.assigned_to_id, task.title]
+  )[0];
+
+  // Try division default
+  if (!threshold && task.assigned_to_type === 'division') {
+    threshold = db.query(
+      'SELECT * FROM quality_thresholds WHERE division_id = ? AND task_type IS NULL',
+      [task.assigned_to_id]
+    )[0];
+  }
+
+  // Try global default
+  if (!threshold) {
+    threshold = db.query(
+      'SELECT * FROM quality_thresholds WHERE division_id IS NULL AND task_type IS NULL'
+    )[0];
+  }
+
+  return {
+    min_quality_score: threshold?.min_quality_score ?? 70,
+    requires_review: threshold?.requires_review === 1
+  };
+}
+
+// Verify Founder signature using Phase 8 infrastructure
+export function verifyFounderSignature(db: DatabaseInstance, signature: string, operation: string): boolean {
+  try {
+    const sigData = JSON.parse(signature);
+    // Check nonce exists and not consumed
+    const nonce = db.query(
+      'SELECT * FROM founder_nonces WHERE key_id = ? AND operation = ? AND nonce = ? AND expires_at > datetime(\'now\')',
+      [sigData.key_id, operation, sigData.nonce]
+    )[0];
+    return !!nonce;
+  } catch {
+    return false;
+  }
+}
+
+// Enforce HITL approval based on autonomy level
+export function enforceHITLApproval(
+  db: DatabaseInstance,
+  ctx: OperationContext,
+  task: Task,
+  qualityScore: number
+): { requiresFounderSig: boolean } {
+  const identity = requireAuthenticated(ctx);
+  const autonomyLevel = db.query(
+    'SELECT autonomy_level FROM task_autonomy_levels WHERE task_type = ?',
+    [task.title]
+  )[0]?.autonomy_level ?? 1;
+
+  const threshold = getQualityThreshold(db, task);
+
+  // Quality gate
+  if (qualityScore < threshold.min_quality_score) {
+    throw new Error(`Quality score ${qualityScore} below threshold ${threshold.min_quality_score}`);
+  }
+
+  switch (autonomyLevel) {
+    case 1: // Autonomous - auto-approve if quality passes
+      return { requiresFounderSig: false };
+    case 2: // Permission check / Division head approval
+      if (!isDivisionHead(ctx, task.assigned_to_id, db) && !isFounder(ctx)) {
+        throw new Error('Level 2 requires Division Head or Founder approval');
+      }
+      return { requiresFounderSig: false };
+    case 3: // Founder mandatory
+      if (!isFounder(ctx)) {
+        throw new Error('Level 3 requires Founder approval');
+      }
+      return { requiresFounderSig: true };
+  }
+
+  return { requiresFounderSig: false };
+}
+
+// Helper: check if context is division head
+export function isDivisionHead(ctx: OperationContext, divisionId: string, db: DatabaseInstance): boolean {
+  if (ctx.owner_type === 'founder') return true;
+  if (ctx.owner_type === 'division') return ctx.owner_id === divisionId;
+  if (ctx.owner_type === 'staff') {
+    const division = db.query('SELECT head_staff_id FROM divisions WHERE division_id = ?', [divisionId])[0] as { head_staff_id: string } | undefined;
+    return division?.head_staff_id === ctx.owner_id;
+  }
+  return false;
+}
+
+// Helper: check if context is founder
+function isFounder(ctx: OperationContext): boolean {
+  return ctx.owner_type === 'founder';
+}
+
+// Create a deliverable draft
+export function createDeliverableDraft(
+  db: DatabaseInstance,
+  ctx: OperationContext,
+  input: CreateDeliverableDraftInput
+): { deliverable_id: string; task_id: string; status: string; version: number; created_at: string } {
+  const identity = requireAuthenticated(ctx);
+
+  // Verify task exists and user has access
+  const task = getDelegationTaskById(db, null, input.task_id);
+
+  // Only task assignee or founder can create draft
+  if (identity.owner_type !== 'founder') {
+    if (task.assigned_to_type === 'staff' && task.assigned_to_id !== identity.owner_id) {
+      throw new Error('Only the assigned staff agent or Founder can create deliverable draft');
+    }
+    if (task.assigned_to_type === 'division') {
+      const membership = db.query(
+        'SELECT 1 FROM division_members WHERE staff_id = ? AND division_id = ?',
+        [identity.owner_id, task.assigned_to_id]
+      );
+      if (membership.length === 0) {
+        throw new Error('Authorization denied');
+      }
+    }
+  }
+
+  // Validate quality score
+  if (input.quality_score !== undefined && (input.quality_score < 0 || input.quality_score > 100)) {
+    throw new Error('Quality score must be between 0 and 100');
+  }
+
+  const deliverableId = uniqueId('del');
+  const now = new Date().toISOString();
+
+  db.runPreparedStatement('insertDeliverable', [
+    deliverableId,
+    input.task_id,
+    identity.owner_type as 'staff' | 'division',
+    identity.owner_id,
+    input.content,
+    'draft',
+    null, // reviewed_by_type
+    null, // reviewed_by_id
+    null, // reviewed_at
+    now,  // created_at
+    1,    // version
+    input.quality_score ?? null,
+    null, // reviewer_type
+    null, // reviewer_id
+    null, // approved_at
+    null, // approved_by_type
+    null, // approved_by_id
+    null, // founder_signature
+    null, // founder_signed_at
+    null  // revision_notes
+  ]);
+
+  return {
+    deliverable_id: deliverableId,
+    task_id: input.task_id,
+    status: 'draft',
+    version: 1,
+    created_at: now
+  };
+}
+
+// Submit a deliverable draft for review
+export function submitDeliverable(
+  db: DatabaseInstance,
+  ctx: OperationContext,
+  input: SubmitDeliverableInput
+): { deliverable_id: string; task_id: string; status: string; version: number; created_at: string } {
+  const identity = requireAuthenticated(ctx);
+
+  // Get the draft deliverable
+  const draft = db.query('SELECT * FROM deliverables WHERE deliverable_id = ?', [input.deliverable_id]);
+  if (draft.length === 0) {
+    throw new Error(`Deliverable '${input.deliverable_id}' not found`);
+  }
+  const deliverable = draft[0] as any;
+
+  // Verify task exists and user has access
+  const task = getDelegationTaskById(db, null, deliverable.task_id);
+
+  // Only task assignee or founder can submit
+  if (identity.owner_type !== 'founder') {
+    if (task.assigned_to_type === 'staff' && task.assigned_to_id !== identity.owner_id) {
+      throw new Error('Only the assigned staff agent or Founder can submit deliverable');
+    }
+    if (task.assigned_to_type === 'division') {
+      const membership = db.query(
+        'SELECT 1 FROM division_members WHERE staff_id = ? AND division_id = ?',
+        [identity.owner_id, task.assigned_to_id]
+      );
+      if (membership.length === 0) {
+        throw new Error('Authorization denied');
+      }
+    }
+  }
+
+  // Validate quality score
+  if (input.quality_score !== undefined && (input.quality_score < 0 || input.quality_score > 100)) {
+    throw new Error('Quality score must be between 0 and 100');
+  }
+
+  const now = new Date().toISOString();
+
+  // Update existing deliverable from draft to submitted
+  db.runPreparedStatement('updateDeliverable', [
+    deliverable.content,
+    'submitted',
+    null, // reviewed_by_type
+    null, // reviewed_by_id
+    null, // reviewed_at
+    1,    // version
+    input.quality_score ?? deliverable.quality_score ?? null,
+    null, // reviewer_type
+    null, // reviewer_id
+    null, // approved_at
+    null, // approved_by_type
+    null, // approved_by_id
+    null, // founder_signature
+    null, // founder_signed_at
+    null, // revision_notes
+    input.deliverable_id
+  ]);
+
+  // Update task status to review
+  db.db.prepare('UPDATE tasks SET status = ?, updated_at = ? WHERE task_id = ?').run(
+    'review', now, deliverable.task_id
+  );
+
+  // Create audit memory entry
+  const memoryId = uniqueId('mem');
+  createMemory(db, {
+    memory_id: memoryId,
+    owner_type: identity.owner_type as MemoryOwnerType,
+    owner_id: identity.owner_id,
+    category: 'task_history',
+    memory_type: 'deliverable_submission',
+    title: `Deliverable Submitted: ${task.title}`,
+    content: JSON.stringify({
+      action: 'submit_deliverable',
+      task_id: deliverable.task_id,
+      deliverable_id: input.deliverable_id,
+      submitted_by_type: identity.owner_type,
+      submitted_by_id: identity.owner_id,
+      quality_score: input.quality_score,
+      submitted_at: now
+    }),
+    tags: ['task', 'deliverable', 'submission', deliverable.task_id],
+    confidence: 1.0
+  });
+
+  return {
+    deliverable_id: input.deliverable_id,
+    task_id: deliverable.task_id,
+    status: 'submitted',
+    version: 1,
+    quality_score: input.quality_score ?? deliverable.quality_score ?? null,
+    created_at: now
+  };
+}
+
+// Assign a reviewer to a deliverable
+export function assignReviewer(
+  db: DatabaseInstance,
+  ctx: OperationContext,
+  input: AssignReviewerInput
+): { deliverable_id: string; reviewer_type: string; reviewer_id: string } {
+  const identity = requireAuthenticated(ctx);
+
+  // Get deliverable and task
+  const deliverable = db.query('SELECT * FROM deliverables WHERE deliverable_id = ?', [input.deliverable_id]);
+  if (deliverable.length === 0) {
+    throw new Error(`Deliverable '${input.deliverable_id}' not found`);
+  }
+
+  const task = db.query('SELECT * FROM tasks WHERE task_id = ?', [deliverable[0].task_id]);
+  if (task.length === 0) {
+    throw new Error('Associated task not found');
+  }
+
+  const taskRecord = task[0] as Task;
+
+  // Authorization: task creator (division_head), division head, founder
+  let canAssign = false;
+  if (identity.owner_type === 'founder') {
+    canAssign = true;
+  } else if (identity.owner_type === 'staff') {
+    if ((taskRecord.created_by_type === 'division_head' as any) &&
+        taskRecord.created_by_id === identity.owner_id) {
+      canAssign = true;
+    } else if (taskRecord.created_by_type === 'founder') {
+      const divisionHeadCheck = db.query(
+        'SELECT division_id FROM divisions WHERE head_staff_id = ?',
+        [identity.owner_id]
+      );
+      if (divisionHeadCheck.length > 0 && taskRecord.assigned_to_type === 'division' &&
+          taskRecord.assigned_to_id === divisionHeadCheck[0].division_id) {
+        canAssign = true;
+      }
+    }
+  } else if (identity.owner_type === 'division') {
+    if (taskRecord.assigned_to_type === 'division' && taskRecord.assigned_to_id === identity.owner_id) {
+      canAssign = true;
+    }
+  }
+
+  if (!canAssign) {
+    throw new Error('Authorization denied: Only task creator, Division Head, or Founder can assign reviewer');
+  }
+
+  // Validate reviewer exists
+  if (input.reviewer_type === 'division_head') {
+    const division = db.query('SELECT * FROM divisions WHERE head_staff_id = ? OR division_id = ?', [input.reviewer_id, input.reviewer_id]);
+    if (division.length === 0) throw new Error('Reviewer division head not found');
+  } else if (input.reviewer_type === 'council') {
+    const seat = db.query('SELECT * FROM council_seats WHERE seat_id = ?', [input.reviewer_id]);
+    if (seat.length === 0) throw new Error('Reviewer council seat not found');
+  } else if (input.reviewer_type === 'founder') {
+    if (input.reviewer_id !== 'founder') throw new Error('Founder reviewer_id must be "founder"');
+  }
+
+  const now = new Date().toISOString();
+  db.runPreparedStatement('updateDeliverable', [
+    deliverable[0].content,
+    deliverable[0].status,
+    deliverable[0].reviewed_by_type,
+    deliverable[0].reviewed_by_id,
+    deliverable[0].reviewed_at,
+    deliverable[0].version,
+    deliverable[0].quality_score,
+    input.reviewer_type,
+    input.reviewer_id,
+    deliverable[0].approved_at,
+    deliverable[0].approved_by_type,
+    deliverable[0].approved_by_id,
+    deliverable[0].founder_signature,
+    deliverable[0].founder_signed_at,
+    deliverable[0].revision_notes,
+    input.deliverable_id
+  ]);
+
+  return {
+    deliverable_id: input.deliverable_id,
+    reviewer_type: input.reviewer_type,
+    reviewer_id: input.reviewer_id
+  };
+}
+
+// Request revision on a deliverable
+export function requestRevision(
+  db: DatabaseInstance,
+  ctx: OperationContext,
+  input: RequestRevisionInput
+): { deliverable_id: string; status: string; revision_notes: string } {
+  const identity = requireAuthenticated(ctx);
+
+  // Get deliverable
+  const deliverable = db.query('SELECT * FROM deliverables WHERE deliverable_id = ?', [input.deliverable_id]);
+  if (deliverable.length === 0) {
+    throw new Error(`Deliverable '${input.deliverable_id}' not found`);
+  }
+
+  // Only assigned reviewer or founder can request revision
+  if (identity.owner_type !== 'founder') {
+    // Map owner_type to reviewer_type for comparison
+    const expectedReviewerType = identity.owner_type === 'staff' ? 'division_head'
+      : identity.owner_type === 'division' ? 'division_head'
+      : identity.owner_type; // founder, council
+
+    if (deliverable[0].reviewer_type !== expectedReviewerType ||
+        deliverable[0].reviewer_id !== identity.owner_id) {
+      throw new Error('Only the assigned reviewer or Founder can request revision');
+    }
+  }
+
+  const now = new Date().toISOString();
+
+  // Update deliverable to revision_requested (don't archive yet - resubmit will archive)
+  db.runPreparedStatement('updateDeliverable', [
+    deliverable[0].content,
+    'revision_requested',
+    deliverable[0].reviewed_by_type,
+    deliverable[0].reviewed_by_id,
+    deliverable[0].reviewed_at,
+    deliverable[0].version,
+    deliverable[0].quality_score,
+    deliverable[0].reviewer_type,
+    deliverable[0].reviewer_id,
+    deliverable[0].approved_at,
+    deliverable[0].approved_by_type,
+    deliverable[0].approved_by_id,
+    deliverable[0].founder_signature,
+    deliverable[0].founder_signed_at,
+    input.revision_notes,
+    input.deliverable_id
+  ]);
+
+  // Create audit memory entry
+  const memoryId = uniqueId('mem');
+  createMemory(db, {
+    memory_id: memoryId,
+    owner_type: identity.owner_type as MemoryOwnerType,
+    owner_id: identity.owner_id,
+    category: 'task_history',
+    memory_type: 'deliverable_revision_requested',
+    title: `Revision Requested: ${deliverable[0].deliverable_id}`,
+    content: JSON.stringify({
+      action: 'request_revision',
+      deliverable_id: input.deliverable_id,
+      requested_by_type: identity.owner_type,
+      requested_by_id: identity.owner_id,
+      revision_notes: input.revision_notes,
+      requested_at: now
+    }),
+    tags: ['task', 'deliverable', 'revision', input.deliverable_id],
+    confidence: 1.0
+  });
+
+  return {
+    deliverable_id: input.deliverable_id,
+    status: 'revision_requested',
+    revision_notes: input.revision_notes
+  };
+}
+
+// Resubmit a deliverable after revision
+export function resubmitDeliverable(
+  db: DatabaseInstance,
+  ctx: OperationContext,
+  input: ResubmitDeliverableInput
+): { deliverable_id: string; task_id: string; status: string; version: number; created_at: string } {
+  const identity = requireAuthenticated(ctx);
+
+  // Get deliverable
+  const deliverable = db.query('SELECT * FROM deliverables WHERE deliverable_id = ?', [input.deliverable_id]);
+  if (deliverable.length === 0) {
+    throw new Error(`Deliverable '${input.deliverable_id}' not found`);
+  }
+
+  // Only original submitter or founder can resubmit
+  if (identity.owner_type !== 'founder') {
+    if (deliverable[0].submitted_by_type !== identity.owner_type ||
+        deliverable[0].submitted_by_id !== identity.owner_id) {
+      throw new Error('Only the original submitter or Founder can resubmit deliverable');
+    }
+  }
+
+  // Must be in revision_requested status
+  if (deliverable[0].status !== 'revision_requested') {
+    throw new Error('Deliverable is not in revision_requested status');
+  }
+
+  // Validate quality score
+  if (input.quality_score !== undefined && (input.quality_score < 0 || input.quality_score > 100)) {
+    throw new Error('Quality score must be between 0 and 100');
+  }
+
+  const now = new Date().toISOString();
+  const newVersion = deliverable[0].version + 1;
+
+  // Archive previous version
+  db.runPreparedStatement('insertDeliverableVersion', [
+    uniqueId('ver'),
+    input.deliverable_id,
+    deliverable[0].version,
+    deliverable[0].content,
+    deliverable[0].quality_score,
+    deliverable[0].status,
+    deliverable[0].submitted_by_type,
+    deliverable[0].submitted_by_id,
+    deliverable[0].revision_notes,
+    deliverable[0].created_at
+  ]);
+
+  // Update deliverable with new version
+  db.runPreparedStatement('updateDeliverable', [
+    input.content,
+    'submitted',
+    null, // reviewed_by_type
+    null, // reviewed_by_id
+    null, // reviewed_at
+    newVersion,
+    input.quality_score ?? null,
+    deliverable[0].reviewer_type,
+    deliverable[0].reviewer_id,
+    null, // approved_at
+    null, // approved_by_type
+    null, // approved_by_id
+    null, // founder_signature
+    null, // founder_signed_at
+    null, // revision_notes
+    input.deliverable_id
+  ]);
+
+  // Update task status back to review
+  const task = db.query('SELECT * FROM tasks WHERE task_id = ?', [deliverable[0].task_id]);
+  if (task.length > 0) {
+    db.db.prepare('UPDATE tasks SET status = ?, updated_at = ? WHERE task_id = ?').run(
+      'review', now, task[0].task_id
+    );
+  }
+
+  // Create audit memory entry
+  const memoryId = uniqueId('mem');
+  createMemory(db, {
+    memory_id: memoryId,
+    owner_type: identity.owner_type as MemoryOwnerType,
+    owner_id: identity.owner_id,
+    category: 'task_history',
+    memory_type: 'deliverable_resubmission',
+    title: `Deliverable Resubmitted: ${input.deliverable_id} v${newVersion}`,
+    content: JSON.stringify({
+      action: 'resubmit_deliverable',
+      deliverable_id: input.deliverable_id,
+      task_id: deliverable[0].task_id,
+      resubmitted_by_type: identity.owner_type,
+      resubmitted_by_id: identity.owner_id,
+      new_version: newVersion,
+      quality_score: input.quality_score,
+      resubmitted_at: now
+    }),
+    tags: ['task', 'deliverable', 'resubmission', input.deliverable_id],
+    confidence: 1.0
+  });
+
+  return {
+    deliverable_id: input.deliverable_id,
+    task_id: deliverable[0].task_id,
+    status: 'submitted',
+    version: newVersion,
+    quality_score: input.quality_score,
+    created_at: deliverable[0].created_at
+  };
+}
+
+// Approve a deliverable with HITL enforcement
+export function approveDeliverable(
+  db: DatabaseInstance,
+  ctx: OperationContext,
+  input: ApproveDeliverableInput
+): { deliverable_id: string; approved: boolean; requires_founder_sig: boolean } {
+  const identity = requireAuthenticated(ctx);
+
+  // Get deliverable and task
+  const deliverable = db.query('SELECT * FROM deliverables WHERE deliverable_id = ?', [input.deliverable_id]);
+  if (deliverable.length === 0) {
+    throw new Error(`Deliverable '${input.deliverable_id}' not found`);
+  }
+
+  const task = db.query('SELECT * FROM tasks WHERE task_id = ?', [deliverable[0].task_id]);
+  if (task.length === 0) {
+    throw new Error('Associated task not found');
+  }
+
+  const taskRecord = task[0] as Task;
+
+  // Enforce HITL approval
+  const hitlResult = enforceHITLApproval(db, ctx, taskRecord, input.quality_score ?? deliverable[0].quality_score ?? 0);
+
+  // For Level 3, verify founder signature
+  if (hitlResult.requiresFounderSig) {
+    if (!input.founder_signature) {
+      throw new Error('Founder signature required for Level 3 autonomy');
+    }
+    if (!verifyFounderSignature(db, input.founder_signature, `approve_deliverable_${input.deliverable_id}`)) {
+      throw new Error('Invalid or expired Founder signature');
+    }
+  }
+
+  const now = new Date().toISOString();
+
+  // Archive current version
+  db.runPreparedStatement('insertDeliverableVersion', [
+    uniqueId('ver'),
+    input.deliverable_id,
+    deliverable[0].version,
+    deliverable[0].content,
+    input.quality_score ?? deliverable[0].quality_score,
+    deliverable[0].status,
+    deliverable[0].submitted_by_type,
+    deliverable[0].submitted_by_id,
+    deliverable[0].revision_notes,
+    deliverable[0].created_at
+  ]);
+
+  // Map identity owner_type to approved_by_type
+  const approvedByType = identity.owner_type === 'founder' ? 'founder' :
+                         identity.owner_type === 'division' ? 'division_head' : 'division_head';
+
+  // Update deliverable to accepted
+  db.runPreparedStatement('updateDeliverable', [
+    deliverable[0].content,
+    'accepted',
+    deliverable[0].reviewer_type,
+    deliverable[0].reviewer_id,
+    deliverable[0].reviewed_at,
+    deliverable[0].version,
+    input.quality_score ?? deliverable[0].quality_score,
+    deliverable[0].reviewer_type,
+    deliverable[0].reviewer_id,
+    now,  // approved_at
+    approvedByType,
+    identity.owner_id,
+    hitlResult.requiresFounderSig ? input.founder_signature : null,
+    hitlResult.requiresFounderSig ? now : null,
+    null, // revision_notes
+    input.deliverable_id
+  ]);
+
+  // Update task status to completed
+  db.db.prepare('UPDATE tasks SET status = ?, completed_at = ?, updated_at = ? WHERE task_id = ?').run(
+    'completed', now, now, taskRecord.task_id
+  );
+
+  // Create audit memory entry
+  const memoryId = uniqueId('mem');
+  createMemory(db, {
+    memory_id: memoryId,
+    owner_type: identity.owner_type as MemoryOwnerType,
+    owner_id: identity.owner_id,
+    category: 'task_history',
+    memory_type: 'deliverable_approval',
+    title: `Deliverable Approved: ${input.deliverable_id}`,
+    content: JSON.stringify({
+      action: 'approve_deliverable',
+      deliverable_id: input.deliverable_id,
+      task_id: taskRecord.task_id,
+      approved_by_type: identity.owner_type,
+      approved_by_id: identity.owner_id,
+      quality_score: input.quality_score,
+      autonomy_level: db.query('SELECT autonomy_level FROM task_autonomy_levels WHERE task_type = ?', [taskRecord.title])[0]?.autonomy_level ?? 1,
+      founder_signature_provided: hitlResult.requiresFounderSig,
+      approved_at: now
+    }),
+    tags: ['task', 'deliverable', 'approval', input.deliverable_id],
+    confidence: 1.0
+  });
+
+  return {
+    deliverable_id: input.deliverable_id,
+    approved: true,
+    requires_founder_sig: hitlResult.requiresFounderSig
+  };
+}
+
+// Reject a deliverable
+export function rejectDeliverable(
+  db: DatabaseInstance,
+  ctx: OperationContext,
+  input: RejectDeliverableInput
+): void {
+  const identity = requireAuthenticated(ctx);
+
+  // Get deliverable
+  const deliverable = db.query('SELECT * FROM deliverables WHERE deliverable_id = ?', [input.deliverable_id]);
+  if (deliverable.length === 0) {
+    throw new Error(`Deliverable '${input.deliverable_id}' not found`);
+  }
+
+  // Only assigned reviewer, task creator, division head, or founder can reject
+  let canReject = false;
+  if (identity.owner_type === 'founder') {
+    canReject = true;
+  } else if (deliverable[0].reviewer_type === identity.owner_type &&
+             deliverable[0].reviewer_id === identity.owner_id) {
+    canReject = true;
+  }
+
+  if (!canReject) {
+    throw new Error('Authorization denied: Only assigned reviewer, task creator, Division Head, or Founder can reject');
+  }
+
+  const now = new Date().toISOString();
+
+  // Archive current version
+  db.runPreparedStatement('insertDeliverableVersion', [
+    uniqueId('ver'),
+    input.deliverable_id,
+    deliverable[0].version,
+    deliverable[0].content,
+    deliverable[0].quality_score,
+    deliverable[0].status,
+    deliverable[0].submitted_by_type,
+    deliverable[0].submitted_by_id,
+    deliverable[0].revision_notes,
+    deliverable[0].created_at
+  ]);
+
+  // Update deliverable to rejected
+  db.runPreparedStatement('updateDeliverable', [
+    deliverable[0].content,
+    'rejected',
+    deliverable[0].reviewer_type,
+    deliverable[0].reviewer_id,
+    deliverable[0].reviewed_at,
+    deliverable[0].version,
+    deliverable[0].quality_score,
+    deliverable[0].reviewer_type,
+    deliverable[0].reviewer_id,
+    now,  // approved_at (reuse for rejection timestamp)
+    identity.owner_type,
+    identity.owner_id,
+    null,
+    null,
+    input.rejection_reason,
+    input.deliverable_id
+  ]);
+
+  // Create audit memory entry
+  const memoryId = uniqueId('mem');
+  createMemory(db, {
+    memory_id: memoryId,
+    owner_type: identity.owner_type as MemoryOwnerType,
+    owner_id: identity.owner_id,
+    category: 'task_history',
+    memory_type: 'deliverable_rejection',
+    title: `Deliverable Rejected: ${input.deliverable_id}`,
+    content: JSON.stringify({
+      action: 'reject_deliverable',
+      deliverable_id: input.deliverable_id,
+      task_id: deliverable[0].task_id,
+      rejected_by_type: identity.owner_type,
+      rejected_by_id: identity.owner_id,
+      rejection_reason: input.rejection_reason,
+      rejected_at: now
+    }),
+    tags: ['task', 'deliverable', 'rejection', input.deliverable_id],
+    confidence: 1.0
+  });
+}
+
+// Get deliverable version history
+export function getDeliverableHistory(
+  db: DatabaseInstance,
+  ctx: OperationContext,
+  deliverableId: string
+): any[] {
+  const identity = requireAuthenticated(ctx);
+
+  // Get deliverable and verify access
+  const deliverable = db.query('SELECT * FROM deliverables WHERE deliverable_id = ?', [deliverableId]);
+  if (deliverable.length === 0) {
+    throw new Error(`Deliverable '${deliverableId}' not found`);
+  }
+
+  const task = db.query('SELECT * FROM tasks WHERE task_id = ?', [deliverable[0].task_id]);
+  if (task.length === 0) {
+    throw new Error('Associated task not found');
+  }
+
+  // Check authorization - same as getDelegationTaskById
+  getDelegationTaskById(db, ctx, task[0].task_id);
+
+  // Get version history
+  const versions = db.query(
+    'SELECT * FROM deliverable_versions WHERE deliverable_id = ? ORDER BY version_num ASC',
+    [deliverableId]
+  );
+
+  // Also include current version
+  const current = {
+    version_id: 'current',
+    deliverable_id: deliverable[0].deliverable_id,
+    version_num: deliverable[0].version,
+    content: deliverable[0].content,
+    quality_score: deliverable[0].quality_score,
+    status: deliverable[0].status,
+    submitted_by_type: deliverable[0].submitted_by_type,
+    submitted_by_id: deliverable[0].submitted_by_id,
+    revision_notes: deliverable[0].revision_notes,
+    created_at: deliverable[0].created_at
+  };
+
+  return [...versions, current].sort((a, b) => a.version_num - b.version_num);
+}
+
+// Set quality threshold (Founder only)
+export function setQualityThreshold(
+  db: DatabaseInstance,
+  ctx: OperationContext,
+  input: QualityThresholdInput
+): void {
+  const identity = requireFounder(ctx);
+
+  // Validate threshold
+  if (input.min_quality_score < 0 || input.min_quality_score > 100) {
+    throw new Error('Quality score must be between 0 and 100');
+  }
+
+  const thresholdId = input.division_id && input.task_type
+    ? `${input.division_id}-${input.task_type}`
+    : input.division_id
+      ? `${input.division_id}-default`
+      : input.task_type
+        ? `global-${input.task_type}`
+        : 'default-global';
+
+  const now = new Date().toISOString();
+
+  const existing = db.query('SELECT * FROM quality_thresholds WHERE threshold_id = ?', [thresholdId]);
+  if (existing.length > 0) {
+    db.runPreparedStatement('updateQualityThreshold', [
+      input.min_quality_score,
+      input.requires_review ? 1 : 0,
+      thresholdId
+    ]);
+  } else {
+    db.runPreparedStatement('insertQualityThreshold', [
+      thresholdId,
+      input.division_id ?? null,
+      input.task_type ?? null,
+      input.min_quality_score,
+      input.requires_review ? 1 : 0
+    ]);
+  }
+}
+
+// Get quality threshold (Founder or internal use)
+export function getQualityThresholdConfig(
+  db: DatabaseInstance,
+  ctx: OperationContext,
+  divisionId?: string,
+  taskType?: string
+): { min_quality_score: number; requires_review: boolean } {
+  const identity = requireAuthenticated(ctx);
+
+  if (identity.owner_type !== 'founder') {
+    throw new Error('Only Founder can view quality threshold configuration');
+  }
+
+  let threshold = db.query(
+    'SELECT * FROM quality_thresholds WHERE division_id = ? AND task_type = ?',
+    [divisionId ?? null, taskType ?? null]
+  )[0];
+
+  if (!threshold && divisionId) {
+    threshold = db.query(
+      'SELECT * FROM quality_thresholds WHERE division_id = ? AND task_type IS NULL',
+      [divisionId]
+    )[0];
+  }
+
+  if (!threshold) {
+    threshold = db.query(
+      'SELECT * FROM quality_thresholds WHERE division_id IS NULL AND task_type IS NULL'
+    )[0];
+  }
+
+  return {
+    min_quality_score: threshold?.min_quality_score ?? 70,
+    requires_review: threshold?.requires_review === 1
+  };
 }

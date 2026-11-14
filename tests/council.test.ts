@@ -7,39 +7,30 @@ import { createCouncilService, CouncilService, CouncilSeat, Persona, Constitutio
 import { initializeCouncil, createDefaultConstitution, FOUNDING_MEMBERS, VACANT_SEATS, RUNTIMES } from '../src/init-council.js';
 import { randomUUID } from 'node:crypto';
 
-const TEST_DB_PATH = path.join(process.cwd(), 'data', 'council-council-test.db');
-
 let testDbInstance: DatabaseInstance;
 let council: CouncilService;
 
 function setupTestDb() {
-  if (fs.existsSync(TEST_DB_PATH)) {
-    try {
-      fs.unlinkSync(TEST_DB_PATH);
-      const shmPath = TEST_DB_PATH + '-shm';
-      const walPath = TEST_DB_PATH + '-wal';
-      if (fs.existsSync(shmPath)) fs.unlinkSync(shmPath);
-      if (fs.existsSync(walPath)) fs.unlinkSync(walPath);
-    } catch (e) {
-      // Ignore if locked by another process
-    }
-  }
-  const instance = createDatabase(TEST_DB_PATH);
-  return instance;
+  const testDbPath = path.join(process.cwd(), 'data', `council-test-${randomUUID()}.db`);
+  const instance = createDatabase(testDbPath);
+  return { instance, testDbPath };
 }
 
 describe('Council Database Schema', () => {
+  let testDbPath: string;
   beforeEach(() => {
-    testDbInstance = setupTestDb();
+    const result = setupTestDb();
+    testDbInstance = result.instance;
+    testDbPath = result.testDbPath;
   });
 
   afterEach(() => {
     testDbInstance.close();
-    if (fs.existsSync(TEST_DB_PATH)) {
+    if (fs.existsSync(testDbPath)) {
       try {
-        fs.unlinkSync(TEST_DB_PATH);
-        const shmPath = TEST_DB_PATH + '-shm';
-        const walPath = TEST_DB_PATH + '-wal';
+        fs.unlinkSync(testDbPath);
+        const shmPath = testDbPath + '-shm';
+        const walPath = testDbPath + '-wal';
         if (fs.existsSync(shmPath)) fs.unlinkSync(shmPath);
         if (fs.existsSync(walPath)) fs.unlinkSync(walPath);
       } catch (e) {
@@ -70,23 +61,26 @@ describe('Council Database Schema', () => {
 
   test('should have schema_version table with version', () => {
     const version = testDbInstance.db.prepare('SELECT version FROM schema_version').get();
-    assert.strictEqual(version.version, '4.0.0');
+    assert.strictEqual(version.version, '5.0.0');
   });
 });
 
 describe('Council Seats', () => {
+  let testDbPath: string;
   beforeEach(() => {
-    testDbInstance = setupTestDb();
+    const result = setupTestDb();
+    testDbInstance = result.instance;
+    testDbPath = result.testDbPath;
     council = createCouncilService(testDbInstance);
   });
 
   afterEach(() => {
     testDbInstance.close();
-    if (fs.existsSync(TEST_DB_PATH)) {
+    if (fs.existsSync(testDbPath)) {
       try {
-        fs.unlinkSync(TEST_DB_PATH);
-        const shmPath = TEST_DB_PATH + '-shm';
-        const walPath = TEST_DB_PATH + '-wal';
+        fs.unlinkSync(testDbPath);
+        const shmPath = testDbPath + '-shm';
+        const walPath = testDbPath + '-wal';
         if (fs.existsSync(shmPath)) fs.unlinkSync(shmPath);
         if (fs.existsSync(walPath)) fs.unlinkSync(walPath);
       } catch (e) {
@@ -148,19 +142,22 @@ describe('Council Seats', () => {
 });
 
 describe('Personas', () => {
+  let testDbPath: string;
   beforeEach(() => {
-    testDbInstance = setupTestDb();
+    const result = setupTestDb();
+    testDbInstance = result.instance;
+    testDbPath = result.testDbPath;
     council = createCouncilService(testDbInstance);
     council.createSeat({ seat_id: 's1', name: 'Seat 1', status: 'permanent', is_founder: true, description: '' });
   });
 
   afterEach(() => {
     testDbInstance.close();
-    if (fs.existsSync(TEST_DB_PATH)) {
+    if (fs.existsSync(testDbPath)) {
       try {
-        fs.unlinkSync(TEST_DB_PATH);
-        const shmPath = TEST_DB_PATH + '-shm';
-        const walPath = TEST_DB_PATH + '-wal';
+        fs.unlinkSync(testDbPath);
+        const shmPath = testDbPath + '-shm';
+        const walPath = testDbPath + '-wal';
         if (fs.existsSync(shmPath)) fs.unlinkSync(shmPath);
         if (fs.existsSync(walPath)) fs.unlinkSync(walPath);
       } catch (e) {
@@ -211,8 +208,11 @@ describe('Personas', () => {
 });
 
 describe('Runtime Personas', () => {
+  let testDbPath: string;
   beforeEach(() => {
-    testDbInstance = setupTestDb();
+    const result = setupTestDb();
+    testDbInstance = result.instance;
+    testDbPath = result.testDbPath;
     council = createCouncilService(testDbInstance);
     council.createSeat({ seat_id: 's1', name: 'Seat 1', status: 'permanent', is_founder: true, description: '' });
     council.createPersona({ persona_id: 'p1', seat_id: 's1', name: 'Persona 1', description: '', traits: '' });
@@ -220,11 +220,11 @@ describe('Runtime Personas', () => {
 
   afterEach(() => {
     testDbInstance.close();
-    if (fs.existsSync(TEST_DB_PATH)) {
+    if (fs.existsSync(testDbPath)) {
       try {
-        fs.unlinkSync(TEST_DB_PATH);
-        const shmPath = TEST_DB_PATH + '-shm';
-        const walPath = TEST_DB_PATH + '-wal';
+        fs.unlinkSync(testDbPath);
+        const shmPath = testDbPath + '-shm';
+        const walPath = testDbPath + '-wal';
         if (fs.existsSync(shmPath)) fs.unlinkSync(shmPath);
         if (fs.existsSync(walPath)) fs.unlinkSync(walPath);
       } catch (e) {
@@ -255,18 +255,21 @@ describe('Runtime Personas', () => {
 });
 
 describe('Constitution', () => {
+  let testDbPath: string;
   beforeEach(() => {
-    testDbInstance = setupTestDb();
+    const result = setupTestDb();
+    testDbInstance = result.instance;
+    testDbPath = result.testDbPath;
     council = createCouncilService(testDbInstance);
   });
 
   afterEach(() => {
     testDbInstance.close();
-    if (fs.existsSync(TEST_DB_PATH)) {
+    if (fs.existsSync(testDbPath)) {
       try {
-        fs.unlinkSync(TEST_DB_PATH);
-        const shmPath = TEST_DB_PATH + '-shm';
-        const walPath = TEST_DB_PATH + '-wal';
+        fs.unlinkSync(testDbPath);
+        const shmPath = testDbPath + '-shm';
+        const walPath = testDbPath + '-wal';
         if (fs.existsSync(shmPath)) fs.unlinkSync(shmPath);
         if (fs.existsSync(walPath)) fs.unlinkSync(walPath);
       } catch (e) {
@@ -310,19 +313,22 @@ describe('Constitution', () => {
 });
 
 describe('Founder Approvals', () => {
+  let testDbPath: string;
   beforeEach(() => {
-    testDbInstance = setupTestDb();
+    const result = setupTestDb();
+    testDbInstance = result.instance;
+    testDbPath = result.testDbPath;
     council = createCouncilService(testDbInstance);
     council.createConstitution({ version: '1.0.0', content: 'Test', status: 'draft', approved_by_founder: false });
   });
 
   afterEach(() => {
     testDbInstance.close();
-    if (fs.existsSync(TEST_DB_PATH)) {
+    if (fs.existsSync(testDbPath)) {
       try {
-        fs.unlinkSync(TEST_DB_PATH);
-        const shmPath = TEST_DB_PATH + '-shm';
-        const walPath = TEST_DB_PATH + '-wal';
+        fs.unlinkSync(testDbPath);
+        const shmPath = testDbPath + '-shm';
+        const walPath = testDbPath + '-wal';
         if (fs.existsSync(shmPath)) fs.unlinkSync(shmPath);
         if (fs.existsSync(walPath)) fs.unlinkSync(walPath);
       } catch (e) {
@@ -371,17 +377,20 @@ describe('Founder Approvals', () => {
 });
 
 describe('Council Initialization', () => {
+  let testDbPath: string;
   beforeEach(() => {
-    testDbInstance = setupTestDb();
+    const result = setupTestDb();
+    testDbInstance = result.instance;
+    testDbPath = result.testDbPath;
   });
 
   afterEach(() => {
     testDbInstance.close();
-    if (fs.existsSync(TEST_DB_PATH)) {
+    if (fs.existsSync(testDbPath)) {
       try {
-        fs.unlinkSync(TEST_DB_PATH);
-        const shmPath = TEST_DB_PATH + '-shm';
-        const walPath = TEST_DB_PATH + '-wal';
+        fs.unlinkSync(testDbPath);
+        const shmPath = testDbPath + '-shm';
+        const walPath = testDbPath + '-wal';
         if (fs.existsSync(shmPath)) fs.unlinkSync(shmPath);
         if (fs.existsSync(walPath)) fs.unlinkSync(walPath);
       } catch (e) {
@@ -446,18 +455,21 @@ describe('Council Initialization', () => {
 });
 
 describe('Identity Validation', () => {
+  let testDbPath: string;
   beforeEach(() => {
-    testDbInstance = setupTestDb();
+    const result = setupTestDb();
+    testDbInstance = result.instance;
+    testDbPath = result.testDbPath;
     council = initializeCouncil(testDbInstance);
   });
 
   afterEach(() => {
     testDbInstance.close();
-    if (fs.existsSync(TEST_DB_PATH)) {
+    if (fs.existsSync(testDbPath)) {
       try {
-        fs.unlinkSync(TEST_DB_PATH);
-        const shmPath = TEST_DB_PATH + '-shm';
-        const walPath = TEST_DB_PATH + '-wal';
+        fs.unlinkSync(testDbPath);
+        const shmPath = testDbPath + '-shm';
+        const walPath = testDbPath + '-wal';
         if (fs.existsSync(shmPath)) fs.unlinkSync(shmPath);
         if (fs.existsSync(walPath)) fs.unlinkSync(walPath);
       } catch (e) {
@@ -480,10 +492,10 @@ describe('Identity Validation', () => {
 
   test('should detect missing runtime personas', () => {
     testDbInstance.close();
-    if (fs.existsSync(TEST_DB_PATH)) {
-      fs.unlinkSync(TEST_DB_PATH);
+    if (fs.existsSync(testDbPath)) {
+      fs.unlinkSync(testDbPath);
     }
-    testDbInstance = createDatabase(TEST_DB_PATH);
+    testDbInstance = createDatabase(testDbPath);
     council = createCouncilService(testDbInstance);
     council.createSeat({ seat_id: 's1', name: 'Seat 1', status: 'permanent', is_founder: true, description: '' });
     council.createPersona({ persona_id: 'p1', seat_id: 's1', name: 'Persona 1', description: '', traits: '' });
@@ -496,18 +508,21 @@ describe('Identity Validation', () => {
 });
 
 describe('Shared Identity Retrieval', () => {
+  let testDbPath: string;
   beforeEach(() => {
-    testDbInstance = setupTestDb();
+    const result = setupTestDb();
+    testDbInstance = result.instance;
+    testDbPath = result.testDbPath;
     council = initializeCouncil(testDbInstance);
   });
 
   afterEach(() => {
     testDbInstance.close();
-    if (fs.existsSync(TEST_DB_PATH)) {
+    if (fs.existsSync(testDbPath)) {
       try {
-        fs.unlinkSync(TEST_DB_PATH);
-        const shmPath = TEST_DB_PATH + '-shm';
-        const walPath = TEST_DB_PATH + '-wal';
+        fs.unlinkSync(testDbPath);
+        const shmPath = testDbPath + '-shm';
+        const walPath = testDbPath + '-wal';
         if (fs.existsSync(shmPath)) fs.unlinkSync(shmPath);
         if (fs.existsSync(walPath)) fs.unlinkSync(walPath);
       } catch (e) {
@@ -530,18 +545,21 @@ describe('Shared Identity Retrieval', () => {
 });
 
 describe('Phase 3: Council Formation - Candidates', () => {
+  let testDbPath: string;
   beforeEach(() => {
-    testDbInstance = setupTestDb();
+    const result = setupTestDb();
+    testDbInstance = result.instance;
+    testDbPath = result.testDbPath;
     council = initializeCouncil(testDbInstance);
   });
 
   afterEach(() => {
     testDbInstance.close();
-    if (fs.existsSync(TEST_DB_PATH)) {
+    if (fs.existsSync(testDbPath)) {
       try {
-        fs.unlinkSync(TEST_DB_PATH);
-        const shmPath = TEST_DB_PATH + '-shm';
-        const walPath = TEST_DB_PATH + '-wal';
+        fs.unlinkSync(testDbPath);
+        const shmPath = testDbPath + '-shm';
+        const walPath = testDbPath + '-wal';
         if (fs.existsSync(shmPath)) fs.unlinkSync(shmPath);
         if (fs.existsSync(walPath)) fs.unlinkSync(walPath);
       } catch (e) {
@@ -760,19 +778,22 @@ describe('Phase 3: Council Formation - Candidates', () => {
 });
 
 describe('Phase 3: Meetings', () => {
+  let testDbPath: string;
   beforeEach(() => {
-    testDbInstance = setupTestDb();
+    const result = setupTestDb();
+    testDbInstance = result.instance;
+    testDbPath = result.testDbPath;
     council = initializeCouncil(testDbInstance);
     createDefaultConstitution(testDbInstance);
   });
 
   afterEach(() => {
     testDbInstance.close();
-    if (fs.existsSync(TEST_DB_PATH)) {
+    if (fs.existsSync(testDbPath)) {
       try {
-        fs.unlinkSync(TEST_DB_PATH);
-        const shmPath = TEST_DB_PATH + '-shm';
-        const walPath = TEST_DB_PATH + '-wal';
+        fs.unlinkSync(testDbPath);
+        const shmPath = testDbPath + '-shm';
+        const walPath = testDbPath + '-wal';
         if (fs.existsSync(shmPath)) fs.unlinkSync(shmPath);
         if (fs.existsSync(walPath)) fs.unlinkSync(walPath);
       } catch (e) {
@@ -1038,19 +1059,22 @@ describe('Phase 3: Meetings', () => {
 });
 
 describe('Phase 3: Evaluations', () => {
+  let testDbPath: string;
   beforeEach(() => {
-    testDbInstance = setupTestDb();
+    const result = setupTestDb();
+    testDbInstance = result.instance;
+    testDbPath = result.testDbPath;
     council = initializeCouncil(testDbInstance);
     createDefaultConstitution(testDbInstance);
   });
 
   afterEach(() => {
     testDbInstance.close();
-    if (fs.existsSync(TEST_DB_PATH)) {
+    if (fs.existsSync(testDbPath)) {
       try {
-        fs.unlinkSync(TEST_DB_PATH);
-        const shmPath = TEST_DB_PATH + '-shm';
-        const walPath = TEST_DB_PATH + '-wal';
+        fs.unlinkSync(testDbPath);
+        const shmPath = testDbPath + '-shm';
+        const walPath = testDbPath + '-wal';
         if (fs.existsSync(shmPath)) fs.unlinkSync(shmPath);
         if (fs.existsSync(walPath)) fs.unlinkSync(walPath);
       } catch (e) {
@@ -1332,19 +1356,22 @@ describe('Phase 3: Evaluations', () => {
 });
 
 describe('Phase 3: Evaluation Criteria', () => {
+  let testDbPath: string;
   beforeEach(() => {
-    testDbInstance = setupTestDb();
+    const result = setupTestDb();
+    testDbInstance = result.instance;
+    testDbPath = result.testDbPath;
     council = initializeCouncil(testDbInstance);
     createDefaultConstitution(testDbInstance);
   });
 
   afterEach(() => {
     testDbInstance.close();
-    if (fs.existsSync(TEST_DB_PATH)) {
+    if (fs.existsSync(testDbPath)) {
       try {
-        fs.unlinkSync(TEST_DB_PATH);
-        const shmPath = TEST_DB_PATH + '-shm';
-        const walPath = TEST_DB_PATH + '-wal';
+        fs.unlinkSync(testDbPath);
+        const shmPath = testDbPath + '-shm';
+        const walPath = testDbPath + '-wal';
         if (fs.existsSync(shmPath)) fs.unlinkSync(shmPath);
         if (fs.existsSync(walPath)) fs.unlinkSync(walPath);
       } catch (e) {
@@ -1370,19 +1397,22 @@ describe('Phase 3: Evaluation Criteria', () => {
 });
 
 describe('Phase 3: P2 - New Tests', () => {
+  let testDbPath: string;
   beforeEach(() => {
-    testDbInstance = setupTestDb();
+    const result = setupTestDb();
+    testDbInstance = result.instance;
+    testDbPath = result.testDbPath;
     council = initializeCouncil(testDbInstance);
     createDefaultConstitution(testDbInstance);
   });
 
   afterEach(() => {
     testDbInstance.close();
-    if (fs.existsSync(TEST_DB_PATH)) {
+    if (fs.existsSync(testDbPath)) {
       try {
-        fs.unlinkSync(TEST_DB_PATH);
-        const shmPath = TEST_DB_PATH + '-shm';
-        const walPath = TEST_DB_PATH + '-wal';
+        fs.unlinkSync(testDbPath);
+        const shmPath = testDbPath + '-shm';
+        const walPath = testDbPath + '-wal';
         if (fs.existsSync(shmPath)) fs.unlinkSync(shmPath);
         if (fs.existsSync(walPath)) fs.unlinkSync(walPath);
       } catch (e) {

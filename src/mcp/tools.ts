@@ -127,6 +127,66 @@ const GetTaskAutonomyLevelSchema = z.object({
   task_type: z.string().min(1).max(255).describe('Task type identifier'),
 });
 
+// ============================================================
+// PHASE 9 BATCH 4: Deliverable Workflow Tool Schemas
+// ============================================================
+
+const CreateDeliverableDraftSchema = z.object({
+  task_id: z.string().min(1).max(255).describe('Task ID'),
+  content: z.string().min(1).describe('Deliverable content'),
+  quality_score: z.number().int().min(0).max(100).optional().describe('Quality score (0-100)'),
+});
+
+const SubmitDeliverableSchema = z.object({
+  task_id: z.string().min(1).max(255).describe('Task ID'),
+  content: z.string().min(1).describe('Deliverable content'),
+  quality_score: z.number().int().min(0).max(100).optional().describe('Quality score (0-100)'),
+});
+
+const AssignDeliverableReviewerSchema = z.object({
+  deliverable_id: z.string().min(1).max(255).describe('Deliverable ID'),
+  reviewer_type: z.enum(['founder', 'council', 'division_head']).describe('Reviewer role type'),
+  reviewer_id: z.string().min(1).max(255).describe('Reviewer ID'),
+});
+
+const RequestDeliverableRevisionSchema = z.object({
+  deliverable_id: z.string().min(1).max(255).describe('Deliverable ID'),
+  revision_notes: z.string().min(1).max(5000).describe('Revision notes'),
+});
+
+const ResubmitDeliverableSchema = z.object({
+  deliverable_id: z.string().min(1).max(255).describe('Deliverable ID'),
+  content: z.string().min(1).describe('Updated deliverable content'),
+  quality_score: z.number().int().min(0).max(100).optional().describe('Quality score (0-100)'),
+});
+
+const ApproveDeliverableSchema = z.object({
+  deliverable_id: z.string().min(1).max(255).describe('Deliverable ID'),
+  quality_score: z.number().int().min(0).max(100).optional().describe('Quality score (0-100)'),
+  founder_signature: z.string().optional().describe('Founder signature (required for Level 3)'),
+});
+
+const RejectDeliverableSchema = z.object({
+  deliverable_id: z.string().min(1).max(255).describe('Deliverable ID'),
+  rejection_reason: z.string().min(1).max(5000).describe('Rejection reason'),
+});
+
+const GetDeliverableHistorySchema = z.object({
+  deliverable_id: z.string().min(1).max(255).describe('Deliverable ID'),
+});
+
+const SetQualityThresholdSchema = z.object({
+  division_id: z.string().optional().describe('Division ID (optional)'),
+  task_type: z.string().optional().describe('Task type (optional)'),
+  min_quality_score: z.number().int().min(0).max(100).describe('Minimum quality score (0-100)'),
+  requires_review: z.boolean().default(true).describe('Whether review is required'),
+});
+
+const GetQualityThresholdSchema = z.object({
+  division_id: z.string().optional().describe('Division ID (optional)'),
+  task_type: z.string().optional().describe('Task type (optional)'),
+});
+
 // Helper function to create MCP error responses
 function mcpError(message: string, code: string = 'MCP_ERROR'): CallToolResult {
   return {
@@ -401,6 +461,110 @@ export function registerMcpTools(
     GetExecutionHistorySchema.shape,
     createToolHandler(db, getAuthContext, async (db, ctx, args) => {
       return getExecutionHistory(db, ctx, args);
+    })
+  );
+
+  // ============================================================
+  // PHASE 9 BATCH 4: Deliverable Workflow Tools
+  // ============================================================
+
+  mcpServer.tool(
+    'create_deliverable_draft',
+    'Create a deliverable draft',
+    CreateDeliverableDraftSchema.shape,
+    createToolHandler(db, getAuthContext, async (db, ctx, args) => {
+      const { createDeliverableDraft } = await import('../council/task-delegation.js');
+      return createDeliverableDraft(db, ctx, args);
+    })
+  );
+
+  mcpServer.tool(
+    'submit_deliverable',
+    'Submit a deliverable for review',
+    SubmitDeliverableSchema.shape,
+    createToolHandler(db, getAuthContext, async (db, ctx, args) => {
+      const { submitDeliverable } = await import('../council/task-delegation.js');
+      return submitDeliverable(db, ctx, args);
+    })
+  );
+
+  mcpServer.tool(
+    'assign_deliverable_reviewer',
+    'Assign a reviewer to a deliverable',
+    AssignDeliverableReviewerSchema.shape,
+    createToolHandler(db, getAuthContext, async (db, ctx, args) => {
+      const { assignReviewer } = await import('../council/task-delegation.js');
+      return assignReviewer(db, ctx, args);
+    })
+  );
+
+  mcpServer.tool(
+    'request_deliverable_revision',
+    'Request revision on a deliverable',
+    RequestDeliverableRevisionSchema.shape,
+    createToolHandler(db, getAuthContext, async (db, ctx, args) => {
+      const { requestRevision } = await import('../council/task-delegation.js');
+      return requestRevision(db, ctx, args);
+    })
+  );
+
+  mcpServer.tool(
+    'resubmit_deliverable',
+    'Resubmit a deliverable after revision',
+    ResubmitDeliverableSchema.shape,
+    createToolHandler(db, getAuthContext, async (db, ctx, args) => {
+      const { resubmitDeliverable } = await import('../council/task-delegation.js');
+      return resubmitDeliverable(db, ctx, args);
+    })
+  );
+
+  mcpServer.tool(
+    'approve_deliverable',
+    'Approve a deliverable with HITL enforcement',
+    ApproveDeliverableSchema.shape,
+    createToolHandler(db, getAuthContext, async (db, ctx, args) => {
+      const { approveDeliverable } = await import('../council/task-delegation.js');
+      return approveDeliverable(db, ctx, args);
+    })
+  );
+
+  mcpServer.tool(
+    'reject_deliverable',
+    'Reject a deliverable',
+    RejectDeliverableSchema.shape,
+    createToolHandler(db, getAuthContext, async (db, ctx, args) => {
+      const { rejectDeliverable } = await import('../council/task-delegation.js');
+      return rejectDeliverable(db, ctx, args);
+    })
+  );
+
+  mcpServer.tool(
+    'get_deliverable_history',
+    'Get deliverable version history',
+    GetDeliverableHistorySchema.shape,
+    createToolHandler(db, getAuthContext, async (db, ctx, args) => {
+      const { getDeliverableHistory } = await import('../council/task-delegation.js');
+      return getDeliverableHistory(db, ctx, args.deliverable_id);
+    })
+  );
+
+  mcpServer.tool(
+    'set_quality_threshold',
+    'Set quality threshold (Founder only)',
+    SetQualityThresholdSchema.shape,
+    createToolHandler(db, getAuthContext, async (db, ctx, args) => {
+      const { setQualityThreshold } = await import('../council/task-delegation.js');
+      return setQualityThreshold(db, ctx, args);
+    })
+  );
+
+  mcpServer.tool(
+    'get_quality_threshold',
+    'Get quality threshold configuration (Founder only)',
+    GetQualityThresholdSchema.shape,
+    createToolHandler(db, getAuthContext, async (db, ctx, args) => {
+      const { getQualityThresholdConfig } = await import('../council/task-delegation.js');
+      return getQualityThresholdConfig(db, ctx, args.division_id, args.task_type);
     })
   );
 }

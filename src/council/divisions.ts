@@ -312,32 +312,10 @@ export function createDeliverable(
 ): Deliverable {
   const now = new Date().toISOString();
   const columns = db.query('PRAGMA table_info(deliverables)') as Array<{ name: string }>;
-  const hasExtendedFields = ['file_references', 'task_relationships', 'audit_log']
-    .every((name) => columns.some((column) => column.name === name));
-  const hasExtensionInput = Boolean(
-    input.file_references?.length || input.task_relationships?.length || input.audit_log?.length
-  );
-  if (hasExtendedFields) {
-    db.db.prepare(`
-      INSERT INTO deliverables (deliverable_id, task_id, submitted_by_type, submitted_by_id, content, status, reviewed_by_type, reviewed_by_id, reviewed_at, file_references, task_relationships, audit_log, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      input.deliverable_id,
-      input.task_id,
-      input.submitted_by_type,
-      input.submitted_by_id,
-      input.content,
-      input.status ?? 'submitted',
-      input.reviewed_by_type ?? null,
-      input.reviewed_by_id ?? null,
-      null,
-      JSON.stringify(input.file_references ?? []),
-      JSON.stringify(input.task_relationships ?? []),
-      JSON.stringify(input.audit_log ?? []),
-      now
-    );
-  } else {
-    if (hasExtensionInput) throw new Error('Deliverable extension fields require migration 004');
+  const hasBatch4Fields = columns.some((column) => column.name === 'version');
+
+  if (hasBatch4Fields) {
+    // Batch 4 schema with version, quality_score, reviewer fields, etc.
     db.runPreparedStatement('insertDeliverable', [
       input.deliverable_id,
       input.task_id,
@@ -347,9 +325,63 @@ export function createDeliverable(
       input.status ?? 'submitted',
       input.reviewed_by_type ?? null,
       input.reviewed_by_id ?? null,
-      null,
-      now
+      null,  // reviewed_at
+      now,   // created_at
+      1,     // version
+      null,  // quality_score
+      null,  // reviewer_type
+      null,  // reviewer_id
+      null,  // approved_at
+      null,  // approved_by_type
+      null,  // approved_by_id
+      null,  // founder_signature
+      null,  // founder_signed_at
+      null   // revision_notes
     ]);
+  } else {
+    // Legacy schema (with or without migration 004 fields)
+    const hasExtendedFields = ['file_references', 'task_relationships', 'audit_log']
+      .every((name) => columns.some((column) => column.name === name));
+    const hasExtensionInput = Boolean(
+      input.file_references?.length || input.task_relationships?.length || input.audit_log?.length
+    );
+    if (hasExtendedFields) {
+      db.db.prepare(`
+        INSERT INTO deliverables (deliverable_id, task_id, submitted_by_type, submitted_by_id, content, status, reviewed_by_type, reviewed_by_id, reviewed_at, file_references, task_relationships, audit_log, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        input.deliverable_id,
+        input.task_id,
+        input.submitted_by_type,
+        input.submitted_by_id,
+        input.content,
+        input.status ?? 'submitted',
+        input.reviewed_by_type ?? null,
+        input.reviewed_by_id ?? null,
+        null,
+        JSON.stringify(input.file_references ?? []),
+        JSON.stringify(input.task_relationships ?? []),
+        JSON.stringify(input.audit_log ?? []),
+        now
+      );
+    } else {
+      if (hasExtensionInput) throw new Error('Deliverable extension fields require migration 004');
+      db.db.prepare(`
+        INSERT INTO deliverables (deliverable_id, task_id, submitted_by_type, submitted_by_id, content, status, reviewed_by_type, reviewed_by_id, reviewed_at, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        input.deliverable_id,
+        input.task_id,
+        input.submitted_by_type,
+        input.submitted_by_id,
+        input.content,
+        input.status ?? 'submitted',
+        input.reviewed_by_type ?? null,
+        input.reviewed_by_id ?? null,
+        null,
+        now
+      );
+    }
   }
 
   const result = db.query('SELECT * FROM deliverables WHERE deliverable_id = ?', [input.deliverable_id]);

@@ -17,6 +17,7 @@ import {
   delegateTask,
   acceptDelegation,
   rejectDelegation,
+  createDeliverableDraft,
   submitDeliverable,
   reviewDeliverable,
   getDelegationTaskById,
@@ -360,19 +361,26 @@ describe('Phase 9 Batch 3: Task Delegation', () => {
     });
 
     const staffCtx = { owner_type: 'staff' as const, owner_id: staffId, runtime: 'claude' as const };
-    const deliverable = submitDeliverable(db, staffCtx, {
+
+    // Create draft first
+    const draft = createDeliverableDraft(db, staffCtx, {
       task_id: task.task_id,
       content: '{"implementation": "Completed all requirements"}',
       quality_score: 95
+    });
+
+    // Submit the draft
+    const deliverable = submitDeliverable(db, staffCtx, {
+      deliverable_id: draft.deliverable_id
     });
 
     assert.strictEqual(deliverable.task_id, task.task_id);
     assert.strictEqual(deliverable.status, 'submitted');
     assert.ok(deliverable.deliverable_id.startsWith('del-'));
 
-    // Task should now be completed
+    // Task should now be in review
     const updatedTask = getBasicTaskById(db, task.task_id);
-    assert.strictEqual(updatedTask!.status, 'completed');
+    assert.strictEqual(updatedTask!.status, 'review');
   });
 
   it('should reject deliverable submission by non-assignee', () => {
@@ -391,11 +399,19 @@ describe('Phase 9 Batch 3: Task Delegation', () => {
       status: 'pending'
     });
 
+    const staffCtx = { owner_type: 'staff' as const, owner_id: staffId, runtime: 'claude' as const };
     const otherCtx = { owner_type: 'staff' as const, owner_id: otherStaffId, runtime: 'claude' as const };
+
+    // Create draft as assignee first
+    const draft = createDeliverableDraft(db, staffCtx, {
+      task_id: task.task_id,
+      content: 'Some content'
+    });
+
+    // Try to submit as non-assignee
     assert.throws(() => {
       submitDeliverable(db, otherCtx, {
-        task_id: task.task_id,
-        content: 'Some content'
+        deliverable_id: draft.deliverable_id
       });
     }, /Only the assigned staff agent or Founder can submit deliverable/);
   });
@@ -418,9 +434,14 @@ describe('Phase 9 Batch 3: Task Delegation', () => {
     });
 
     const staffCtx = { owner_type: 'staff' as const, owner_id: staffId, runtime: 'claude' as const };
-    const deliverable = submitDeliverable(db, staffCtx, {
+
+    // Create and submit deliverable
+    const draft = createDeliverableDraft(db, staffCtx, {
       task_id: task.task_id,
       content: '{"implementation": "Done"}'
+    });
+    const deliverable = submitDeliverable(db, staffCtx, {
+      deliverable_id: draft.deliverable_id
     });
 
     // Founder reviews
@@ -460,9 +481,14 @@ describe('Phase 9 Batch 3: Task Delegation', () => {
     });
 
     const staffCtx = { owner_type: 'staff' as const, owner_id: staffId, runtime: 'claude' as const };
-    const deliverable = submitDeliverable(db, staffCtx, {
+
+    // Create and submit deliverable
+    const draft = createDeliverableDraft(db, staffCtx, {
       task_id: task.task_id,
       content: '{"implementation": "Done"}'
+    });
+    const deliverable = submitDeliverable(db, staffCtx, {
+      deliverable_id: draft.deliverable_id
     });
 
     // Other division member should not be able to review
@@ -516,10 +542,13 @@ describe('Phase 9 Batch 3: Task Delegation', () => {
     assert.strictEqual(accepted.status, 'in_progress');
 
     // 5. Submit deliverable
-    const deliverable = submitDeliverable(db, juniorCtx, {
+    const draft = createDeliverableDraft(db, juniorCtx, {
       task_id: delegated.task_id,
       content: '{"endpoint": "/api/users", "methods": ["GET", "POST", "PUT", "DELETE"]}',
       quality_score: 85
+    });
+    const deliverable = submitDeliverable(db, juniorCtx, {
+      deliverable_id: draft.deliverable_id
     });
     assert.strictEqual(deliverable.status, 'submitted');
 

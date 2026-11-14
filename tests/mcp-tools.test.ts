@@ -188,8 +188,11 @@ describe('MCP Tool Registration - Phase 9 Task 3', () => {
       // Phase 7/9 (13): create_task_autonomy_level, update_task_autonomy_level, get_task_autonomy_level, list_task_autonomy_levels,
       // request_execution, get_execution_request, list_execution_requests, execute_execution_request, cancel_execution_request,
       // approve_execution, list_approval_requests, get_execution_history
-      // Total: 19 tools
-      assert.strictEqual(tools.length, 19);
+      // Phase 9 Batch 4 (10): create_deliverable_draft, submit_deliverable, assign_deliverable_reviewer,
+      // request_deliverable_revision, resubmit_deliverable, approve_deliverable, reject_deliverable,
+      // get_deliverable_history, set_quality_threshold, get_quality_threshold
+      // Total: 29 tools
+      assert.strictEqual(tools.length, 29);
     });
   });
 

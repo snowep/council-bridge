@@ -15,6 +15,7 @@ function setup(): void {
 }
 
 afterEach(() => {
+  db.db.exec('DROP TRIGGER IF EXISTS fail_execution_history');
   db.close();
 });
 
@@ -85,11 +86,14 @@ describe('service-layer authorization', () => {
       owner_id: staffId1,
       runtime: 'claude',
     }, {
-      deliverable_id: 'deliverable-001',
+      deliverable_id: uniqueName('deliverable'),
       task_id: task.task_id,
       submitted_by_type: 'staff',
       submitted_by_id: staffId1,
       content: 'Result',
+      file_references: [],
+      task_relationships: [],
+      audit_log: [],
     });
     const otherStaff = { owner_type: 'staff' as const, owner_id: staffId2, runtime: 'claude' as const };
 
