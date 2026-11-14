@@ -4,6 +4,8 @@
 import express, { Request, Response, NextFunction } from 'express';
 import { z } from 'zod/v4';
 import crypto from 'crypto';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 
 import { createDatabase, DatabaseInstance } from './database.js';
 import {
@@ -51,7 +53,9 @@ import {
   getExecutionHistory,
   listExecutionRequests,
   listApprovalRequests,
-  setCryptoModule
+  setCryptoModule,
+  executeExecutionRequest,
+  cancelExecutionRequest
 } from './council/operations.js';
 
 // Initialize crypto module for operations
@@ -341,6 +345,33 @@ app.get('/api/execution/:id/history', authMiddleware, async (req, res) => {
   }
 });
 
+// Phase 7: Execute Execution Request (Level 1/2: requester or founder; Level 3: approved only)
+app.post('/api/execution/:id/execute',
+  authMiddleware,
+  founderSignatureMiddleware(config.require_founder_signature_for),
+  async (req, res) => {
+  try {
+    const executionId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const { result_payload = {} } = req.body;
+    const result = await executeExecutionRequest(db, getAuthContext(req), executionId, result_payload);
+    res.json(result);
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+// Phase 7: Cancel Execution Request
+app.post('/api/execution/:id/cancel', authMiddleware, async (req, res) => {
+  try {
+    const executionId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const { error_message } = req.body;
+    const result = await cancelExecutionRequest(db, getAuthContext(req), executionId, error_message);
+    res.json(result);
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
 // Auth management endpoints
 app.post('/api/auth/session', async (req, res) => {
   try {
@@ -433,6 +464,16 @@ app.get('/api/auth/founder/public-key', async (req, res) => {
   res.json({ public_key: publicKey, key_id: keyId });
 });
 
+// MCP Streamable HTTP endpoint
+const mcpServer = new McpServer({ name: 'council-bridge', version: '1.0.0' }, { capabilities: { tools: {} } });
+const mcpTransport = new StreamableHTTPServerTransport();
+
+await mcpServer.connect(mcpTransport);
+
+app.all('/mcp', async (req, res) => {
+  await mcpTransport.handleRequest(req, res, req.body);
+});
+
 // Health check
 app.get('/health', (req, res) => {
   res.json({
@@ -443,7 +484,7 @@ app.get('/health', (req, res) => {
 });
 
 // Start server
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3334;
 
 initDb().then(() => {
   // Periodic session cleanup

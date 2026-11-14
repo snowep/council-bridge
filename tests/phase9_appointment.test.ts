@@ -181,8 +181,17 @@ describe('Phase 9 Batch 1: Appointment Ceremony', () => {
       division_id: 'Developer Division'
     });
 
-    assert.strictEqual(result.status, 'active');
+    // Approval does not change status - activation is separate
+    assert.strictEqual(result.status, 'inactive');
     assert.strictEqual(result.staff_id, 'staff-dev-platform-001');
+
+    // But division membership should be created
+    const members = db.query(
+      'SELECT * FROM division_members WHERE division_id = ? AND staff_id = ?',
+      ['Developer Division', 'staff-dev-platform-001']
+    );
+    assert.strictEqual(members.length, 1);
+    assert.strictEqual(members[0].role, 'specialist');
   });
 
   it('should reject specialist approval from non-founder', () => {
@@ -258,7 +267,7 @@ describe('Phase 9 Batch 1: Appointment Ceremony', () => {
     }, /Staff agent 'staff-marketing-growth-001' is not registered to division 'Developer Division'/);
   });
 
-  it('should reject specialist approval for already active staff', () => {
+  it('should allow specialist approval regardless of current status (activation is separate)', () => {
     const division = createDivision(db, { division_id: 'Developer Division', name: 'Developer' });
     const staff = registerStaffAgent(db, {
       staff_id: 'staff-dev-platform-001',
@@ -270,12 +279,14 @@ describe('Phase 9 Batch 1: Appointment Ceremony', () => {
       status: 'active'
     });
 
-    assert.throws(() => {
-      approveSpecialist(db, founderCtx, {
-        staff_id: 'staff-dev-platform-001',
-        division_id: 'Developer Division'
-      });
-    }, /already active/);
+    // Should not throw - approval is separate from activation
+    const result = approveSpecialist(db, founderCtx, {
+      staff_id: 'staff-dev-platform-001',
+      division_id: 'Developer Division'
+    });
+
+    // Staff status should remain unchanged (approval doesn't activate)
+    assert.strictEqual(result.status, 'active');
   });
 
   it('should add division member record on specialist approval', () => {
@@ -344,7 +355,13 @@ describe('Phase 9 Batch 1: Appointment Ceremony', () => {
       division_id: 'Developer Division',
       runtime_instances: [],
       permissions: [],
-      status: 'active'
+      status: 'inactive'
+    });
+
+    // Must approve first to create division membership
+    approveSpecialist(db, founderCtx, {
+      staff_id: 'staff-dev-platform-001',
+      division_id: 'Developer Division'
     });
 
     const result = activateStaffAgent(db, founderCtx, {
@@ -355,6 +372,7 @@ describe('Phase 9 Batch 1: Appointment Ceremony', () => {
     const runtimes = JSON.parse(result.runtime_instances);
     assert.ok(runtimes.includes('claude'));
     assert.ok(runtimes.includes('hermes'));
+    assert.strictEqual(result.status, 'active');
   });
 
   it('should reject staff activation from non-founder', () => {
@@ -415,7 +433,13 @@ describe('Phase 9 Batch 1: Appointment Ceremony', () => {
       division_id: 'Developer Division',
       runtime_instances: [],
       permissions: [],
-      status: 'active'
+      status: 'inactive'
+    });
+
+    // Must approve first to create division membership
+    approveSpecialist(db, founderCtx, {
+      staff_id: 'staff-dev-platform-001',
+      division_id: 'Developer Division'
     });
 
     activateStaffAgent(db, founderCtx, {
@@ -424,7 +448,7 @@ describe('Phase 9 Batch 1: Appointment Ceremony', () => {
     });
 
     const runtimePersonas = db.query(
-      'SELECT * FROM runtime_personas WHERE persona_id = ?',
+      'SELECT * FROM staff_runtime_personas WHERE staff_id = ?',
       ['staff-dev-platform-001']
     );
 
@@ -442,7 +466,13 @@ describe('Phase 9 Batch 1: Appointment Ceremony', () => {
       division_id: 'Developer Division',
       runtime_instances: [],
       permissions: [],
-      status: 'active'
+      status: 'inactive'
+    });
+
+    // Must approve first to create division membership
+    approveSpecialist(db, founderCtx, {
+      staff_id: 'staff-dev-platform-001',
+      division_id: 'Developer Division'
     });
 
     activateStaffAgent(db, founderCtx, {
@@ -471,7 +501,13 @@ describe('Phase 9 Batch 1: Appointment Ceremony', () => {
       division_id: 'Developer Division',
       runtime_instances: [],
       permissions: [],
-      status: 'active'
+      status: 'inactive'
+    });
+
+    // Must approve first to create division membership
+    approveSpecialist(db, founderCtx, {
+      staff_id: 'staff-dev-platform-001',
+      division_id: 'Developer Division'
     });
 
     // First activation
@@ -487,7 +523,7 @@ describe('Phase 9 Batch 1: Appointment Ceremony', () => {
     });
 
     const runtimePersonas = db.query(
-      'SELECT * FROM runtime_personas WHERE persona_id = ?',
+      'SELECT * FROM staff_runtime_personas WHERE staff_id = ?',
       ['staff-dev-platform-001']
     );
 

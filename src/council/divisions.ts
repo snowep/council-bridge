@@ -457,6 +457,19 @@ export function approveDivisionHead(
     head_staff_id: input.staff_id
   });
 
+  // Add to division members if not already present
+  const existingMember = db.query(
+    'SELECT * FROM division_members WHERE division_id = ? AND staff_id = ?',
+    [input.division_id, input.staff_id]
+  );
+  if (existingMember.length === 0) {
+    addDivisionMember(db, {
+      division_id: input.division_id,
+      staff_id: input.staff_id,
+      role: 'head'
+    });
+  }
+
   // Create audit memory entry
   const memoryId = db.generateId();
   createMemory(db, {
@@ -499,13 +512,8 @@ export function approveSpecialist(
     throw new Error(`Staff agent '${input.staff_id}' is not registered to division '${input.division_id}'`);
   }
 
-  if (staff.status === 'active') {
-    throw new Error(`Staff agent '${input.staff_id}' is already active`);
-  }
-
-  const updatedStaff = updateStaffAgent(db, input.staff_id, {
-    status: 'active'
-  });
+  // Approval does NOT activate - it only records the appointment approval
+  // Activation is a separate step via activateStaffAgent()
 
   // Add to division members if not already present
   const existingMember = db.query(
@@ -541,7 +549,7 @@ export function approveSpecialist(
     confidence: 1.0
   });
 
-  return updatedStaff;
+  return staff; // Return unmodified staff (status remains unchanged)
 }
 
 export function activateStaffAgent(
@@ -556,11 +564,16 @@ export function activateStaffAgent(
   const staff = getStaffAgentById(db, input.staff_id);
   if (!staff) throw new Error(`Staff agent '${input.staff_id}' not found`);
 
-  if (staff.status !== 'active') {
+  // Check if staff has been approved (has division membership)
+  const membership = db.query(
+    'SELECT * FROM division_members WHERE staff_id = ?',
+    [input.staff_id]
+  );
+  if (membership.length === 0) {
     throw new Error(`Staff agent '${input.staff_id}' must be approved before activation`);
   }
 
-  // Assign runtime personas
+  // Assign runtime personas using dedicated staff_runtime_personas table
   const existingRuntimes: ('claude' | 'hermes')[] = [];
   try {
     const parsed = JSON.parse(staff.runtime_instances);
@@ -571,20 +584,16 @@ export function activateStaffAgent(
 
   const newRuntimes: ('claude' | 'hermes')[] = [...new Set([...existingRuntimes, ...input.runtimes])];
 
-  // Disable FK temporarily for runtime persona insertion (staff_id used as persona_id)
-  db.db.pragma('foreign_keys = OFF');
-  try {
-    for (const runtime of input.runtimes) {
-      if (!existingRuntimes.includes(runtime)) {
-        db.db.prepare('INSERT OR IGNORE INTO runtime_personas (runtime, persona_id) VALUES (?, ?)').run(runtime, input.staff_id);
-      }
+  // Insert into staff_runtime_personas (FK to staff_agents, no FK disable needed)
+  for (const runtime of input.runtimes) {
+    if (!existingRuntimes.includes(runtime)) {
+      db.runPreparedStatement('insertStaffRuntimePersona', [runtime, input.staff_id]);
     }
-  } finally {
-    db.db.pragma('foreign_keys = ON');
   }
 
   const updatedStaff = updateStaffAgent(db, input.staff_id, {
-    runtime_instances: newRuntimes
+    runtime_instances: newRuntimes,
+    status: 'active'
   });
 
   // Create audit memory entry

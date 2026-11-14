@@ -155,7 +155,8 @@ describe('Phase 8: Founder Signature Verification', () => {
   let keyPair: { public_key: string; private_key_pem: string; created_at: string; key_id: string };
 
   before(() => {
-    keyPair = generateFounderKeyPair();
+    // Initialize with fresh keys for each test run
+    keyPair = initializeFounderKeys();
   });
 
   it('should generate founder key pair', () => {

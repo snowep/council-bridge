@@ -41,6 +41,10 @@ export interface DatabaseInstance {
     getRuntimePersonas: PreparedStatement;
     deleteRuntimePersona: PreparedStatement;
 
+    insertStaffRuntimePersona: PreparedStatement;
+    getStaffRuntimePersonas: PreparedStatement;
+    deleteStaffRuntimePersona: PreparedStatement;
+
     insertConstitution: PreparedStatement;
     getConstitution: PreparedStatement;
     getActiveConstitution: PreparedStatement;
@@ -274,6 +278,13 @@ function createDatabase(dbPath: string): DatabaseInstance {
       persona_id TEXT NOT NULL,
       PRIMARY KEY (runtime, persona_id),
       FOREIGN KEY (persona_id) REFERENCES personas(persona_id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS staff_runtime_personas (
+      runtime TEXT NOT NULL,
+      staff_id TEXT NOT NULL,
+      PRIMARY KEY (runtime, staff_id),
+      FOREIGN KEY (staff_id) REFERENCES staff_agents(staff_id) ON DELETE CASCADE
     );
 
     CREATE TABLE IF NOT EXISTS constitutions (
@@ -936,6 +947,10 @@ function createDatabase(dbPath: string): DatabaseInstance {
     insertRuntimePersona: db.prepare('INSERT OR IGNORE INTO runtime_personas (runtime, persona_id) VALUES (?, ?)'),
     getRuntimePersonas: db.prepare('SELECT * FROM runtime_personas WHERE runtime = ? ORDER BY persona_id'),
     deleteRuntimePersona: db.prepare('DELETE FROM runtime_personas WHERE runtime = ? AND persona_id = ?'),
+
+    insertStaffRuntimePersona: db.prepare('INSERT OR IGNORE INTO staff_runtime_personas (runtime, staff_id) VALUES (?, ?)'),
+    getStaffRuntimePersonas: db.prepare('SELECT * FROM staff_runtime_personas WHERE runtime = ? ORDER BY staff_id'),
+    deleteStaffRuntimePersona: db.prepare('DELETE FROM staff_runtime_personas WHERE runtime = ? AND staff_id = ?'),
 
     insertConstitution: db.prepare(`
       INSERT INTO constitutions (version, content, status, approved_by_founder)
