@@ -182,7 +182,7 @@ export const CreateTaskInputSchema = z.object({
 export type CreateTaskInput = z.infer<typeof CreateTaskInputSchema>;
 
 export const UpdateTaskInputSchema = z.object({
-  task_id: z.string().min(1).max(255),
+  task_id: z.string().min(1).max(255).optional(),
   title: z.string().optional(),
   description: z.string().optional(),
   assigned_to_type: z.enum(['division', 'staff']).optional(),

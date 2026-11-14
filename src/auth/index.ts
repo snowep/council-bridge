@@ -1,6 +1,7 @@
 // Auth Module Exports - Phase 8 Hardened
 // Import config for validateAuthMode - use dynamic import to avoid circular issues
 import { getAuthConfig } from './config.js';
+import { DatabaseInstance } from '../database.js';
 
 export * from './config.js';
 export * from './session.js';
@@ -73,4 +74,31 @@ export function validateAuthMode(): { valid: boolean; errors: string[] } {
   }
 
   return { valid: errors.length === 0, errors };
+}
+
+export async function validateIdentityForSession(
+  db: DatabaseInstance,
+  owner_type: string,
+  owner_id: string,
+  runtime: string
+): Promise<boolean> {
+  // Validate owner exists and is active based on type
+  switch (owner_type) {
+    case 'founder':
+      return owner_id === 'founder';
+    case 'staff': {
+      const staff = db.query('SELECT * FROM staff_agents WHERE staff_id = ?', [owner_id])[0] as any;
+      return staff && staff.status === 'active';
+    }
+    case 'division': {
+      const division = db.query('SELECT * FROM divisions WHERE division_id = ?', [owner_id])[0] as any;
+      return division !== undefined;
+    }
+    case 'seat': {
+      const seat = db.query('SELECT * FROM council_seats WHERE seat_id = ?', [owner_id])[0] as any;
+      return seat !== undefined;
+    }
+    default:
+      return false;
+  }
 }

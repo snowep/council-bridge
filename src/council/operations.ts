@@ -646,7 +646,9 @@ export function listApprovalRequests(
   ctx: OperationContext,
   input: ListApprovalRequestsInput
 ): ApprovalRequest[] {
-  requireFounderContext(ctx, 'Only Founder can list approval requests');
+  const identity = requireAuthenticated(ctx);
+
+  // Founder sees all, others see only their own requests
   const whereClauses: string[] = [];
   const params: any[] = [];
 
@@ -661,6 +663,12 @@ export function listApprovalRequests(
   if (input.requested_by_id) {
     whereClauses.push('requested_by_id = ?');
     params.push(input.requested_by_id);
+  }
+
+  // Non-Founder can only see their own requests
+  if (!isFounder(identity)) {
+    whereClauses.push('(requested_by_type = ? AND requested_by_id = ?)');
+    params.push(identity.owner_type, identity.owner_id);
   }
 
   const where = whereClauses.length > 0 ? 'WHERE ' + whereClauses.join(' AND ') : '';

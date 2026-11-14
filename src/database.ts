@@ -1394,6 +1394,7 @@ function createDatabase(dbPath?: string): DatabaseInstance {
 const DATA_DIR = path.join(process.cwd(), 'data');
 const DB_PATH = path.join(DATA_DIR, 'council.db');
 
-export const { db, stmt, generateId, close: closeDatabase } = createDatabase(DB_PATH);
+export const databaseInstance = createDatabase(DB_PATH);
+export const { db, stmt, generateId, close: closeDatabase } = databaseInstance;
 
-export { createDatabase };
+export { createDatabase, databaseInstance as getDatabase };

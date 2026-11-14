@@ -57,6 +57,8 @@ const ReplyMessageSchema = z.object({
 const ListMessagesSchema = z.object({
   agent_id: z.string().min(1).max(255).describe('ID of the agent to list messages for'),
   limit: z.number().int().positive().max(100).default(50).optional().describe('Maximum messages to return'),
+  offset: z.number().int().nonnegative().default(0).optional().describe('Number of messages to skip'),
+  unreadOnly: z.boolean().default(false).optional().describe('Filter to unread messages only'),
 });
 
 const ListAgentsSchema = z.object({}).describe('No arguments required');
@@ -327,7 +329,9 @@ export function registerMcpTools(
       }
       return messageService.listMessages({
         agent_id: args.agent_id,
-        limit: args.limit ?? 50
+        limit: args.limit ?? 50,
+        offset: args.offset ?? 0,
+        unreadOnly: args.unreadOnly ?? false
       });
     })
   );

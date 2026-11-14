@@ -22,6 +22,8 @@ export type ReplyMessageInput = z.infer<typeof ReplyMessageSchema>;
 export const ListMessagesSchema = z.object({
   agent_id: z.string().min(1).max(255),
   limit: z.number().int().positive().max(100).default(50),
+  offset: z.number().int().nonnegative().default(0),
+  unreadOnly: z.boolean().default(false),
 });
 
 export type ListMessagesInput = z.infer<typeof ListMessagesSchema>;
@@ -64,11 +66,18 @@ export function createMessageService(
       return dbInstance.stmt.getMessageById.get(id) as Message;
     },
 
-    checkInbox(agentId: string): Message[] {
+    checkInbox(agentId: string, conversationId?: string): Message[] {
       if (!agentService.agentExists(agentId)) {
         throw new Error(`Agent '${agentId}' not found`);
       }
-      return dbInstance.stmt.getMessagesByRecipient.all(agentId, 50) as Message[];
+      const messages = dbInstance.stmt.getMessagesByRecipient.all(agentId, 50) as Message[];
+      if (conversationId) {
+        // Get messages for a specific conversation
+        return messages.filter((m: Message) =>
+          m.sender_id === conversationId || m.recipient_id === conversationId
+        );
+      }
+      return messages;
     },
 
     replyMessage(input: ReplyMessageInput): Message {

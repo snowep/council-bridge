@@ -1,9 +1,9 @@
 // Server with Production-Ready Authentication
 // Phase 8: Explicit auth modes, fail-closed in production
+// Phase 10: Modular route registration
 
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
-import { z } from 'zod/v4';
 import crypto from 'crypto';
 import rateLimit from 'express-rate-limit';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -11,28 +11,13 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 
 import { createDatabase, DatabaseInstance } from './database.js';
 import {
-  AutonomyLevelSchema,
-  ExecutionStatusSchema,
-  ApprovalStatusSchema,
-  CreateTaskAutonomyLevelInputSchema,
-  RequestExecutionInputSchema,
-  ApproveExecutionInputSchema,
-  GetExecutionRequestInputSchema,
-  ListExecutionRequestsInputSchema,
-  ListApprovalRequestsInputSchema,
-  GetExecutionHistoryInputSchema
-} from './council/types.js';
-
-import {
   validateSessionToken,
-  hasPermission,
   listActiveSessions,
   cleanupExpiredSessions
 } from './auth/session.js';
 
 import {
   verifyFounderOperation,
-  verifyFounderRequestWithLoadedKeys,
   getFounderKeyId,
   getFounderPublicKey,
   setDatabaseInstance
@@ -44,8 +29,6 @@ import {
   isDevelopmentMode,
   AuthContext,
   validateAuthMode,
-  authMiddleware,
-  getAuthContext
 } from './auth/index.js';
 
 import {
@@ -64,6 +47,23 @@ import {
 } from './council/operations.js';
 
 import { registerMcpTools } from './mcp/tools.js';
+
+// Import route modules
+import messagesRoutes from './api/routes/messages.routes.js';
+import meetingsRoutes from './api/routes/meetings.routes.js';
+import councilRoutes from './api/routes/council.routes.js';
+import memoryRoutes from './api/routes/memory.routes.js';
+import divisionsRoutes from './api/routes/divisions.routes.js';
+import staffRoutes from './api/routes/staff.routes.js';
+import tasksRoutes from './api/routes/tasks.routes.js';
+import executionsRoutes from './api/routes/executions.routes.js';
+import approvalsRoutes from './api/routes/approvals.routes.js';
+import deliverablesRoutes from './api/routes/deliverables.routes.js';
+import qualityRoutes from './api/routes/quality.routes.js';
+
+// Import middleware
+import { authMiddleware, getAuthContext } from './api/middleware/authentication.js';
+import { errorHandler } from './api/middleware/error-handler.js';
 
 // Initialize crypto module for operations
 setCryptoModule(crypto);
@@ -84,13 +84,11 @@ async function initDb() {
     const dbPath = process.env.DATABASE_PATH;
     const isProduction = process.env.NODE_ENV === 'production';
 
-    // In production, DATABASE_PATH is required and must not be :memory:
     if (isProduction && (!dbPath || dbPath === ':memory:')) {
       console.error('❌ PRODUCTION ERROR: DATABASE_PATH environment variable is required and must point to a persistent database file. In-memory database (:memory:) is not allowed in production.');
       process.exit(1);
     }
 
-    // In development/test, if no DATABASE_PATH is provided, createDatabase will use its default
     const effectiveDbPath = dbPath || (isProduction ? '' : undefined);
     db = createDatabase(effectiveDbPath);
   } catch (error) {
@@ -126,7 +124,6 @@ console.log(`🔐 Session Timeout: ${config.session_timeout_ms / 1000 / 60} minu
 console.log(`🔐 Founder Key ID: ${getFounderKeyId() ?? 'NOT INITIALIZED'}`);
 
 // Rate limiting for founder-signature endpoints (DoS protection)
-// 10 requests per minute per IP for signature-verified operations
 const founderSignatureRateLimit = rateLimit({
   windowMs: 60 * 1000, // 1 minute
   max: 10,
@@ -136,7 +133,6 @@ const founderSignatureRateLimit = rateLimit({
 });
 
 // Founder signature middleware for privileged operations
-// Verifies operation-bound signature with replay protection
 function founderSignatureMiddleware(requiredOperations: string[]) {
   return (req: Request, res: Response, next: NextFunction) => {
     const { founder_signature, founder_timestamp, founder_nonce, founder_key_id } = req.body;
@@ -146,8 +142,6 @@ function founderSignatureMiddleware(requiredOperations: string[]) {
       return next();
     }
 
-    // In production, ALL privileged operations require valid founder signature
-    // In development, also require signature but with more lenient validation
     if (!founder_signature) {
       return res.status(403).json({
         error: 'Founder signature required for this operation',
@@ -163,7 +157,6 @@ function founderSignatureMiddleware(requiredOperations: string[]) {
       });
     }
 
-    // Verify operation-bound signature
     const body = { ...req.body };
     delete body.founder_signature;
     delete body.founder_timestamp;
@@ -180,7 +173,6 @@ function founderSignatureMiddleware(requiredOperations: string[]) {
     );
 
     if (!result.valid) {
-      // Map error to appropriate HTTP status and code
       const errorMap: Record<string, { status: number; code: string; message: string }> = {
         'NO_KEYS': { status: 500, code: 'FOUNDER_KEYS_MISSING', message: 'Founder keys not initialized' },
         'KEY_MISMATCH': { status: 403, code: 'FOUNDER_KEY_MISMATCH', message: 'Key ID mismatch - key rotation may have occurred' },
@@ -200,7 +192,6 @@ function founderSignatureMiddleware(requiredOperations: string[]) {
       });
     }
 
-    // Signature valid - set founder context
     (req as any).authContext = {
       owner_type: 'founder',
       owner_id: 'founder',
@@ -216,189 +207,20 @@ function founderSignatureMiddleware(requiredOperations: string[]) {
   };
 }
 
-// Phase 7: Task Autonomy Level Endpoints
-app.post('/api/task-autonomy', authMiddleware, founderSignatureRateLimit, async (req, res) => {
-  try {
-    const input = CreateTaskAutonomyLevelInputSchema.parse(req.body);
-    const ctx = getAuthContext(req)!; // authMiddleware guarantees authContext in production
+// ============================================================
+// ROUTE REGISTRATION
+// ============================================================
 
-    if (ctx.owner_type !== 'founder') {
-      return res.status(403).json({ error: 'Founder authorization required' });
-    }
-
-    const result = createTaskAutonomyLevel(db, ctx, input);
-    res.json(result);
-  } catch (error) {
-    res.status(400).json({ error: error instanceof Error ? error.message : 'Unknown error' });
-  }
+// Health check (no auth)
+app.get('/health', (req, res) => {
+  res.json({
+    status: 'healthy',
+    auth_mode: config.mode,
+    fallback_enabled: config.allow_hardcoded_fallback
+  });
 });
 
-app.get('/api/task-autonomy', authMiddleware, async (req, res) => {
-  try {
-    const levels = await listTaskAutonomyLevels(db);
-    res.json(levels);
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch task autonomy levels' });
-  }
-});
-
-// Phase 7: Execution Endpoints
-app.post('/api/execution/request', authMiddleware, async (req, res) => {
-  try {
-    const input = RequestExecutionInputSchema.parse(req.body);
-    const ctx = getAuthContext(req)!;
-
-    const result = await requestExecution(db, ctx, input);
-
-    res.status(201).json(result);
-  } catch (error) {
-    res.status(400).json({ error: error instanceof Error ? error.message : 'Unknown error' });
-  }
-});
-
-app.get('/api/execution/:id', authMiddleware, async (req, res) => {
-  try {
-    const executionId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-    const input = { execution_id: executionId };
-    const result = await getExecutionRequest(db, getAuthContext(req)!, input);
-
-    if (!result) {
-      return res.status(404).json({ error: 'Execution request not found' });
-    }
-
-    res.json(result);
-  } catch (error) {
-    res.status(400).json({ error: error instanceof Error ? error.message : 'Unknown error' });
-  }
-});
-
-app.get('/api/execution', authMiddleware, async (req, res) => {
-  try {
-    const ctx = getAuthContext(req)!;
-    const input: any = {
-      status: req.query.status as any,
-      autonomy_level: req.query.autonomy_level ? parseInt(req.query.autonomy_level as string) : undefined,
-      requested_by_type: ctx.owner_type === 'founder' ? req.query.requested_by_type as any : undefined,
-      requested_by_id: ctx.owner_type === 'founder' ? req.query.requested_by_id as string | undefined : undefined,
-      task_id: req.query.task_id as string | undefined,
-      limit: req.query.limit ? parseInt(req.query.limit as string) : 50,
-      offset: req.query.offset ? parseInt(req.query.offset as string) : 0
-    };
-
-    const result = await listExecutionRequests(db, ctx, input);
-    res.json(result);
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to list execution requests' });
-  }
-});
-
-// Phase 8: Approval with Founder Signature (operation-bound)
-app.post('/api/execution/approve',
-  authMiddleware,
-  founderSignatureRateLimit,
-  founderSignatureMiddleware(config.require_founder_signature_for),
-  async (req, res) => {
-  try {
-    const input = ApproveExecutionInputSchema.parse(req.body);
-    const ctx = getAuthContext(req)!;
-
-    const result = await approveExecution(db, ctx, input);
-
-    res.json(result);
-  } catch (error) {
-    res.status(400).json({ error: error instanceof Error ? error.message : 'Unknown error' });
-  }
-});
-
-// Phase 7: Approval Requests
-app.get('/api/approvals', authMiddleware, async (req, res) => {
-  try {
-    const ctx = getAuthContext(req)!;
-    const input: any = {
-      status: req.query.status as any,
-      requested_by_type: ctx.owner_type === 'founder' ? req.query.requested_by_type as any : undefined,
-      requested_by_id: ctx.owner_type === 'founder' ? req.query.requested_by_id as string | undefined : undefined,
-      limit: req.query.limit ? parseInt(req.query.limit as string) : 50,
-      offset: req.query.offset ? parseInt(req.query.offset as string) : 0
-    };
-
-    const result = await listApprovalRequests(db, ctx, input);
-    res.json(result);
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to list approval requests' });
-  }
-});
-
-// Phase 7: Execution History
-app.get('/api/execution/:id/history', authMiddleware, async (req, res) => {
-  try {
-    const executionId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-    const input = { execution_id: executionId };
-    const result = await getExecutionHistory(db, getAuthContext(req)!, input);
-    res.json(result);
-  } catch (error) {
-    res.status(400).json({ error: error instanceof Error ? error.message : 'Unknown error' });
-  }
-});
-
-// Phase 7: Execute Execution Request (Level 1/2: requester or founder; Level 3: approved only)
-app.post('/api/execution/:id/execute',
-  authMiddleware,
-  founderSignatureRateLimit,
-  founderSignatureMiddleware(config.require_founder_signature_for),
-  async (req, res) => {
-  try {
-    const executionId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-    const { result_payload = {} } = req.body;
-    const result = await executeExecutionRequest(db, getAuthContext(req)!, executionId, result_payload);
-    res.json(result);
-  } catch (error) {
-    res.status(400).json({ error: error instanceof Error ? error.message : 'Unknown error' });
-  }
-});
-
-// Phase 7: Cancel Execution Request
-app.post('/api/execution/:id/cancel', authMiddleware, founderSignatureRateLimit, async (req, res) => {
-  try {
-    const executionId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-    const { error_message } = req.body;
-    const result = await cancelExecutionRequest(db, getAuthContext(req)!, executionId, error_message);
-    res.json(result);
-  } catch (error) {
-    res.status(400).json({ error: error instanceof Error ? error.message : 'Unknown error' });
-  }
-});
-
-// Helper function to validate identity against database
-async function validateIdentityForSession(db: DatabaseInstance, owner_type: string, owner_id: string, runtime: string): Promise<boolean> {
-  switch (owner_type) {
-    case 'founder':
-      return owner_id === 'founder';
-    case 'staff': {
-      const staff = db.stmt.getStaffAgentById.get(owner_id) as { status: string; runtime_instances: string } | undefined;
-      if (!staff || staff.status !== 'active') return false;
-      // Check if runtime is in runtime_instances JSON array
-      try {
-        const runtimes = JSON.parse(staff.runtime_instances || '[]') as string[];
-        return runtimes.includes(runtime);
-      } catch {
-        return false;
-      }
-    }
-    case 'division': {
-      const division = db.stmt.getDivisionById.get(owner_id) as object | undefined;
-      return !!division;
-    }
-    case 'seat': {
-      const seat = db.stmt.getSeatById.get(owner_id) as { status: string } | undefined;
-      return !!seat && ['permanent', 'replaceable'].includes(seat.status);
-    }
-    default:
-      return false;
-  }
-}
-
-// Auth management endpoints
+// Auth endpoints (some without auth middleware for session creation)
 app.post('/api/auth/session', founderSignatureRateLimit, async (req, res) => {
   try {
     const { owner_type, owner_id, runtime } = req.body;
@@ -415,7 +237,6 @@ app.post('/api/auth/session', founderSignatureRateLimit, async (req, res) => {
       return res.status(400).json({ error: 'Invalid runtime' });
     }
 
-    // PRODUCTION: Require Founder signature for ALL session provisioning
     if (PRODUCTION_MODE) {
       const { founder_signature, founder_timestamp, founder_nonce, founder_key_id } = req.body;
 
@@ -427,7 +248,6 @@ app.post('/api/auth/session', founderSignatureRateLimit, async (req, res) => {
         });
       }
 
-      // Verify operation-bound signature
       const body = { ...req.body };
       delete body.founder_signature;
       delete body.founder_timestamp;
@@ -464,6 +284,7 @@ app.post('/api/auth/session', founderSignatureRateLimit, async (req, res) => {
       }
 
       // Validate requested identity against database
+      const { validateIdentityForSession } = await import('./auth/index.js');
       const identityValid = await validateIdentityForSession(db, owner_type, owner_id, runtime);
       if (!identityValid) {
         return res.status(403).json({
@@ -472,7 +293,7 @@ app.post('/api/auth/session', founderSignatureRateLimit, async (req, res) => {
         });
       }
     } else {
-      // DEVELOPMENT: Allow without signature but validate identity exists
+      const { validateIdentityForSession } = await import('./auth/index.js');
       const identityValid = await validateIdentityForSession(db, owner_type, owner_id, runtime);
       if (!identityValid) {
         return res.status(400).json({ error: 'Invalid identity for session provisioning' });
@@ -504,7 +325,6 @@ app.delete('/api/auth/session', authMiddleware, async (req, res) => {
     const token = authHeader.substring(7);
     const { invalidateSession } = await import('./auth/session.js');
 
-    // Extract session_id from token
     const parts = token.split('|');
     if (parts.length !== 4) {
       return res.status(400).json({ error: 'Invalid token format' });
@@ -549,43 +369,73 @@ app.get('/api/auth/founder/public-key', async (req, res) => {
   res.json({ public_key: publicKey, key_id: keyId });
 });
 
+// Task Autonomy endpoints (require Founder for write)
+app.post('/api/task-autonomy',
+  authMiddleware,
+  founderSignatureRateLimit,
+  founderSignatureMiddleware(config.require_founder_signature_for),
+  async (req, res) => {
+    try {
+      const { CreateTaskAutonomyLevelInputSchema } = await import('./council/types.js');
+      const input = CreateTaskAutonomyLevelInputSchema.parse(req.body);
+      const ctx = getAuthContext(req)!;
+
+      if (ctx.owner_type !== 'founder') {
+        return res.status(403).json({ error: 'Founder authorization required' });
+      }
+
+      const result = createTaskAutonomyLevel(db, ctx, input);
+      res.json(result);
+    } catch (error) {
+      res.status(400).json({ error: error instanceof Error ? error.message : 'Unknown error' });
+    }
+  }
+);
+
+app.get('/api/task-autonomy', authMiddleware, async (req, res) => {
+  try {
+    const levels = listTaskAutonomyLevels(db);
+    res.json(levels);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch task autonomy levels' });
+  }
+});
+
+// Register modular route handlers
+app.use('/api/messages', messagesRoutes);
+app.use('/api/meetings', meetingsRoutes);
+app.use('/api/council', councilRoutes);
+app.use('/api/memory', memoryRoutes);
+app.use('/api/divisions', divisionsRoutes);
+app.use('/api/staff', staffRoutes);
+app.use('/api/tasks', tasksRoutes);
+app.use('/api/executions', executionsRoutes);
+app.use('/api/approvals', approvalsRoutes);
+app.use('/api/deliverables', deliverablesRoutes);
+app.use('/api/quality-thresholds', qualityRoutes);
+
 // MCP endpoint - create new server+transport per request for stateless operation
-// Apply Phase 8 authentication to ALL MCP requests (initialization, notifications, tools)
-// Fail-closed in production, no hardcoded identity fallbacks
-// Bind authenticated identity to MCP request context - prevent caller override
 app.all('/mcp', authMiddleware, async (req, res) => {
-  // Auth context is bound by authMiddleware - prevent caller from overriding
-  // req.authContext is set by authMiddleware and cannot be supplied by caller
-  // Create a new transport for each request to support stateless operation
   const requestTransport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
   const requestMcpServer = new McpServer({ name: 'council-bridge', version: '1.0.0' }, { capabilities: { tools: {} } });
   await requestMcpServer.connect(requestTransport);
-  // Pass the authenticated context directly to tools
   const authContext = getAuthContext(req);
   registerMcpTools(requestMcpServer, db, () => authContext);
   await requestTransport.handleRequest(req, res, req.body);
 });
 
-// Health check
-app.get('/health', (req, res) => {
-  res.json({
-    status: 'healthy',
-    auth_mode: config.mode,
-    fallback_enabled: config.allow_hardcoded_fallback
-  });
-});
+// Global error handler (must be last)
+app.use(errorHandler);
 
 // Start server
 const PORT = process.env.PORT || 3334;
 
 initDb().then(() => {
-  // Initialize founder nonce store with database instance
   setDatabaseInstance(db);
 
-  // Periodic session cleanup
   setInterval(() => {
     cleanupExpiredSessions();
-  }, 5 * 60 * 1000); // Every 5 minutes
+  }, 5 * 60 * 1000);
 
   app.listen(PORT, () => {
     console.log(`Server running on port ${PORT} [${config.mode.toUpperCase()}]`);

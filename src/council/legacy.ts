@@ -1155,13 +1155,13 @@ function createCouncilService(dbInstance: DatabaseInstance): CouncilService {
 
     getMemoryEntriesByCategory(ctx, category) {
       if (!ctx || !ctx.owner_type || !ctx.owner_id || !ctx.runtime) throw new Error('Authentication required');
-      return mem.listMemoryEntries(db, { category, archived: false })
+      return mem.listMemoryEntries(db, { owner_type: ctx.owner_type, owner_id: ctx.owner_id }, { category, archived: false })
         .filter(memory => ops.checkMemoryAccess(ctx, memory, db));
     },
 
     searchMemory(ctx, input) {
       if (!ctx || !ctx.owner_type || !ctx.owner_id || !ctx.runtime) throw new Error('Authentication required');
-      const rows = mem.listMemoryEntries(db, {
+      const rows = mem.listMemoryEntries(db, { owner_type: ctx.owner_type, owner_id: ctx.owner_id }, {
         category: input.category,
         archived: input.include_archived ? undefined : false,
         limit: Math.min(input.limit ?? 50, 1000),
@@ -1448,6 +1448,7 @@ function createCouncilService(dbInstance: DatabaseInstance): CouncilService {
     },
 
     updateTask(ctx, input) {
+      if (!input.task_id) throw new Error('Task ID required');
       const task = div.getTaskById(db, input.task_id);
       if (!task) throw new Error(`Task '${input.task_id}' not found`);
       const taskDivision = task.assigned_to_type === 'staff'
@@ -1496,6 +1497,7 @@ function createCouncilService(dbInstance: DatabaseInstance): CouncilService {
     },
 
     completeTask(ctx, input) {
+      if (!input.task_id) throw new Error('Task ID required');
       return this.updateTask(ctx, { task_id: input.task_id, status: 'completed' });
     },
 
