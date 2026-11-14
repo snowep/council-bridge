@@ -7,3 +7,4 @@ export * from './operations.js';
 export * from './divisions.js';
 export * from './memory.js';
 export * from './meetings.js';
+// task-delegation functions exported separately with different signatures
