@@ -23,18 +23,76 @@ export interface FounderSignedRequest {
 
 const KEYS_DIR = join(process.cwd(), '.secrets');
 const KEY_FILE = join(KEYS_DIR, 'founder-keys.json');
+const NONCE_FILE = join(KEYS_DIR, 'nonce-store.json');
 const KEY_ID_LENGTH = 16;
 const NONCE_LENGTH = 32;
 const REQUEST_TIMESTAMP_TOLERANCE_MS = 5 * 60 * 1000; // 5 minutes
+const NONCE_MAX_LENGTH = 128; // Prevent excessive nonce length
+const NONCE_EXPIRY_MS = REQUEST_TIMESTAMP_TOLERANCE_MS + 60 * 1000; // 6 minutes (1 min buffer)
+
+interface NonceRecord {
+  nonce: string;
+  key_id: string;
+  operation: string;
+  consumed_at: number;
+}
 
 let cachedKeyPair: FounderKeyPair | null = null;
 let cachedKeyPairMtime: number = 0;
+let nonceStore: Map<string, NonceRecord> = new Map();
+let nonceStoreLoaded = false;
 
 function getKeyFileMtime(): number {
   try {
     return statSync(KEY_FILE).mtimeMs;
   } catch {
     return 0;
+  }
+}
+
+function loadNonceStore(): void {
+  if (nonceStoreLoaded) return;
+  nonceStoreLoaded = true;
+
+  try {
+    if (!existsSync(NONCE_FILE)) return;
+    const data = readFileSync(NONCE_FILE, 'utf-8');
+    const records = JSON.parse(data) as NonceRecord[];
+    const now = Date.now();
+    for (const record of records) {
+      // Only load non-expired records
+      if (now - record.consumed_at < NONCE_EXPIRY_MS) {
+        const key = `${record.key_id}:${record.operation}:${record.nonce}`;
+        nonceStore.set(key, record);
+      }
+    }
+  } catch (error) {
+    // Corrupt or missing nonce store - start fresh
+    nonceStore.clear();
+  }
+}
+
+function saveNonceStore(): void {
+  try {
+    mkdirSync(KEYS_DIR, { recursive: true });
+    const records = Array.from(nonceStore.values());
+    writeFileSync(NONCE_FILE, JSON.stringify(records, null, 2), { flag: 'w', mode: 0o600 });
+  } catch (error) {
+    // Persistence failure - in-memory store continues to work
+  }
+}
+
+function cleanupExpiredNonces(): void {
+  const now = Date.now();
+  let cleaned = false;
+  for (const [key, record] of nonceStore.entries()) {
+    if (now - record.consumed_at >= NONCE_EXPIRY_MS) {
+      nonceStore.delete(key);
+      cleaned = true;
+    }
+  }
+  if (cleaned) {
+    saveNonceStore();
   }
 }
 
@@ -175,6 +233,17 @@ export function verifyFounderRequest(
       return false; // Expired or future timestamp
     }
 
+    // Validate nonce format
+    if (!nonce || typeof nonce !== 'string') {
+      return false; // Empty or missing nonce
+    }
+    if (nonce.length > NONCE_MAX_LENGTH) {
+      return false; // Excessively long nonce
+    }
+    if (!/^[A-Za-z0-9_-]+$/.test(nonce)) {
+      return false; // Malformed nonce (non-base64url chars)
+    }
+
     // Canonicalize the same way
     const data = canonicalizeForSigning(operation, payload, timestamp, nonce, keyId);
 
@@ -209,7 +278,10 @@ export function verifyFounderRequestWithLoadedKeys(
   );
 }
 
-// Middleware-friendly verification
+// Verify and consume nonce atomically
+// Returns: { valid: boolean, error?: string }
+// - valid: true if signature valid and nonce not previously consumed
+// - error: reason if invalid (for audit logging)
 export function verifyFounderOperation(
   operation: string,
   body: any,
@@ -217,20 +289,64 @@ export function verifyFounderOperation(
   timestamp: number,
   nonce: string,
   keyId: string
-): boolean {
+): { valid: boolean; error?: string } {
   const keys = loadFounderKeyPair();
-  if (!keys) return false;
-  if (keyId !== keys.key_id) return false;
+  if (!keys) return { valid: false, error: 'NO_KEYS' };
+  if (keyId !== keys.key_id) return { valid: false, error: 'KEY_MISMATCH' };
 
-  return verifyFounderRequest(
-    operation,
-    body,
-    timestamp,
-    nonce,
-    signature,
-    keys.public_key,
-    keys.key_id
-  );
+  // Load and clean nonce store
+  loadNonceStore();
+  cleanupExpiredNonces();
+
+  // Validate timestamp freshness (replay protection)
+  const now = Date.now();
+  if (Math.abs(now - timestamp) > REQUEST_TIMESTAMP_TOLERANCE_MS) {
+    return { valid: false, error: 'TIMESTAMP_EXPIRED' };
+  }
+
+  // Validate nonce format
+  if (!nonce || typeof nonce !== 'string') {
+    return { valid: false, error: 'NONCE_MISSING' };
+  }
+  if (nonce.length > NONCE_MAX_LENGTH) {
+    return { valid: false, error: 'NONCE_TOO_LONG' };
+  }
+  if (!/^[A-Za-z0-9_-]+$/.test(nonce)) {
+    return { valid: false, error: 'NONCE_MALFORMED' };
+  }
+
+  // Check if nonce already consumed for this key+operation
+  const nonceKey = `${keyId}:${operation}:${nonce}`;
+  if (nonceStore.has(nonceKey)) {
+    return { valid: false, error: 'NONCE_REPLAY' };
+  }
+
+  // Canonicalize and verify signature
+  try {
+    const data = canonicalizeForSigning(operation, body, timestamp, nonce, keyId);
+    const verifier = crypto.createVerify('RSA-SHA256');
+    verifier.update(data);
+    verifier.end();
+    const valid = verifier.verify(keys.public_key, signature, 'base64');
+
+    if (!valid) {
+      return { valid: false, error: 'INVALID_SIGNATURE' };
+    }
+
+    // Signature valid - ATOMICALLY consume nonce
+    const record: NonceRecord = {
+      nonce,
+      key_id: keyId,
+      operation,
+      consumed_at: now
+    };
+    nonceStore.set(nonceKey, record);
+    saveNonceStore();
+
+    return { valid: true };
+  } catch (error) {
+    return { valid: false, error: 'VERIFICATION_ERROR' };
+  }
 }
 
 export function requireFounderSignature(

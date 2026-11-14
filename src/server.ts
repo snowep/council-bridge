@@ -153,7 +153,7 @@ function founderSignatureMiddleware(requiredOperations: string[]) {
     delete body.founder_nonce;
     delete body.founder_key_id;
 
-    const valid = verifyFounderOperation(
+    const result = verifyFounderOperation(
       operation,
       body,
       founder_signature,
@@ -162,10 +162,24 @@ function founderSignatureMiddleware(requiredOperations: string[]) {
       founder_key_id
     );
 
-    if (!valid) {
-      return res.status(403).json({
-        error: 'Invalid founder signature',
-        code: 'FOUNDER_SIGNATURE_INVALID'
+    if (!result.valid) {
+      // Map error to appropriate HTTP status and code
+      const errorMap: Record<string, { status: number; code: string; message: string }> = {
+        'NO_KEYS': { status: 500, code: 'FOUNDER_KEYS_MISSING', message: 'Founder keys not initialized' },
+        'KEY_MISMATCH': { status: 403, code: 'FOUNDER_KEY_MISMATCH', message: 'Key ID mismatch - key rotation may have occurred' },
+        'TIMESTAMP_EXPIRED': { status: 403, code: 'FOUNDER_TIMESTAMP_EXPIRED', message: 'Signature timestamp expired or in future' },
+        'NONCE_MISSING': { status: 403, code: 'FOUNDER_NONCE_MISSING', message: 'Nonce is required' },
+        'NONCE_TOO_LONG': { status: 403, code: 'FOUNDER_NONCE_TOO_LONG', message: 'Nonce exceeds maximum length' },
+        'NONCE_MALFORMED': { status: 403, code: 'FOUNDER_NONCE_MALFORMED', message: 'Nonce contains invalid characters' },
+        'NONCE_REPLAY': { status: 403, code: 'FOUNDER_NONCE_REPLAY', message: 'Nonce already consumed - replay attack detected' },
+        'INVALID_SIGNATURE': { status: 403, code: 'FOUNDER_SIGNATURE_INVALID', message: 'Invalid founder signature' },
+        'VERIFICATION_ERROR': { status: 500, code: 'FOUNDER_VERIFICATION_ERROR', message: 'Signature verification failed' }
+      };
+
+      const errorInfo = errorMap[result.error || 'INVALID_SIGNATURE'] || errorMap['INVALID_SIGNATURE'];
+      return res.status(errorInfo.status).json({
+        error: errorInfo.message,
+        code: errorInfo.code
       });
     }
 
@@ -401,7 +415,7 @@ app.post('/api/auth/session', async (req, res) => {
       delete body.founder_nonce;
       delete body.founder_key_id;
 
-      const valid = verifyFounderOperation(
+      const result = verifyFounderOperation(
         'create_session',
         body,
         founder_signature,
@@ -410,10 +424,23 @@ app.post('/api/auth/session', async (req, res) => {
         founder_key_id
       );
 
-      if (!valid) {
-        return res.status(403).json({
-          error: 'Invalid founder signature for session provisioning',
-          code: 'FOUNDER_SIGNATURE_INVALID'
+      if (!result.valid) {
+        const errorMap: Record<string, { status: number; code: string; message: string }> = {
+          'NO_KEYS': { status: 500, code: 'FOUNDER_KEYS_MISSING', message: 'Founder keys not initialized' },
+          'KEY_MISMATCH': { status: 403, code: 'FOUNDER_KEY_MISMATCH', message: 'Key ID mismatch - key rotation may have occurred' },
+          'TIMESTAMP_EXPIRED': { status: 403, code: 'FOUNDER_TIMESTAMP_EXPIRED', message: 'Signature timestamp expired or in future' },
+          'NONCE_MISSING': { status: 403, code: 'FOUNDER_NONCE_MISSING', message: 'Nonce is required' },
+          'NONCE_TOO_LONG': { status: 403, code: 'FOUNDER_NONCE_TOO_LONG', message: 'Nonce exceeds maximum length' },
+          'NONCE_MALFORMED': { status: 403, code: 'FOUNDER_NONCE_MALFORMED', message: 'Nonce contains invalid characters' },
+          'NONCE_REPLAY': { status: 403, code: 'FOUNDER_NONCE_REPLAY', message: 'Nonce already consumed - replay attack detected' },
+          'INVALID_SIGNATURE': { status: 403, code: 'FOUNDER_SIGNATURE_INVALID', message: 'Invalid founder signature' },
+          'VERIFICATION_ERROR': { status: 500, code: 'FOUNDER_VERIFICATION_ERROR', message: 'Signature verification failed' }
+        };
+
+        const errorInfo = errorMap[result.error || 'INVALID_SIGNATURE'] || errorMap['INVALID_SIGNATURE'];
+        return res.status(errorInfo.status).json({
+          error: errorInfo.message,
+          code: errorInfo.code
         });
       }
 
