@@ -39,7 +39,7 @@ export interface OperationContext {
   founder_signed?: boolean;
 }
 
-function requireAuthenticated(ctx: OperationContext | null | undefined): OperationContext {
+export function requireAuthenticated(ctx: OperationContext | null | undefined): OperationContext {
   if (!ctx || !ctx.owner_type || !ctx.owner_id || !ctx.runtime) {
     throw new Error('Authentication required');
   }

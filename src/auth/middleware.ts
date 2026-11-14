@@ -17,7 +17,7 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction) 
     const session = validateSessionToken(token, undefined, clientIp);
 
     if (session) {
-      (req as any).authContext = {
+      const authContext = {
         owner_type: session.owner_type,
         owner_id: session.owner_id,
         runtime: session.runtime,
@@ -28,6 +28,9 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction) 
         founder_signed: session.owner_type === 'founder',
         client_ip: clientIp
       };
+      (req as any).authContext = authContext;
+      // Also set req.auth for MCP SDK compatibility
+      (req as any).auth = authContext;
       return next();
     }
 

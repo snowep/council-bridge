@@ -198,6 +198,9 @@ export interface DatabaseInstance {
     beginTransaction: PreparedStatement;
     commitTransaction: PreparedStatement;
     rollbackTransaction: PreparedStatement;
+
+    // Phase 9 Task 5: Task Delegation Audit
+    insertTaskAudit: PreparedStatement;
   };
   query: (sql: string, params?: any[]) => any[];
   runPreparedStatement: (name: string, params?: any[]) => any;
@@ -206,7 +209,8 @@ export interface DatabaseInstance {
 }
 
 // Phase 4 schema version. Bumped when createDatabase() adds tables.
-export const SCHEMA_VERSION = '4.0.0';
+// Bumped to 5.0.0 for Task 5: task_audit table
+export const SCHEMA_VERSION = '5.0.0';
 
 function createDatabase(dbPath?: string): DatabaseInstance {
   const isProduction = process.env.NODE_ENV === 'production';
@@ -906,6 +910,23 @@ function createDatabase(dbPath?: string): DatabaseInstance {
     CREATE INDEX IF NOT EXISTS idx_execution_requests_autonomy ON execution_requests(autonomy_level);
     CREATE INDEX IF NOT EXISTS idx_approval_requests_execution ON approval_requests(execution_id);
     CREATE INDEX IF NOT EXISTS idx_approval_requests_status ON approval_requests(status);
+
+    -- Phase 9 Task 5: Task Delegation Audit Trail
+    CREATE TABLE IF NOT EXISTS task_audit (
+      audit_id        TEXT PRIMARY KEY,
+      task_id         TEXT NOT NULL,
+      mutation_type   TEXT NOT NULL
+        CHECK (mutation_type IN ('create', 'update', 'assign', 'status_change', 'dependency_change', 'cancel', 'complete')),
+      details         TEXT NOT NULL DEFAULT '{}',  -- JSON
+      actor_type      TEXT NOT NULL,
+      actor_id        TEXT NOT NULL,
+      runtime         TEXT NOT NULL,
+      created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (task_id) REFERENCES tasks(task_id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_task_audit_task ON task_audit(task_id);
+    CREATE INDEX IF NOT EXISTS idx_task_audit_created ON task_audit(created_at);
     CREATE INDEX IF NOT EXISTS idx_execution_history_execution ON execution_history(execution_id);
     CREATE INDEX IF NOT EXISTS idx_execution_history_task ON execution_history(task_id);
     CREATE INDEX IF NOT EXISTS idx_task_autonomy_levels_level ON task_autonomy_levels(autonomy_level);
@@ -1232,6 +1253,12 @@ function createDatabase(dbPath?: string): DatabaseInstance {
     `) as PreparedStatement,
     getExecutionHistory: db.prepare('SELECT * FROM execution_history WHERE history_id = ?') as PreparedStatement,
     listExecutionHistoryByExecution: db.prepare('SELECT * FROM execution_history WHERE execution_id = ? ORDER BY recorded_at') as PreparedStatement,
+
+    // Phase 9 Task 5: Task Delegation Audit
+    insertTaskAudit: db.prepare(`
+      INSERT INTO task_audit (audit_id, task_id, mutation_type, details, actor_type, actor_id, runtime, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `) as PreparedStatement,
   };
 
   // Stamp the schema version so migrations can detect the current schema.
