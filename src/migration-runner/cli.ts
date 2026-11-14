@@ -19,7 +19,7 @@ program
   .description('Phase 6 Production Migration Runner')
   .version('1.0.0');
 
-const DB_PATH = 'data/council.db';
+const DB_PATH: string = 'data/council.db';
 const BACKUP_DIR = 'data/backups';
 const MIGRATIONS_DIR = 'migrations';
 
@@ -32,6 +32,36 @@ let validator: Validator;
 let executor: MigrationExecutor;
 let rollbackEngine: RollbackEngine;
 let logger: ConsoleLogger;
+
+function isProductionEnvironment(): boolean {
+  return process.env.NODE_ENV === 'production';
+}
+
+function validateProductionSafety(command: string): void {
+  if (isProductionEnvironment()) {
+    const confirmFlag = process.argv.includes('--confirm-production');
+    if (!confirmFlag) {
+      console.error(`ERROR: Production environment detected (NODE_ENV=production)`);
+      console.error(`Refusing to execute '${command}' without explicit confirmation.`);
+      console.error(`Re-run with --confirm-production flag to proceed.`);
+      process.exit(1);
+    }
+    console.warn(`WARNING: Executing '${command}' on PRODUCTION database.`);
+    console.warn(`Database: ${DB_PATH}`);
+  }
+
+  // Validate DATABASE_PATH is not in-memory for production
+  const dbPath = DB_PATH;
+  if (isProductionEnvironment() && (dbPath === ':memory:' || !dbPath)) {
+    console.error('ERROR: In-memory database not allowed in production.');
+    process.exit(1);
+  }
+
+  // Warn if DB path doesn't look like production
+  if (isProductionEnvironment() && !DB_PATH.includes('council.db')) {
+    console.warn(`WARNING: Database path '${DB_PATH}' doesn't match expected production pattern.`);
+  }
+}
 
 function initialize() {
   if (!fs.existsSync(DB_PATH)) {
@@ -96,7 +126,9 @@ program
   .option('--no-backup', 'Skip backup creation')
   .option('--no-transaction', 'Execute without transaction')
   .option('--stop-on-error', 'Stop on first error (default: true)')
+  .option('--confirm-production', 'Confirm execution on production database')
   .action(async (migrationIds, options) => {
+    validateProductionSafety('migration-runner run');
     initialize();
 
     if (options.dryRun) {
@@ -152,7 +184,9 @@ program
   .option('--all', 'Rollback all migrations')
   .option('--to <migrationId>', 'Rollback to before specified migration')
   .option('--force', 'Skip safety checks')
+  .option('--confirm-production', 'Confirm execution on production database')
   .action(async (n, options) => {
+    validateProductionSafety('migration-runner rollback');
     initialize();
 
     if (options.all) {
@@ -230,7 +264,9 @@ program
   .description('Create backup')
   .option('-m, --method <method>', 'Backup method: binary|schema_dump|full_dump', 'binary')
   .option('-p, --prefix <prefix>', 'Backup file prefix', 'council')
+  .option('--confirm-production', 'Confirm execution on production database')
   .action(async (options) => {
+    validateProductionSafety('migration-runner backup');
     initialize();
 
     console.log(`Creating ${options.method} backup...`);
@@ -247,7 +283,9 @@ program
 program
   .command('restore <backupFile>')
   .description('Restore from backup')
-  .action(async (backupFile) => {
+  .option('--confirm-production', 'Confirm execution on production database')
+  .action(async (backupFile, options) => {
+    validateProductionSafety('migration-runner restore');
     initialize();
 
     const backupPath = path.join(BACKUP_DIR, backupFile);
@@ -257,7 +295,7 @@ program
     }
 
     console.log(`Restoring from ${backupPath}...`);
-    backupManager.restoreBackup(backupPath, DB_PATH);
+    await backupManager.restoreBackup(backupPath, DB_PATH);
     console.log('Restore completed');
   });
 

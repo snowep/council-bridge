@@ -246,6 +246,74 @@ export class Validator {
           checks.push({ name: 'migration_005_request_type_check', passed: true, message: 'Invalid request_type rejected' });
         }
       }
+
+      if (migration.id === '013') {
+        // Verify deliverable_versions table exists
+        const dvExists = this.db.prepare(`SELECT 1 FROM sqlite_master WHERE type='table' AND name='deliverable_versions'`).get();
+        checks.push({
+          name: 'migration_013_deliverable_versions_table',
+          passed: !!dvExists,
+          message: dvExists ? 'deliverable_versions table exists' : 'deliverable_versions table missing'
+        });
+
+        // Verify quality_thresholds table exists
+        const qtExists = this.db.prepare(`SELECT 1 FROM sqlite_master WHERE type='table' AND name='quality_thresholds'`).get();
+        checks.push({
+          name: 'migration_013_quality_thresholds_table',
+          passed: !!qtExists,
+          message: qtExists ? 'quality_thresholds table exists' : 'quality_thresholds table missing'
+        });
+
+        // Verify default quality threshold (70, true) per spec
+        const defaultThreshold = this.db.prepare(`SELECT * FROM quality_thresholds WHERE threshold_id = 'default-global'`).get() as { min_quality_score: number; requires_review: number } | undefined;
+        checks.push({
+          name: 'migration_013_default_threshold_exists',
+          passed: !!defaultThreshold,
+          message: defaultThreshold ? 'default-global threshold exists' : 'default-global threshold missing'
+        });
+        if (defaultThreshold) {
+          checks.push({
+            name: 'migration_013_default_threshold_min_score',
+            passed: defaultThreshold.min_quality_score === 70,
+            message: defaultThreshold.min_quality_score === 70 ? 'min_quality_score is 70' : `min_quality_score is ${defaultThreshold.min_quality_score}, expected 70`
+          });
+          checks.push({
+            name: 'migration_013_default_threshold_requires_review',
+            passed: defaultThreshold.requires_review === 1,
+            message: defaultThreshold.requires_review === 1 ? 'requires_review is 1 (true)' : `requires_review is ${defaultThreshold.requires_review}, expected 1`
+          });
+        }
+
+        // Verify deliverables table has new columns
+        const deliverableCols = this.db.prepare(`PRAGMA table_info(deliverables)`).all() as Array<{ name: string }>;
+        const deliverableColNames = deliverableCols.map(c => c.name);
+        const expectedDeliverableCols = ['version', 'quality_score', 'reviewer_type', 'reviewer_id', 'approved_at', 'approved_by_type', 'approved_by_id', 'founder_signature', 'founder_signed_at', 'revision_notes'];
+        for (const colName of expectedDeliverableCols) {
+          checks.push({
+            name: `migration_013_deliverable_${colName}_column`,
+            passed: deliverableColNames.includes(colName),
+            message: deliverableColNames.includes(colName) ? `${colName} column exists` : `${colName} column missing`
+          });
+        }
+
+        // Verify deliverable_versions index
+        const dvIndexes = this.db.prepare(`SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='deliverable_versions'`).all() as Array<{ name: string }>;
+        const dvIndexNames = dvIndexes.map(i => i.name);
+        checks.push({
+          name: 'migration_013_deliverable_versions_index',
+          passed: dvIndexNames.includes('idx_deliverable_versions_deliverable'),
+          message: dvIndexNames.includes('idx_deliverable_versions_deliverable') ? 'Index exists' : 'Index missing'
+        });
+
+        // Verify quality_thresholds index
+        const qtIndexes = this.db.prepare(`SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='quality_thresholds'`).all() as Array<{ name: string }>;
+        const qtIndexNames = qtIndexes.map(i => i.name);
+        checks.push({
+          name: 'migration_013_quality_thresholds_index',
+          passed: qtIndexNames.includes('idx_quality_thresholds_division'),
+          message: qtIndexNames.includes('idx_quality_thresholds_division') ? 'Index exists' : 'Index missing'
+        });
+      }
     }
 
     return checks;

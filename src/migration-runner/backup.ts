@@ -45,7 +45,9 @@ export class BackupManager {
 
   private getBackupFileName(prefix: string, method: BackupMethod, timestamp: string): string {
     const ext = method === 'binary' ? '.db' : '.sql';
-    return `${prefix}_${timestamp}${ext}`;
+    // Add random suffix to prevent collisions in rapid succession
+    const suffix = Math.random().toString(36).substring(2, 8);
+    return `${prefix}_${timestamp}_${suffix}${ext}`;
   }
 
   async createBackup(dbPath: string, options?: Partial<BackupOptions>, prefix: string = 'council'): Promise<BackupResult> {
@@ -157,16 +159,16 @@ export class BackupManager {
     }
   }
 
-  restoreBackup(backupPath: string, targetDbPath: string): void {
+  async restoreBackup(backupPath: string, targetDbPath: string): Promise<void> {
     if (!fs.existsSync(backupPath)) {
       throw new Error(`Backup file not found: ${backupPath}`);
     }
 
     const ext = path.extname(backupPath);
     if (ext === '.db') {
-      // Binary restore using better-sqlite3 backup
+      // Binary restore using better-sqlite3 backup (properly awaited)
       const src = new Database(backupPath, { readonly: true });
-      src.backup(targetDbPath).then(() => {}).catch(() => {});
+      await src.backup(targetDbPath);
       src.close();
     } else {
       // SQL dump restore
