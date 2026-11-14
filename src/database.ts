@@ -201,6 +201,11 @@ export interface DatabaseInstance {
 
     // Phase 9 Task 5: Task Delegation Audit
     insertTaskAudit: PreparedStatement;
+
+    // Founder nonce store
+    insertFounderNonce: PreparedStatement;
+    getFounderNonce: PreparedStatement;
+    cleanupFounderNonces: PreparedStatement;
   };
   query: (sql: string, params?: any[]) => any[];
   runPreparedStatement: (name: string, params?: any[]) => any;
@@ -930,6 +935,18 @@ function createDatabase(dbPath?: string): DatabaseInstance {
     CREATE INDEX IF NOT EXISTS idx_execution_history_execution ON execution_history(execution_id);
     CREATE INDEX IF NOT EXISTS idx_execution_history_task ON execution_history(task_id);
     CREATE INDEX IF NOT EXISTS idx_task_autonomy_levels_level ON task_autonomy_levels(autonomy_level);
+
+    -- Founder nonce store for replay protection
+    CREATE TABLE IF NOT EXISTS founder_nonces (
+      key_id      TEXT NOT NULL,
+      operation   TEXT NOT NULL,
+      nonce       TEXT NOT NULL,
+      consumed_at TEXT NOT NULL DEFAULT (datetime('now')),
+      expires_at  TEXT NOT NULL,
+      PRIMARY KEY (key_id, operation, nonce)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_founder_nonces_expires ON founder_nonces(expires_at);
   `);
 
   const stmt = {
@@ -1258,6 +1275,18 @@ function createDatabase(dbPath?: string): DatabaseInstance {
     insertTaskAudit: db.prepare(`
       INSERT INTO task_audit (audit_id, task_id, mutation_type, details, actor_type, actor_id, runtime, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `) as PreparedStatement,
+
+    // Founder nonce store
+    insertFounderNonce: db.prepare(`
+      INSERT INTO founder_nonces (key_id, operation, nonce, consumed_at, expires_at)
+      VALUES (?, ?, ?, datetime('now'), datetime(? / 1000, 'unixepoch'))
+    `) as PreparedStatement,
+    getFounderNonce: db.prepare(`
+      SELECT * FROM founder_nonces WHERE key_id = ? AND operation = ? AND nonce = ?
+    `) as PreparedStatement,
+    cleanupFounderNonces: db.prepare(`
+      DELETE FROM founder_nonces WHERE expires_at < datetime('now')
     `) as PreparedStatement,
   };
 

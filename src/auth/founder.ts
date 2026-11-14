@@ -4,6 +4,7 @@
 import crypto from 'crypto';
 import { readFileSync, writeFileSync, existsSync, mkdirSync, statSync } from 'fs';
 import { join } from 'path';
+import { DatabaseInstance } from '../database.js';
 
 export interface FounderKeyPair {
   public_key: string;
@@ -23,24 +24,20 @@ export interface FounderSignedRequest {
 
 const KEYS_DIR = join(process.cwd(), '.secrets');
 const KEY_FILE = join(KEYS_DIR, 'founder-keys.json');
-const NONCE_FILE = join(KEYS_DIR, 'nonce-store.json');
 const KEY_ID_LENGTH = 16;
 const NONCE_LENGTH = 32;
 const REQUEST_TIMESTAMP_TOLERANCE_MS = 5 * 60 * 1000; // 5 minutes
 const NONCE_MAX_LENGTH = 128; // Prevent excessive nonce length
 const NONCE_EXPIRY_MS = REQUEST_TIMESTAMP_TOLERANCE_MS + 60 * 1000; // 6 minutes (1 min buffer)
 
-interface NonceRecord {
-  nonce: string;
-  key_id: string;
-  operation: string;
-  consumed_at: number;
-}
-
 let cachedKeyPair: FounderKeyPair | null = null;
 let cachedKeyPairMtime: number = 0;
-let nonceStore: Map<string, NonceRecord> = new Map();
-let nonceStoreLoaded = false;
+
+let dbInstance: DatabaseInstance | null = null;
+
+export function setDatabaseInstance(db: DatabaseInstance): void {
+  dbInstance = db;
+}
 
 function getKeyFileMtime(): number {
   try {
@@ -50,49 +47,36 @@ function getKeyFileMtime(): number {
   }
 }
 
-function loadNonceStore(): void {
-  if (nonceStoreLoaded) return;
-  nonceStoreLoaded = true;
-
-  try {
-    if (!existsSync(NONCE_FILE)) return;
-    const data = readFileSync(NONCE_FILE, 'utf-8');
-    const records = JSON.parse(data) as NonceRecord[];
-    const now = Date.now();
-    for (const record of records) {
-      // Only load non-expired records
-      if (now - record.consumed_at < NONCE_EXPIRY_MS) {
-        const key = `${record.key_id}:${record.operation}:${record.nonce}`;
-        nonceStore.set(key, record);
-      }
-    }
-  } catch (error) {
-    // Corrupt or missing nonce store - start fresh
-    nonceStore.clear();
+function getDb(): DatabaseInstance {
+  if (!dbInstance) {
+    throw new Error('Database instance not initialized for founder nonce store');
   }
+  return dbInstance;
 }
 
-function saveNonceStore(): void {
+function checkAndConsumeNonce(keyId: string, operation: string, nonce: string, now: number): boolean {
+  const db = getDb();
+  const expiresAt = now + NONCE_EXPIRY_MS;
+
+  // Try to insert the nonce - will fail if unique constraint violated (already consumed)
   try {
-    mkdirSync(KEYS_DIR, { recursive: true });
-    const records = Array.from(nonceStore.values());
-    writeFileSync(NONCE_FILE, JSON.stringify(records, null, 2), { flag: 'w', mode: 0o600 });
-  } catch (error) {
-    // Persistence failure - in-memory store continues to work
+    db.stmt.insertFounderNonce.run(keyId, operation, nonce, expiresAt);
+    return true; // Successfully inserted (not previously consumed)
+  } catch (error: any) {
+    if (error.code === 'SQLITE_CONSTRAINT_UNIQUE' || error.code === 'SQLITE_CONSTRAINT_PRIMARYKEY') {
+      return false; // Nonce already consumed
+    }
+    throw error; // Re-throw other database errors
   }
 }
 
 function cleanupExpiredNonces(): void {
-  const now = Date.now();
-  let cleaned = false;
-  for (const [key, record] of nonceStore.entries()) {
-    if (now - record.consumed_at >= NONCE_EXPIRY_MS) {
-      nonceStore.delete(key);
-      cleaned = true;
-    }
-  }
-  if (cleaned) {
-    saveNonceStore();
+  try {
+    const db = getDb();
+    db.stmt.cleanupFounderNonces.run();
+  } catch (error) {
+    // Log but don't fail - cleanup is best effort
+    console.error('[Founder Nonce] Cleanup failed:', error);
   }
 }
 
@@ -278,7 +262,7 @@ export function verifyFounderRequestWithLoadedKeys(
   );
 }
 
-// Verify and consume nonce atomically
+// Verify and consume nonce atomically using SQLite
 // Returns: { valid: boolean, error?: string }
 // - valid: true if signature valid and nonce not previously consumed
 // - error: reason if invalid (for audit logging)
@@ -294,8 +278,7 @@ export function verifyFounderOperation(
   if (!keys) return { valid: false, error: 'NO_KEYS' };
   if (keyId !== keys.key_id) return { valid: false, error: 'KEY_MISMATCH' };
 
-  // Load and clean nonce store
-  loadNonceStore();
+  // Cleanup expired nonces
   cleanupExpiredNonces();
 
   // Validate timestamp freshness (replay protection)
@@ -315,9 +298,9 @@ export function verifyFounderOperation(
     return { valid: false, error: 'NONCE_MALFORMED' };
   }
 
-  // Check if nonce already consumed for this key+operation
-  const nonceKey = `${keyId}:${operation}:${nonce}`;
-  if (nonceStore.has(nonceKey)) {
+  // Check and consume nonce atomically via SQLite unique constraint
+  const nonceConsumed = checkAndConsumeNonce(keyId, operation, nonce, now);
+  if (!nonceConsumed) {
     return { valid: false, error: 'NONCE_REPLAY' };
   }
 
@@ -330,18 +313,10 @@ export function verifyFounderOperation(
     const valid = verifier.verify(keys.public_key, signature, 'base64');
 
     if (!valid) {
+      // Note: nonce was already consumed but signature invalid
+      // This prevents nonce reuse but doesn't create auth path
       return { valid: false, error: 'INVALID_SIGNATURE' };
     }
-
-    // Signature valid - ATOMICALLY consume nonce
-    const record: NonceRecord = {
-      nonce,
-      key_id: keyId,
-      operation,
-      consumed_at: now
-    };
-    nonceStore.set(nonceKey, record);
-    saveNonceStore();
 
     return { valid: true };
   } catch (error) {

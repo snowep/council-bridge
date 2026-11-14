@@ -32,7 +32,8 @@ import {
   verifyFounderOperation,
   verifyFounderRequestWithLoadedKeys,
   getFounderKeyId,
-  getFounderPublicKey
+  getFounderPublicKey,
+  setDatabaseInstance
 } from './auth/founder.js';
 
 import {
@@ -560,6 +561,9 @@ app.get('/health', (req, res) => {
 const PORT = process.env.PORT || 3334;
 
 initDb().then(() => {
+  // Initialize founder nonce store with database instance
+  setDatabaseInstance(db);
+
   // Periodic session cleanup
   setInterval(() => {
     cleanupExpiredSessions();
