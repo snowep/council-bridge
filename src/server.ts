@@ -187,7 +187,7 @@ function founderSignatureMiddleware(requiredOperations: string[]) {
 app.post('/api/task-autonomy', authMiddleware, async (req, res) => {
   try {
     const input = CreateTaskAutonomyLevelInputSchema.parse(req.body);
-    const ctx = getAuthContext(req);
+    const ctx = getAuthContext(req)!; // authMiddleware guarantees authContext in production
 
     if (ctx.owner_type !== 'founder') {
       return res.status(403).json({ error: 'Founder authorization required' });
@@ -213,7 +213,7 @@ app.get('/api/task-autonomy', authMiddleware, async (req, res) => {
 app.post('/api/execution/request', authMiddleware, async (req, res) => {
   try {
     const input = RequestExecutionInputSchema.parse(req.body);
-    const ctx = getAuthContext(req);
+    const ctx = getAuthContext(req)!;
 
     const result = await requestExecution(db, ctx, input);
 
@@ -227,7 +227,7 @@ app.get('/api/execution/:id', authMiddleware, async (req, res) => {
   try {
     const executionId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
     const input = { execution_id: executionId };
-    const result = await getExecutionRequest(db, getAuthContext(req), input);
+    const result = await getExecutionRequest(db, getAuthContext(req)!, input);
 
     if (!result) {
       return res.status(404).json({ error: 'Execution request not found' });
@@ -241,7 +241,7 @@ app.get('/api/execution/:id', authMiddleware, async (req, res) => {
 
 app.get('/api/execution', authMiddleware, async (req, res) => {
   try {
-    const ctx = getAuthContext(req);
+    const ctx = getAuthContext(req)!;
     const input: any = {
       status: req.query.status as any,
       autonomy_level: req.query.autonomy_level ? parseInt(req.query.autonomy_level as string) : undefined,
@@ -266,7 +266,7 @@ app.post('/api/execution/approve',
   async (req, res) => {
   try {
     const input = ApproveExecutionInputSchema.parse(req.body);
-    const ctx = getAuthContext(req);
+    const ctx = getAuthContext(req)!;
 
     const result = await approveExecution(db, ctx, input);
 
@@ -279,7 +279,7 @@ app.post('/api/execution/approve',
 // Phase 7: Approval Requests
 app.get('/api/approvals', authMiddleware, async (req, res) => {
   try {
-    const ctx = getAuthContext(req);
+    const ctx = getAuthContext(req)!;
     const input: any = {
       status: req.query.status as any,
       requested_by_type: ctx.owner_type === 'founder' ? req.query.requested_by_type as any : undefined,
@@ -300,7 +300,7 @@ app.get('/api/execution/:id/history', authMiddleware, async (req, res) => {
   try {
     const executionId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
     const input = { execution_id: executionId };
-    const result = await getExecutionHistory(db, getAuthContext(req), input);
+    const result = await getExecutionHistory(db, getAuthContext(req)!, input);
     res.json(result);
   } catch (error) {
     res.status(400).json({ error: error instanceof Error ? error.message : 'Unknown error' });
@@ -315,7 +315,7 @@ app.post('/api/execution/:id/execute',
   try {
     const executionId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
     const { result_payload = {} } = req.body;
-    const result = await executeExecutionRequest(db, getAuthContext(req), executionId, result_payload);
+    const result = await executeExecutionRequest(db, getAuthContext(req)!, executionId, result_payload);
     res.json(result);
   } catch (error) {
     res.status(400).json({ error: error instanceof Error ? error.message : 'Unknown error' });
@@ -327,7 +327,7 @@ app.post('/api/execution/:id/cancel', authMiddleware, async (req, res) => {
   try {
     const executionId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
     const { error_message } = req.body;
-    const result = await cancelExecutionRequest(db, getAuthContext(req), executionId, error_message);
+    const result = await cancelExecutionRequest(db, getAuthContext(req)!, executionId, error_message);
     res.json(result);
   } catch (error) {
     res.status(400).json({ error: error instanceof Error ? error.message : 'Unknown error' });
