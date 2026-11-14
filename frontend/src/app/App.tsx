@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { ThemeProvider, CssBaseline } from '@mui/material';
 import { useState, useEffect, createContext, useContext, type ReactNode } from 'react';
 import { lightTheme, darkTheme } from '../theme';
@@ -24,6 +24,7 @@ interface AppAuthContextType {
   login: (ownerType: string, ownerId: string, runtime: 'claude' | 'hermes') => Promise<void>;
   logout: () => Promise<void>;
   refreshAuth: () => Promise<void>;
+  navigateAfterLogin: () => void;
 }
 
 const AppAuthContext = createContext<AppAuthContextType | null>(null);
@@ -39,6 +40,7 @@ export const useAppAuth = () => {
 function AppAuthProvider({ children }: { children: ReactNode }) {
   const [authContext, setAuthContext] = useState<AuthContext | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const navigate = useNavigate();
 
   const refreshAuth = async () => {
     try {
@@ -73,12 +75,16 @@ function AppAuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const navigateAfterLogin = () => {
+    navigate('/', { replace: true });
+  };
+
   useEffect(() => {
     refreshAuth();
   }, []);
 
   return (
-    <AppAuthContext.Provider value={{ authContext, isLoading, login, logout, refreshAuth }}>
+    <AppAuthContext.Provider value={{ authContext, isLoading, login, logout, refreshAuth, navigateAfterLogin }}>
       {children}
     </AppAuthContext.Provider>
   );

@@ -391,7 +391,7 @@ async function validateIdentityForSession(db: DatabaseInstance, owner_type: stri
     }
     case 'seat': {
       const seat = db.stmt.getSeatById.get(owner_id) as { status: string } | undefined;
-      return !!seat && seat.status === 'active';
+      return !!seat && ['permanent', 'replaceable'].includes(seat.status);
     }
     default:
       return false;
