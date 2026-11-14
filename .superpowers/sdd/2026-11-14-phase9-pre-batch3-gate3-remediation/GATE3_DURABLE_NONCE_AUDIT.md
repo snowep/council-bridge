@@ -43,9 +43,11 @@ CREATE INDEX IF NOT EXISTS idx_founder_nonces_expires ON founder_nonces(expires_
   - Returns `true` if insert succeeds (nonce not previously consumed)
   - Returns `false` if `SQLITE_CONSTRAINT_PRIMARYKEY` (nonce already consumed)
   - Re-throws other database errors (fail-closed)
-- `cleanupExpiredNonces()` calls `DELETE FROM founder_nonces WHERE expires_at < datetime('now')`
+- `cleanupExpiredNonces()` runs probabilistically (1% of calls) to reduce DB overhead on hot path:
+  - Calls `DELETE FROM founder_nonces WHERE expires_at < datetime('now')`
+  - Runs in background, logged but does not fail verification
 - `verifyFounderOperation()` flow (CORRECTED ORDER):
-  1. Cleanup expired nonces
+  1. Cleanup expired nonces (probabilistic)
   2. Validate timestamp freshness (±5 min)
   3. Validate nonce format (present, ≤128 chars, base64url chars)
   4. **Canonicalize and verify RSA signature FIRST**
@@ -70,7 +72,7 @@ CREATE INDEX IF NOT EXISTS idx_founder_nonces_expires ON founder_nonces(expires_
 | **Fail-closed on persistence failure** | Constraint errors caught, other DB errors re-thrown |
 | **Fail-closed on corrupt storage** | No silent recovery; primary key enforces correctness |
 | **No auth path on failed validation** | Invalid signature → nonce NOT consumed, `valid: false` |
-| **Auto-expiry cleanup** | `cleanupFounderNonces` runs on each verification |
+| **Probabilistic cleanup** | 1% of calls trigger cleanup to avoid DB overhead |
 | **Scoped nonces** | Composite key: `(key_id, operation, nonce)` |
 | **DoS prevention** | Invalid signatures cannot consume valid nonces |
 | **Preserved Phase 8 protections** | All signature, timestamp, key_id, operation, payload checks intact |
@@ -225,7 +227,7 @@ These failures existed before the durable nonce correction:
 | Expiry timestamp | ✅ | `expires_at` column with index |
 | Transactional insertion | ✅ | SQLite `INSERT` in WAL mode |
 | Atomic duplicate rejection | ✅ | Primary key constraint |
-| Safe cleanup of expired records | ✅ | `cleanupFounderNonces` DELETE statement |
+| Probabilistic expiry cleanup (1% of calls) | ✅ | `Math.random() > 0.01` check |
 | Fail closed: DB unavailable | ✅ | `getDb()` throws if not initialized |
 | Fail closed: Persistence failure | ✅ | Non-constraint errors re-thrown |
 | Fail closed: Corrupt storage | ✅ | No silent recovery; primary key enforces correctness |

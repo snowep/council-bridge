@@ -1,0 +1,1 @@
+# SDD ledger — plan: docs/superpowers/plans/2026-11-14-phase9-pre-batch3-gate2-remediation.md

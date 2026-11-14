@@ -91,14 +91,13 @@ describe('Phase 9 Batch 1: Appointment Ceremony', () => {
   });
 
   it('should reject Division Head approval for non-existent division', () => {
-    const testDb = freshDb();
     const divName = uniqueName('Developer');
-    setupDivision(testDb, divName, divName);
+    setupDivision(divName, divName);
     const staffId = uniqueStaffId('dev-head');
-    setupStaff(testDb, staffId, 'Dev Head', 'Division Head', divName, 'active');
+    setupStaff(staffId, 'Dev Head', 'Division Head', divName, 'active');
 
     assert.throws(() => {
-      approveDivisionHead(testDb, founderCtx, {
+      approveDivisionHead(db, founderCtx, {
         division_id: 'Non-existent Division',
         staff_id: staffId
       });
@@ -106,12 +105,11 @@ describe('Phase 9 Batch 1: Appointment Ceremony', () => {
   });
 
   it('should reject Division Head approval for non-existent staff', () => {
-    const testDb = freshDb();
     const divName = uniqueName('Developer');
-    setupDivision(testDb, divName, divName);
+    setupDivision(divName, divName);
 
     assert.throws(() => {
-      approveDivisionHead(testDb, founderCtx, {
+      approveDivisionHead(db, founderCtx, {
         division_id: divName,
         staff_id: 'non-existent-staff'
       });
@@ -119,16 +117,15 @@ describe('Phase 9 Batch 1: Appointment Ceremony', () => {
   });
 
   it('should reject Division Head approval when staff belongs to different division', () => {
-    const testDb = freshDb();
     const devName = uniqueName('Developer');
     const marketingName = uniqueName('Marketing');
-    setupDivision(testDb, devName, devName);
-    setupDivision(testDb, marketingName, marketingName);
+    setupDivision(devName, devName);
+    setupDivision(marketingName, marketingName);
     const staffId = uniqueStaffId('marketing-head');
-    setupStaff(testDb, staffId, 'Marketing Head', 'Division Head, Marketing Division', marketingName, 'active');
+    setupStaff(staffId, 'Marketing Head', 'Division Head, Marketing Division', marketingName, 'active');
 
     assert.throws(() => {
-      approveDivisionHead(testDb, founderCtx, {
+      approveDivisionHead(db, founderCtx, {
         division_id: devName,
         staff_id: staffId
       });
@@ -136,19 +133,18 @@ describe('Phase 9 Batch 1: Appointment Ceremony', () => {
   });
 
   it('should reject duplicate Division Head appointment', () => {
-    const testDb = freshDb();
     const divName = uniqueName('Developer');
-    setupDivision(testDb, divName, divName);
+    setupDivision(divName, divName);
     const staffId = uniqueStaffId('dev-head');
-    setupStaff(testDb, staffId, 'Dev Head', 'Division Head', divName, 'active');
+    setupStaff(staffId, 'Dev Head', 'Division Head', divName, 'active');
 
-    approveDivisionHead(testDb, founderCtx, {
+    approveDivisionHead(db, founderCtx, {
       division_id: divName,
       staff_id: staffId
     });
 
     assert.throws(() => {
-      approveDivisionHead(testDb, founderCtx, {
+      approveDivisionHead(db, founderCtx, {
         division_id: divName,
         staff_id: staffId
       });
@@ -156,20 +152,20 @@ describe('Phase 9 Batch 1: Appointment Ceremony', () => {
   });
 
   it('should create audit memory entry on Division Head approval', () => {
-    const testDb = freshDb();
     const divName = uniqueName('Developer');
-    setupDivision(testDb, divName, divName);
     const staffId = uniqueStaffId('dev-head');
-    setupStaff(testDb, staffId, 'Dev Head', 'Division Head', divName, 'active');
+    setupDivision(divName, divName);
+    setupStaff(staffId, 'Dev Head', 'Division Head', divName, 'active');
 
-    approveDivisionHead(testDb, founderCtx, {
+    approveDivisionHead(db, founderCtx, {
       division_id: divName,
       staff_id: staffId
     });
 
-    const memories = testDb.query(
-      'SELECT * FROM memory_entries WHERE category = ? AND memory_type = ?',
-      ['council_shared', 'appointment_record']
+    // Query memory entries with content matching this division
+    const memories = db.query(
+      "SELECT * FROM memory_entries WHERE category = ? AND memory_type = ? AND content LIKE '%' || ? || '%'",
+      ['council_shared', 'appointment_record', divName]
     );
 
     assert.strictEqual(memories.length, 1);
@@ -178,8 +174,6 @@ describe('Phase 9 Batch 1: Appointment Ceremony', () => {
     assert.strictEqual(content.division_id, divName);
     assert.strictEqual(content.staff_id, staffId);
   });
-
-  // --- approveSpecialist Tests ---
 
   // --- approveSpecialist Tests ---
 
@@ -269,10 +263,10 @@ describe('Phase 9 Batch 1: Appointment Ceremony', () => {
 
     assert.throws(() => {
       approveSpecialist(db, founderCtx, {
-        staff_id: 'staff-dev-platform-001',
+        staff_id: staffId,
         division_id: 'Non-existent Division'
       });
-    }, /Division 'Non-existent Division' not found/);
+    }, new RegExp(`Division 'Non-existent Division' not found`));
   });
 
   it('should reject specialist approval when staff registered to different division', () => {
@@ -366,9 +360,10 @@ describe('Phase 9 Batch 1: Appointment Ceremony', () => {
       division_id: division.division_id
     });
 
+    // Query memory entries with content matching this staff
     const memories = db.query(
-      'SELECT * FROM memory_entries WHERE category = ? AND memory_type = ?',
-      ['council_shared', 'appointment_record']
+      "SELECT * FROM memory_entries WHERE category = ? AND memory_type = ? AND content LIKE '%' || ? || '%'",
+      ['council_shared', 'appointment_record', staffId]
     );
 
     assert.strictEqual(memories.length, 1);
@@ -400,7 +395,7 @@ describe('Phase 9 Batch 1: Appointment Ceremony', () => {
     });
 
     const result = activateStaffAgent(db, founderCtx, {
-      staff_id: 'staff-dev-platform-001',
+      staff_id: staffId,
       runtimes: ['claude', 'hermes']
     });
 
@@ -411,9 +406,10 @@ describe('Phase 9 Batch 1: Appointment Ceremony', () => {
   });
 
   it('should reject staff activation from non-founder', () => {
-    const division = createDivision(db, { division_id: uniqueName('Developer'), name: 'Developer' });
+    const division = createDivision(db, { division_id: uniqueName('Developer'), name: uniqueName('Developer') });
+    const staffId = uniqueStaffId('dev-platform');
     const staff = registerStaffAgent(db, {
-      staff_id: 'staff-dev-platform-001',
+      staff_id: staffId,
       name: 'Platform Engineer',
       role: 'Platform Engineering Lead',
       division_id: division.division_id,
@@ -424,7 +420,7 @@ describe('Phase 9 Batch 1: Appointment Ceremony', () => {
 
     assert.throws(() => {
       activateStaffAgent(db, staffCtx, {
-        staff_id: 'staff-dev-platform-001',
+        staff_id: staffId,
         runtimes: ['claude']
       });
     }, /Only Founder can activate staff agents/);
@@ -440,9 +436,10 @@ describe('Phase 9 Batch 1: Appointment Ceremony', () => {
   });
 
   it('should reject activation for non-approved staff', () => {
-    const division = createDivision(db, { division_id: uniqueName('Developer'), name: 'Developer' });
+    const division = createDivision(db, { division_id: uniqueName('Developer'), name: uniqueName('Developer') });
+    const staffId = uniqueStaffId('dev-platform');
     const staff = registerStaffAgent(db, {
-      staff_id: 'staff-dev-platform-001',
+      staff_id: staffId,
       name: 'Platform Engineer',
       role: 'Platform Engineering Lead',
       division_id: division.division_id,
@@ -453,16 +450,17 @@ describe('Phase 9 Batch 1: Appointment Ceremony', () => {
 
     assert.throws(() => {
       activateStaffAgent(db, founderCtx, {
-        staff_id: 'staff-dev-platform-001',
+        staff_id: staffId,
         runtimes: ['claude']
       });
     }, /must be approved before activation/);
   });
 
   it('should create runtime persona records on activation', () => {
-    const division = createDivision(db, { division_id: uniqueName('Developer'), name: 'Developer' });
+    const division = createDivision(db, { division_id: uniqueName('Developer'), name: uniqueName('Developer') });
+    const staffId = uniqueStaffId('dev-platform');
     const staff = registerStaffAgent(db, {
-      staff_id: 'staff-dev-platform-001',
+      staff_id: staffId,
       name: 'Platform Engineer',
       role: 'Platform Engineering Lead',
       division_id: division.division_id,
@@ -473,18 +471,18 @@ describe('Phase 9 Batch 1: Appointment Ceremony', () => {
 
     // Must approve first to create division membership
     approveSpecialist(db, founderCtx, {
-      staff_id: 'staff-dev-platform-001',
+      staff_id: staffId,
       division_id: division.division_id
     });
 
     activateStaffAgent(db, founderCtx, {
-      staff_id: 'staff-dev-platform-001',
+      staff_id: staffId,
       runtimes: ['claude', 'hermes']
     });
 
     const runtimePersonas = db.query(
       'SELECT * FROM staff_runtime_personas WHERE staff_id = ?',
-      ['staff-dev-platform-001']
+      [staffId]
     );
 
     assert.strictEqual(runtimePersonas.length, 2);
@@ -493,9 +491,10 @@ describe('Phase 9 Batch 1: Appointment Ceremony', () => {
   });
 
   it('should create audit memory entry on staff activation', () => {
-    const division = createDivision(db, { division_id: uniqueName('Developer'), name: 'Developer' });
+    const division = createDivision(db, { division_id: uniqueName('Developer'), name: uniqueName('Developer') });
+    const staffId = uniqueStaffId('dev-platform');
     const staff = registerStaffAgent(db, {
-      staff_id: 'staff-dev-platform-001',
+      staff_id: staffId,
       name: 'Platform Engineer',
       role: 'Platform Engineering Lead',
       division_id: division.division_id,
@@ -506,31 +505,33 @@ describe('Phase 9 Batch 1: Appointment Ceremony', () => {
 
     // Must approve first to create division membership
     approveSpecialist(db, founderCtx, {
-      staff_id: 'staff-dev-platform-001',
+      staff_id: staffId,
       division_id: division.division_id
     });
 
     activateStaffAgent(db, founderCtx, {
-      staff_id: 'staff-dev-platform-001',
+      staff_id: staffId,
       runtimes: ['claude', 'hermes']
     });
 
+    // Query memory entries with content matching this staff
     const memories = db.query(
-      'SELECT * FROM memory_entries WHERE category = ? AND memory_type = ?',
-      ['council_shared', 'activation_record']
+      "SELECT * FROM memory_entries WHERE category = ? AND memory_type = ? AND content LIKE '%' || ? || '%'",
+      ['council_shared', 'activation_record', staffId]
     );
 
     assert.strictEqual(memories.length, 1);
     const content = JSON.parse(memories[0].content);
     assert.strictEqual(content.action, 'activate_staff_agent');
-    assert.strictEqual(content.staff_id, 'staff-dev-platform-001');
+    assert.strictEqual(content.staff_id, staffId);
     assert.deepStrictEqual(content.runtimes, ['claude', 'hermes']);
   });
 
   it('should not duplicate runtime personas on re-activation', () => {
-    const division = createDivision(db, { division_id: uniqueName('Developer'), name: 'Developer' });
+    const division = createDivision(db, { division_id: uniqueName('Developer'), name: uniqueName('Developer') });
+    const staffId = uniqueStaffId('dev-platform');
     const staff = registerStaffAgent(db, {
-      staff_id: 'staff-dev-platform-001',
+      staff_id: staffId,
       name: 'Platform Engineer',
       role: 'Platform Engineering Lead',
       division_id: division.division_id,
@@ -541,25 +542,25 @@ describe('Phase 9 Batch 1: Appointment Ceremony', () => {
 
     // Must approve first to create division membership
     approveSpecialist(db, founderCtx, {
-      staff_id: 'staff-dev-platform-001',
+      staff_id: staffId,
       division_id: division.division_id
     });
 
     // First activation
     activateStaffAgent(db, founderCtx, {
-      staff_id: 'staff-dev-platform-001',
+      staff_id: staffId,
       runtimes: ['claude']
     });
 
     // Second activation with same runtime
     activateStaffAgent(db, founderCtx, {
-      staff_id: 'staff-dev-platform-001',
+      staff_id: staffId,
       runtimes: ['claude']
     });
 
     const runtimePersonas = db.query(
       'SELECT * FROM staff_runtime_personas WHERE staff_id = ?',
-      ['staff-dev-platform-001']
+      [staffId]
     );
 
     assert.strictEqual(runtimePersonas.length, 1);
@@ -569,40 +570,45 @@ describe('Phase 9 Batch 1: Appointment Ceremony', () => {
 
   it('should complete full Division Head appointment and activation workflow', () => {
     // 1. Create division
+    const divisionId = uniqueName('Developer');
+    const divisionName = uniqueName('Developer');
     const division = createDivision(db, {
-      division_id: uniqueName('Developer'),
-      name: 'Developer',
+      division_id: divisionId,
+      name: divisionName,
       description: 'Software development division',
       strategic_objectives: ['Platform stability', 'Developer experience']
     });
 
     // 2. Register Division Head candidate
+    const headStaffId = uniqueStaffId('dev-head');
     const headStaff = registerStaffAgent(db, {
-      staff_id: 'staff-dev-head-001',
+      staff_id: headStaffId,
       name: 'Dev Head',
       role: 'Division Head, Developer Division',
-      division_id: 'Developer Division',
+      division_id: divisionId,
       runtime_instances: [],
       permissions: [],
       status: 'active'
     });
 
     // 3. Register specialists
+    const specialist1Id = uniqueStaffId('dev-platform');
     const specialist1 = registerStaffAgent(db, {
-      staff_id: 'staff-dev-platform-001',
+      staff_id: specialist1Id,
       name: 'Platform Engineer',
       role: 'Platform Engineering Lead',
-      division_id: 'Developer Division',
+      division_id: divisionId,
       runtime_instances: [],
       permissions: [],
       status: 'inactive'
     });
 
+    const specialist2Id = uniqueStaffId('dev-devops');
     const specialist2 = registerStaffAgent(db, {
-      staff_id: 'staff-dev-devops-001',
+      staff_id: specialist2Id,
       name: 'DevOps Engineer',
       role: 'DevOps/Infrastructure Lead',
-      division_id: 'Developer Division',
+      division_id: divisionId,
       runtime_instances: [],
       permissions: [],
       status: 'inactive'
@@ -610,69 +616,69 @@ describe('Phase 9 Batch 1: Appointment Ceremony', () => {
 
     // 4. Approve Division Head
     const approvedDivision = approveDivisionHead(db, founderCtx, {
-      division_id: 'Developer Division',
-      staff_id: 'staff-dev-head-001'
+      division_id: divisionId,
+      staff_id: headStaffId
     });
-    assert.strictEqual(approvedDivision.head_staff_id, 'staff-dev-head-001');
+    assert.strictEqual(approvedDivision.head_staff_id, headStaffId);
 
     // 5. Approve specialists
     approveSpecialist(db, founderCtx, {
-      staff_id: 'staff-dev-platform-001',
-      division_id: 'Developer Division'
+      staff_id: specialist1Id,
+      division_id: divisionId
     });
 
     approveSpecialist(db, founderCtx, {
-      staff_id: 'staff-dev-devops-001',
-      division_id: 'Developer Division'
+      staff_id: specialist2Id,
+      division_id: divisionId
     });
 
     // 6. Activate Division Head
     activateStaffAgent(db, founderCtx, {
-      staff_id: 'staff-dev-head-001',
+      staff_id: headStaffId,
       runtimes: ['claude', 'hermes']
     });
 
     // 7. Activate specialists
     activateStaffAgent(db, founderCtx, {
-      staff_id: 'staff-dev-platform-001',
+      staff_id: specialist1Id,
       runtimes: ['claude', 'hermes']
     });
 
     activateStaffAgent(db, founderCtx, {
-      staff_id: 'staff-dev-devops-001',
+      staff_id: specialist2Id,
       runtimes: ['claude']
     });
 
     // Verify final state
-    const finalDivision = getDivisionById(db, 'Developer Division');
-    assert.strictEqual(finalDivision?.head_staff_id, 'staff-dev-head-001');
+    const finalDivision = getDivisionById(db, divisionId);
+    assert.strictEqual(finalDivision?.head_staff_id, headStaffId);
 
-    const head = getStaffAgentById(db, 'staff-dev-head-001');
+    const head = getStaffAgentById(db, headStaffId);
     const headRuntimes = JSON.parse(head!.runtime_instances);
     assert.ok(headRuntimes.includes('claude'));
     assert.ok(headRuntimes.includes('hermes'));
     assert.strictEqual(head!.status, 'active');
 
-    const spec1 = getStaffAgentById(db, 'staff-dev-platform-001');
+    const spec1 = getStaffAgentById(db, specialist1Id);
     assert.strictEqual(spec1!.status, 'active');
     const spec1Runtimes = JSON.parse(spec1!.runtime_instances);
     assert.ok(spec1Runtimes.includes('claude'));
     assert.ok(spec1Runtimes.includes('hermes'));
 
-    const spec2 = getStaffAgentById(db, 'staff-dev-devops-001');
+    const spec2 = getStaffAgentById(db, specialist2Id);
     assert.strictEqual(spec2!.status, 'active');
     const spec2Runtimes = JSON.parse(spec2!.runtime_instances);
     assert.ok(spec2Runtimes.includes('claude'));
 
     // Verify audit trail
     const appointmentMemories = db.query(
-      'SELECT * FROM memory_entries WHERE category = ? AND memory_type = ?',
+      "SELECT * FROM memory_entries WHERE category = ? AND memory_type = ?",
       ['council_shared', 'appointment_record']
     );
     assert.strictEqual(appointmentMemories.length, 3); // 1 division head + 2 specialists
 
     const activationMemories = db.query(
-      'SELECT * FROM memory_entries WHERE category = ? AND memory_type = ?',
+      "SELECT * FROM memory_entries WHERE category = ? AND memory_type = ?",
       ['council_shared', 'activation_record']
     );
     assert.strictEqual(activationMemories.length, 3); // 1 division head + 2 specialists

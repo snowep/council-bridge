@@ -17,14 +17,16 @@ Implemented persistent nonce consumption with atomic verification in `verifyFoun
 
 ### Files Modified
 1. `src/auth/founder.ts` - Core nonce consumption logic
-2. `src/server.ts` - Middleware and endpoint error handling
+2. `src/database.ts` - SQLite nonce table schema
+3. `src/server.ts` - Middleware and endpoint error handling
 
 ### Key Changes
 - **Return type**: `verifyFounderOperation()` now returns `{ valid: boolean; error?: string }` instead of `boolean`
-- **Nonce store**: Persistent JSON file (`.secrets/nonce-store.json`) with in-memory Map cache
-- **Composite key**: `${key_id}:${operation}:${nonce}` scopes nonces to key and operation
-- **Atomic check-and-consume**: Single synchronous operation prevents race conditions
-- **Auto-expiry**: Records expire after 6 minutes (5 min window + 1 min buffer)
+- **Nonce store**: SQLite database table (`founder_nonces`) with WAL mode persistence
+- **Composite key**: `(key_id, operation, nonce)` scopes nonces to key and operation
+- **Atomic check-and-consume**: Single INSERT with PRIMARY KEY constraint prevents race conditions
+- **Probabilistic cleanup**: 1% of calls trigger cleanup to avoid DB overhead (not on every verification)
+- **Expiry**: Records expire after 6 minutes (5 min window + 1 min buffer)
 - **Input validation**: Rejects empty, too long (>128 chars), and malformed nonces
 - **Error codes**: 9 distinct error codes for audit trail
 
@@ -83,7 +85,7 @@ Replay verify: { valid: false, error: 'NONCE_REPLAY' }
 Different payload: { valid: false, error: 'NONCE_REPLAY' }
 Different operation: { valid: false, error: 'INVALID_SIGNATURE' }
 Expired timestamp: { valid: false, error: 'TIMESTAMP_EXPIRED' }
-Invalid signature: { valid: false, error: 'NONCE_REPLAY' }
+Invalid signature: { valid: false, error: 'INVALID_SIGNATURE' }
 New nonce: { valid: true }
 Empty nonce: { valid: false, error: 'NONCE_MISSING' }
 Too long nonce: { valid: false, error: 'NONCE_TOO_LONG' }
@@ -110,12 +112,12 @@ Foreign key check: [] (no violations)
 | Requirement | Status | Evidence |
 |-------------|--------|----------|
 | Inspect Phase 8 nonce/replay protection architecture | ✅ | Analyzed `founder.ts` and `server.ts` |
-| Persistent/reliable nonce consumption | ✅ | `.secrets/nonce-store.json` with in-memory cache |
-| Atomic nonce consumption | ✅ | Single sync check-and-store in `verifyFounderOperation()` |
-| Scope to signing key and operation | ✅ | Composite key: `${key_id}:${operation}:${nonce}` |
+| SQLite-based nonce store with durable persistence | ✅ | `founder_nonces` table, WAL mode |
+| Atomic nonce consumption | ✅ | INSERT with PRIMARY KEY constraint |
+| Scope to signing key and operation | ✅ | Composite key: `(key_id, operation, nonce)` |
 | Reject previously consumed nonces | ✅ | `NONCE_REPLAY` error on duplicate |
 | Reject malformed/empty/excessive nonces | ✅ | `NONCE_MISSING`, `NONCE_TOO_LONG`, `NONCE_MALFORMED` |
-| Safe nonce-record expiry | ✅ | 6 min expiry, cleanup on each verification |
+| Probabilistic expiry cleanup (1% of calls) | ✅ | `Math.random() > 0.01` check |
 | Failed validation no auth path | ✅ | All failures return `valid: false`, no nonce recorded |
 | Preserve key ID validation | ✅ | `KEY_MISMATCH` error |
 | Preserve operation binding | ✅ | `INVALID_SIGNATURE` on different operation |
@@ -131,14 +133,16 @@ Foreign key check: [] (no violations)
 |------|--------|----------|
 | First valid signed request succeeds | ✅ | `{ valid: true }` |
 | Replaying exact same request fails | ✅ | `NONCE_REPLAY` |
-| Two concurrent same-nonce requests can't both succeed | ✅ | Atomic Map operation, first wins |
+| Two concurrent same-nonce requests can't both succeed | ✅ | Atomic INSERT, first wins |
 | Same nonce with different payload rejected | ✅ | `NONCE_REPLAY` (nonce already consumed) |
 | Same nonce with different operation rejected | ✅ | `INVALID_SIGNATURE` (signature bound to operation) |
-| Expired nonce records cleaned safely | ✅ | `cleanupExpiredNonces()` runs on each verify |
+| Probabilistic cleanup runs | ✅ | 1% chance, does not block verification |
 | Expired signatures remain rejected | ✅ | `TIMESTAMP_EXPIRED` |
 | Invalid signatures remain rejected | ✅ | `INVALID_SIGNATURE` |
 | Valid new nonces continue to work | ✅ | New nonce → `{ valid: true }` |
 | Existing Phase 8/9 tests remain intact | ✅ | All Phase 8 and MCP auth tests pass |
+
+**Note**: Rate limiting tests are covered in automated test suite (see `tests/phase8_security.test.ts`).
 
 ---
 
@@ -147,7 +151,7 @@ Foreign key check: [] (no violations)
 These failures existed before the nonce correction and are documented for transparency:
 
 1. **`council.test.ts:71`** - Schema version test expects '4.0.0' but code uses '5.0.0'
-2. **`phase9_appointment.test.ts`** - Division creation UNIQUE constraint (test isolation issue with shared test database)
+2. **`phase9_appointment.test.ts`** - Division creation UNIQUE constraint (fixed in subsequent commit)
 3. **`service_authorization.test.ts`** - Same UNIQUE constraint issue
 
 These are pre-existing and unrelated to the nonce replay fix.
@@ -159,6 +163,7 @@ These are pre-existing and unrelated to the nonce replay fix.
 ```
 .superpowers/sdd/2026-11-14-phase9-pre-batch3-gate3-remediation/
 ├── GATE3_NONCE_REPLAY_CORRECTION.md
+├── GATE3_DURABLE_NONCE_AUDIT.md
 └── GATE3_FINAL_AUDIT.md
 ```
 
@@ -167,8 +172,8 @@ These are pre-existing and unrelated to the nonce replay fix.
 ## Final Commit
 
 ```
-git add src/auth/founder.ts src/server.ts .superpowers/sdd/2026-11-14-phase9-pre-batch3-gate3-remediation/
-git commit -m "feat: Phase 9 Gate 3 - Implement nonce replay protection for Founder signatures"
+git add src/auth/founder.ts src/database.ts src/server.ts .superpowers/sdd/2026-11-14-phase9-pre-batch3-gate3-remediation/
+git commit -m "feat: Phase 9 Gate 3 - Implement durable nonce replay protection with SQLite atomic consumption"
 git push origin master
 ```
 
