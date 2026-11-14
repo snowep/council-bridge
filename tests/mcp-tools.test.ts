@@ -80,6 +80,60 @@ describe('MCP Tool Registration - Phase 9 Task 3', () => {
       .send({ owner_type: 'founder', owner_id: 'founder', runtime: 'claude' });
     founderToken = founderRes.body.session_token;
 
+    // Register test agents using MCP tool (via founder)
+    const registerStaff = await request(server)
+      .post('/mcp')
+      .set('Authorization', `Bearer ${founderToken}`)
+      .set('Accept', 'application/json, text/event-stream')
+      .send({
+        jsonrpc: '2.0',
+        method: 'tools/call',
+        params: { name: 'register_agent', arguments: { agent_id: 'staff-001', display_name: 'Staff Agent', runtime: 'claude' } },
+        id: 1
+      })
+      .set('Content-Type', 'application/json')
+      .expect(200);
+
+    const registerDiv = await request(server)
+      .post('/mcp')
+      .set('Authorization', `Bearer ${founderToken}`)
+      .set('Accept', 'application/json, text/event-stream')
+      .send({
+        jsonrpc: '2.0',
+        method: 'tools/call',
+        params: { name: 'register_agent', arguments: { agent_id: 'div-001', display_name: 'Division Agent', runtime: 'claude' } },
+        id: 1
+      })
+      .set('Content-Type', 'application/json')
+      .expect(200);
+
+    const registerOther = await request(server)
+      .post('/mcp')
+      .set('Authorization', `Bearer ${founderToken}`)
+      .set('Accept', 'application/json, text/event-stream')
+      .send({
+        jsonrpc: '2.0',
+        method: 'tools/call',
+        params: { name: 'register_agent', arguments: { agent_id: 'other-agent', display_name: 'Other Agent', runtime: 'claude' } },
+        id: 1
+      })
+      .set('Content-Type', 'application/json')
+      .expect(200);
+
+    // Register founder agent for messaging tests
+    const registerFounder = await request(server)
+      .post('/mcp')
+      .set('Authorization', `Bearer ${founderToken}`)
+      .set('Accept', 'application/json, text/event-stream')
+      .send({
+        jsonrpc: '2.0',
+        method: 'tools/call',
+        params: { name: 'register_agent', arguments: { agent_id: 'founder', display_name: 'Founder', runtime: 'claude' } },
+        id: 1
+      })
+      .set('Content-Type', 'application/json')
+      .expect(200);
+
     const staffRes = await request(server)
       .post('/api/auth/session')
       .send({ owner_type: 'staff', owner_id: 'staff-001', runtime: 'claude' });
@@ -93,7 +147,7 @@ describe('MCP Tool Registration - Phase 9 Task 3', () => {
 
   after(() => {
     server.close();
-    closeDatabase();
+    db.close();
   });
 
   beforeEach(() => {
@@ -130,12 +184,12 @@ describe('MCP Tool Registration - Phase 9 Task 3', () => {
 
       const parsed = parseSSEResponse(response.text);
       const tools = parsed.result.tools;
-      // We register: send_message, get_messages, list_agents,
-      // create_task_autonomy_level, update_task_autonomy_level, get_task_autonomy_level, list_task_autonomy_levels,
+      // Phase 1 (6): register_agent, send_message, get_messages, check_inbox, reply_message, list_messages, list_agents
+      // Phase 7/9 (13): create_task_autonomy_level, update_task_autonomy_level, get_task_autonomy_level, list_task_autonomy_levels,
       // request_execution, get_execution_request, list_execution_requests, execute_execution_request, cancel_execution_request,
       // approve_execution, list_approval_requests, get_execution_history
-      // Total: 15 tools
-      assert.strictEqual(tools.length, 15);
+      // Total: 19 tools
+      assert.strictEqual(tools.length, 19);
     });
   });
 
@@ -180,6 +234,79 @@ describe('MCP Tool Registration - Phase 9 Task 3', () => {
       const parsed = parseSSEResponse(response.text);
       const toolNames = parsed.result.tools.map((t: any) => t.name);
       assert.ok(toolNames.includes('list_agents'));
+    });
+
+    it('should register register_agent tool', async () => {
+      const response = await request(server)
+        .post('/mcp')
+        .set('Authorization', `Bearer ${founderToken}`)
+        .set('Accept', 'application/json, text/event-stream')
+        .send({ jsonrpc: '2.0', method: 'tools/list', id: 1 })
+        .set('Content-Type', 'application/json')
+        .expect(200);
+
+      const parsed = parseSSEResponse(response.text);
+      const toolNames = parsed.result.tools.map((t: any) => t.name);
+      assert.ok(toolNames.includes('register_agent'));
+    });
+
+    it('should register check_inbox tool', async () => {
+      const response = await request(server)
+        .post('/mcp')
+        .set('Authorization', `Bearer ${founderToken}`)
+        .set('Accept', 'application/json, text/event-stream')
+        .send({ jsonrpc: '2.0', method: 'tools/list', id: 1 })
+        .set('Content-Type', 'application/json')
+        .expect(200);
+
+      const parsed = parseSSEResponse(response.text);
+      const toolNames = parsed.result.tools.map((t: any) => t.name);
+      assert.ok(toolNames.includes('check_inbox'));
+    });
+
+    it('should register reply_message tool', async () => {
+      const response = await request(server)
+        .post('/mcp')
+        .set('Authorization', `Bearer ${founderToken}`)
+        .set('Accept', 'application/json, text/event-stream')
+        .send({ jsonrpc: '2.0', method: 'tools/list', id: 1 })
+        .set('Content-Type', 'application/json')
+        .expect(200);
+
+      const parsed = parseSSEResponse(response.text);
+      const toolNames = parsed.result.tools.map((t: any) => t.name);
+      assert.ok(toolNames.includes('reply_message'));
+    });
+
+    it('should register list_messages tool', async () => {
+      const response = await request(server)
+        .post('/mcp')
+        .set('Authorization', `Bearer ${founderToken}`)
+        .set('Accept', 'application/json, text/event-stream')
+        .send({ jsonrpc: '2.0', method: 'tools/list', id: 1 })
+        .set('Content-Type', 'application/json')
+        .expect(200);
+
+      const parsed = parseSSEResponse(response.text);
+      const toolNames = parsed.result.tools.map((t: any) => t.name);
+      assert.ok(toolNames.includes('list_messages'));
+    });
+
+    it('should have all 6 original Phase 1 tool names', async () => {
+      const response = await request(server)
+        .post('/mcp')
+        .set('Authorization', `Bearer ${founderToken}`)
+        .set('Accept', 'application/json, text/event-stream')
+        .send({ jsonrpc: '2.0', method: 'tools/list', id: 1 })
+        .set('Content-Type', 'application/json')
+        .expect(200);
+
+      const parsed = parseSSEResponse(response.text);
+      const toolNames = parsed.result.tools.map((t: any) => t.name);
+      const phase1Tools = ['register_agent', 'list_agents', 'send_message', 'check_inbox', 'reply_message', 'list_messages'];
+      for (const tool of phase1Tools) {
+        assert.ok(toolNames.includes(tool), `Missing Phase 1 tool: ${tool}`);
+      }
     });
   });
 
@@ -448,6 +575,321 @@ describe('MCP Tool Registration - Phase 9 Task 3', () => {
           assert.ok(!errorText.includes('Founder authorization required'));
         }
       }
+    });
+  });
+
+  describe('Phase 1 Tool Execution Tests', () => {
+    let testAgentId: string;
+
+    beforeEach(async () => {
+      // Register a test agent using founder
+      const registerRes = await request(server)
+        .post('/mcp')
+        .set('Authorization', `Bearer ${founderToken}`)
+        .set('Accept', 'application/json, text/event-stream')
+        .send({
+          jsonrpc: '2.0',
+          method: 'tools/call',
+          params: {
+            name: 'register_agent',
+            arguments: { agent_id: 'test-agent-001', display_name: 'Test Agent', runtime: 'claude' }
+          },
+          id: 1
+        })
+        .set('Content-Type', 'application/json')
+        .expect(200);
+
+      const parsed = parseSSEResponse(registerRes.text);
+      if (!parsed.result.isError) {
+        const result = JSON.parse(parsed.result.content[0].text);
+        testAgentId = result.agent_id;
+      }
+    });
+
+    it('should register agent via register_agent tool (founder only)', async () => {
+      const uniqueId = `new-agent-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const response = await request(server)
+        .post('/mcp')
+        .set('Authorization', `Bearer ${founderToken}`)
+        .set('Accept', 'application/json, text/event-stream')
+        .send({
+          jsonrpc: '2.0',
+          method: 'tools/call',
+          params: {
+            name: 'register_agent',
+            arguments: { agent_id: uniqueId, display_name: 'New Agent', runtime: 'hermes' }
+          },
+          id: 1
+        })
+        .set('Content-Type', 'application/json')
+        .expect(200);
+
+      const parsed = parseSSEResponse(response.text);
+      // Successful responses don't have isError field (or it's falsy)
+      assert.ok(!parsed.result.isError);
+      const result = JSON.parse(parsed.result.content[0].text);
+      assert.ok(result.agent_id);
+      assert.strictEqual(result.display_name, 'New Agent');
+      assert.strictEqual(result.runtime, 'hermes');
+    });
+
+    it('should reject duplicate agent registration', async () => {
+      // Try to register same agent_id again
+      const response = await request(server)
+        .post('/mcp')
+        .set('Authorization', `Bearer ${founderToken}`)
+        .set('Accept', 'application/json, text/event-stream')
+        .send({
+          jsonrpc: '2.0',
+          method: 'tools/call',
+          params: {
+            name: 'register_agent',
+            arguments: { agent_id: 'test-agent-001', display_name: 'Test Agent', runtime: 'claude' }
+          },
+          id: 1
+        })
+        .set('Content-Type', 'application/json')
+        .expect(200);
+
+      const parsed = parseSSEResponse(response.text);
+      assert.strictEqual(parsed.result.isError, true);
+      assert.ok(parsed.result.content[0].text.includes('already exists'));
+    });
+
+    it('should reject register_agent from non-founder', async () => {
+      const response = await request(server)
+        .post('/mcp')
+        .set('Authorization', `Bearer ${staffToken}`)
+        .set('Accept', 'application/json, text/event-stream')
+        .send({
+          jsonrpc: '2.0',
+          method: 'tools/call',
+          params: {
+            name: 'register_agent',
+            arguments: { agent_id: 'staff-agent', display_name: 'Staff Agent', runtime: 'claude' }
+          },
+          id: 1
+        })
+        .set('Content-Type', 'application/json')
+        .expect(200);
+
+      const parsed = parseSSEResponse(response.text);
+      assert.strictEqual(parsed.result.isError, true);
+      assert.ok(parsed.result.content[0].text.includes('Founder'));
+    });
+
+    it('should check inbox via check_inbox tool (own inbox only)', async () => {
+      const response = await request(server)
+        .post('/mcp')
+        .set('Authorization', `Bearer ${staffToken}`)
+        .set('Accept', 'application/json, text/event-stream')
+        .send({
+          jsonrpc: '2.0',
+          method: 'tools/call',
+          params: { name: 'check_inbox', arguments: { agent_id: 'staff-001' } },
+          id: 1
+        })
+        .set('Content-Type', 'application/json')
+        .expect(200);
+
+      const parsed = parseSSEResponse(response.text);
+      assert.ok(!parsed.result.isError);
+      const result = JSON.parse(parsed.result.content[0].text);
+      assert.ok(Array.isArray(result));
+    });
+
+    it('should reject check_inbox for another agent', async () => {
+      const response = await request(server)
+        .post('/mcp')
+        .set('Authorization', `Bearer ${staffToken}`)
+        .set('Accept', 'application/json, text/event-stream')
+        .send({
+          jsonrpc: '2.0',
+          method: 'tools/call',
+          params: { name: 'check_inbox', arguments: { agent_id: 'other-agent' } },
+          id: 1
+        })
+        .set('Content-Type', 'application/json')
+        .expect(200);
+
+      const parsed = parseSSEResponse(response.text);
+      assert.strictEqual(parsed.result.isError, true);
+      assert.ok(parsed.result.content[0].text.includes('authenticated agent'));
+    });
+
+    it('should allow founder to check any inbox', async () => {
+      const response = await request(server)
+        .post('/mcp')
+        .set('Authorization', `Bearer ${founderToken}`)
+        .set('Accept', 'application/json, text/event-stream')
+        .send({
+          jsonrpc: '2.0',
+          method: 'tools/call',
+          params: { name: 'check_inbox', arguments: { agent_id: 'staff-001' } },
+          id: 1
+        })
+        .set('Content-Type', 'application/json')
+        .expect(200);
+
+      const parsed = parseSSEResponse(response.text);
+      console.log('DEBUG founder check_inbox response:', JSON.stringify(parsed, null, 2));
+      assert.ok(!parsed.result.isError);
+    });
+
+    it('should list messages via list_messages tool (own messages only)', async () => {
+      const response = await request(server)
+        .post('/mcp')
+        .set('Authorization', `Bearer ${staffToken}`)
+        .set('Accept', 'application/json, text/event-stream')
+        .send({
+          jsonrpc: '2.0',
+          method: 'tools/call',
+          params: { name: 'list_messages', arguments: { agent_id: 'staff-001', limit: 10 } },
+          id: 1
+        })
+        .set('Content-Type', 'application/json')
+        .expect(200);
+
+      const parsed = parseSSEResponse(response.text);
+      console.log('DEBUG list_messages response:', JSON.stringify(parsed, null, 2));
+      assert.ok(!parsed.result.isError);
+      const result = JSON.parse(parsed.result.content[0].text);
+      assert.ok(Array.isArray(result));
+    });
+
+    it('should reject list_messages for another agent', async () => {
+      const response = await request(server)
+        .post('/mcp')
+        .set('Authorization', `Bearer ${staffToken}`)
+        .set('Accept', 'application/json, text/event-stream')
+        .send({
+          jsonrpc: '2.0',
+          method: 'tools/call',
+          params: { name: 'list_messages', arguments: { agent_id: 'other-agent' } },
+          id: 1
+        })
+        .set('Content-Type', 'application/json')
+        .expect(200);
+
+      const parsed = parseSSEResponse(response.text);
+      assert.strictEqual(parsed.result.isError, true);
+      assert.ok(parsed.result.content[0].text.includes('authenticated agent'));
+    });
+
+    it('should reply to message via reply_message tool (recipient only)', async () => {
+      // First send a message from founder to staff
+      const sendRes = await request(server)
+        .post('/mcp')
+        .set('Authorization', `Bearer ${founderToken}`)
+        .set('Accept', 'application/json, text/event-stream')
+        .send({
+          jsonrpc: '2.0',
+          method: 'tools/call',
+          params: {
+            name: 'send_message',
+            arguments: { sender_id: 'founder', recipient_id: 'staff-001', content: 'Hello from founder' }
+          },
+          id: 1
+        })
+        .set('Content-Type', 'application/json')
+        .expect(200);
+
+      const sendParsed = parseSSEResponse(sendRes.text);
+      console.log('DEBUG send_message response:', JSON.stringify(sendParsed, null, 2));
+      const sentMsg = JSON.parse(sendParsed.result.content[0].text);
+      const messageId = sentMsg.id;
+
+      // Now reply as the recipient (staff)
+      const response = await request(server)
+        .post('/mcp')
+        .set('Authorization', `Bearer ${staffToken}`)
+        .set('Accept', 'application/json, text/event-stream')
+        .send({
+          jsonrpc: '2.0',
+          method: 'tools/call',
+          params: {
+            name: 'reply_message',
+            arguments: { agent_id: 'staff-001', message_id: messageId, content: 'Reply from staff' }
+          },
+          id: 1
+        })
+        .set('Content-Type', 'application/json')
+        .expect(200);
+
+      const parsed = parseSSEResponse(response.text);
+      console.log('DEBUG reply_message response:', JSON.stringify(parsed, null, 2));
+      assert.ok(!parsed.result.isError);
+      const result = JSON.parse(parsed.result.content[0].text);
+      assert.ok(result.id);
+      assert.strictEqual(result.sender_id, 'staff-001');
+      assert.strictEqual(result.recipient_id, 'founder');
+      assert.strictEqual(result.reply_to, messageId);
+    });
+
+    it('should reject reply_message from non-recipient', async () => {
+      // Send a message from founder to staff
+      const sendRes = await request(server)
+        .post('/mcp')
+        .set('Authorization', `Bearer ${founderToken}`)
+        .set('Accept', 'application/json, text/event-stream')
+        .send({
+          jsonrpc: '2.0',
+          method: 'tools/call',
+          params: {
+            name: 'send_message',
+            arguments: { sender_id: 'founder', recipient_id: 'staff-001', content: 'Hello from founder' }
+          },
+          id: 1
+        })
+        .set('Content-Type', 'application/json')
+        .expect(200);
+
+      const sendParsed = parseSSEResponse(sendRes.text);
+      const sentMsg = JSON.parse(sendParsed.result.content[0].text);
+      const messageId = sentMsg.id;
+
+      // Try to reply as founder (not the recipient)
+      const response = await request(server)
+        .post('/mcp')
+        .set('Authorization', `Bearer ${founderToken}`)
+        .set('Accept', 'application/json, text/event-stream')
+        .send({
+          jsonrpc: '2.0',
+          method: 'tools/call',
+          params: {
+            name: 'reply_message',
+            arguments: { agent_id: 'founder', message_id: messageId, content: 'Invalid reply' }
+          },
+          id: 1
+        })
+        .set('Content-Type', 'application/json')
+        .expect(200);
+
+      const parsed = parseSSEResponse(response.text);
+      assert.strictEqual(parsed.result.isError, true);
+      assert.ok(parsed.result.content[0].text.includes('intended recipient'));
+    });
+
+    it('should reject send_message with wrong sender_id', async () => {
+      const response = await request(server)
+        .post('/mcp')
+        .set('Authorization', `Bearer ${staffToken}`)
+        .set('Accept', 'application/json, text/event-stream')
+        .send({
+          jsonrpc: '2.0',
+          method: 'tools/call',
+          params: {
+            name: 'send_message',
+            arguments: { sender_id: 'other-agent', recipient_id: 'staff-001', content: 'Impersonation attempt' }
+          },
+          id: 1
+        })
+        .set('Content-Type', 'application/json')
+        .expect(200);
+
+      const parsed = parseSSEResponse(response.text);
+      assert.strictEqual(parsed.result.isError, true);
+      assert.ok(parsed.result.content[0].text.includes('Sender ID must match'));
     });
   });
 

@@ -20,7 +20,8 @@ export const DEFAULT_AUTH_CONFIG: AuthConfig = {
     'approve_cross_division_access',
     'create_division',
     'update_division_head',
-    'revoke_cross_division_access'
+    'revoke_cross_division_access',
+    'create_session'
   ],
   allow_hardcoded_fallback: true // Only in development mode
 };

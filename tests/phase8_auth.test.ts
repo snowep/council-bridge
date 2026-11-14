@@ -412,3 +412,4 @@ describe('Phase 8: Auth Middleware Integration', () => {
     assert.ok(ctx);
   });
 });
+

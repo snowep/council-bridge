@@ -26,6 +26,12 @@ import type { RequestHandlerExtra } from '@modelcontextprotocol/sdk/shared/proto
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 
 // Phase 1 Communication Tool Schemas (Zod v4)
+const RegisterAgentSchema = z.object({
+  agent_id: z.string().min(1).max(255).describe('Unique agent identifier'),
+  display_name: z.string().min(1).max(255).describe('Display name for the agent'),
+  runtime: z.string().min(1).max(255).describe('Runtime identifier (claude/hermes)'),
+});
+
 const SendMessageSchema = z.object({
   sender_id: z.string().min(1).max(255).describe('ID of the sending agent'),
   recipient_id: z.string().min(1).max(255).describe('ID of the recipient agent'),
@@ -36,6 +42,21 @@ const SendMessageSchema = z.object({
 const GetMessagesSchema = z.object({
   agent_id: z.string().min(1).max(255).describe('ID of the agent to get messages for'),
   limit: z.number().int().positive().max(100).default(50).optional().describe('Maximum number of messages to return'),
+});
+
+const CheckInboxSchema = z.object({
+  agent_id: z.string().min(1).max(255).describe('ID of the agent to check inbox for'),
+});
+
+const ReplyMessageSchema = z.object({
+  agent_id: z.string().min(1).max(255).describe('ID of the replying agent'),
+  message_id: z.string().uuid().describe('UUID of message being replied to'),
+  content: z.string().min(1).describe('Reply content'),
+});
+
+const ListMessagesSchema = z.object({
+  agent_id: z.string().min(1).max(255).describe('ID of the agent to list messages for'),
+  limit: z.number().int().positive().max(100).default(50).optional().describe('Maximum messages to return'),
 });
 
 const ListAgentsSchema = z.object({}).describe('No arguments required');
@@ -194,6 +215,61 @@ export function registerMcpTools(
     createToolHandler(db, getAuthContext, async (db, ctx) => {
       // All authenticated users can list agents
       return agentService.listAgents();
+    })
+  );
+
+  // register_agent - Founder only
+  mcpServer.tool(
+    'register_agent',
+    'Register a new agent',
+    RegisterAgentSchema.shape,
+    createToolHandler(db, getAuthContext, async (db, ctx, args) => {
+      if (ctx.owner_type !== 'founder') {
+        throw new Error('Only Founder can register agents');
+      }
+      return agentService.registerAgent(args);
+    })
+  );
+
+  // check_inbox - agent can only check own inbox
+  mcpServer.tool(
+    'check_inbox',
+    'Check inbox for an agent',
+    CheckInboxSchema.shape,
+    createToolHandler(db, getAuthContext, async (db, ctx, args) => {
+      if (ctx.owner_type !== 'founder' && args.agent_id !== ctx.owner_id) {
+        throw new Error('Can only check inbox for authenticated agent');
+      }
+      return messageService.checkInbox(args.agent_id);
+    })
+  );
+
+  // reply_message - only intended recipient can reply
+  mcpServer.tool(
+    'reply_message',
+    'Reply to a message',
+    ReplyMessageSchema.shape,
+    createToolHandler(db, getAuthContext, async (db, ctx, args) => {
+      if (ctx.owner_type !== 'founder' && args.agent_id !== ctx.owner_id) {
+        throw new Error('Can only reply as authenticated agent');
+      }
+      return messageService.replyMessage(args);
+    })
+  );
+
+  // list_messages - agent can only list own messages
+  mcpServer.tool(
+    'list_messages',
+    'List messages for an agent',
+    ListMessagesSchema.shape,
+    createToolHandler(db, getAuthContext, async (db, ctx, args) => {
+      if (ctx.owner_type !== 'founder' && args.agent_id !== ctx.owner_id) {
+        throw new Error('Can only list messages for authenticated agent');
+      }
+      return messageService.listMessages({
+        agent_id: args.agent_id,
+        limit: args.limit ?? 50
+      });
     })
   );
 

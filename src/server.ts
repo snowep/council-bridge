@@ -336,6 +336,35 @@ app.post('/api/execution/:id/cancel', authMiddleware, async (req, res) => {
   }
 });
 
+// Helper function to validate identity against database
+async function validateIdentityForSession(db: DatabaseInstance, owner_type: string, owner_id: string, runtime: string): Promise<boolean> {
+  switch (owner_type) {
+    case 'founder':
+      return owner_id === 'founder';
+    case 'staff': {
+      const staff = db.stmt.getStaffAgentById.get(owner_id) as { status: string; runtime_instances: string } | undefined;
+      if (!staff || staff.status !== 'active') return false;
+      // Check if runtime is in runtime_instances JSON array
+      try {
+        const runtimes = JSON.parse(staff.runtime_instances || '[]') as string[];
+        return runtimes.includes(runtime);
+      } catch {
+        return false;
+      }
+    }
+    case 'division': {
+      const division = db.stmt.getDivisionById.get(owner_id) as object | undefined;
+      return !!division;
+    }
+    case 'seat': {
+      const seat = db.stmt.getSeatById.get(owner_id) as { status: string } | undefined;
+      return !!seat && seat.status === 'active';
+    }
+    default:
+      return false;
+  }
+}
+
 // Auth management endpoints
 app.post('/api/auth/session', async (req, res) => {
   try {
@@ -353,9 +382,55 @@ app.post('/api/auth/session', async (req, res) => {
       return res.status(400).json({ error: 'Invalid runtime' });
     }
 
-    // In production, verify caller is authorized to create sessions for this identity
-    if (PRODUCTION_MODE && owner_type === 'founder') {
-      return res.status(403).json({ error: 'Founder sessions must be created via secure channel' });
+    // PRODUCTION: Require Founder signature for ALL session provisioning
+    if (PRODUCTION_MODE) {
+      const { founder_signature, founder_timestamp, founder_nonce, founder_key_id } = req.body;
+
+      if (!founder_signature || !founder_timestamp || !founder_nonce || !founder_key_id) {
+        return res.status(403).json({
+          error: 'Founder signature required for session provisioning in production',
+          code: 'FOUNDER_SIGNATURE_REQUIRED',
+          required_fields: ['founder_signature', 'founder_timestamp', 'founder_nonce', 'founder_key_id']
+        });
+      }
+
+      // Verify operation-bound signature
+      const body = { ...req.body };
+      delete body.founder_signature;
+      delete body.founder_timestamp;
+      delete body.founder_nonce;
+      delete body.founder_key_id;
+
+      const valid = verifyFounderOperation(
+        'create_session',
+        body,
+        founder_signature,
+        founder_timestamp,
+        founder_nonce,
+        founder_key_id
+      );
+
+      if (!valid) {
+        return res.status(403).json({
+          error: 'Invalid founder signature for session provisioning',
+          code: 'FOUNDER_SIGNATURE_INVALID'
+        });
+      }
+
+      // Validate requested identity against database
+      const identityValid = await validateIdentityForSession(db, owner_type, owner_id, runtime);
+      if (!identityValid) {
+        return res.status(403).json({
+          error: 'Invalid or inactive identity for session provisioning',
+          code: 'INVALID_IDENTITY'
+        });
+      }
+    } else {
+      // DEVELOPMENT: Allow without signature but validate identity exists
+      const identityValid = await validateIdentityForSession(db, owner_type, owner_id, runtime);
+      if (!identityValid) {
+        return res.status(400).json({ error: 'Invalid identity for session provisioning' });
+      }
     }
 
     const { generateSessionToken } = await import('./auth/session.js');
