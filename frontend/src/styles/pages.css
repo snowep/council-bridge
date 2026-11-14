@@ -1,0 +1,28 @@
+/* Page Styles - MUI v9 compatible */
+
+/* Typography */
+.typing-body-secondary { color: var(--mui-palette-text-secondary); }
+.typing-text-secondary { color: var(--mui-palette-text-secondary); }
+.typing-h6 { font-size: 1.5rem; font-weight: 500; line-height: 1.5; }
+.typing-h5 { font-size: 1.25rem; font-weight: 500; line-height: 1.5; }
+
+/* Spacing */
+.spacing-1 { gap: 0.5rem; }
+.spacing-2 { gap: 1rem; }
+.spacing-3 { gap: 1.5rem; }
+
+/* Flex */
+.flex-center { display: flex; align-items: center; }
+.flex-between { display: flex; justify-content: space-between; align-items: center; }
+.flex-wrap { display: flex; flex-wrap: wrap; }
+
+/* Typography without sx */
+.typing-body1 {
+  font-size: 1rem;
+  line-height: 1.5;
+}
+.typing-subtitle2 {
+  font-size: 0.875rem;
+  line-height: 1.4375;
+  color: var(--mui-palette-text-secondary);
+}

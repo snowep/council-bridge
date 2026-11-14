@@ -2,6 +2,7 @@
 // Phase 8: Explicit auth modes, fail-closed in production
 
 import express, { Request, Response, NextFunction } from 'express';
+import cors from 'cors';
 import { z } from 'zod/v4';
 import crypto from 'crypto';
 import rateLimit from 'express-rate-limit';
@@ -68,6 +69,10 @@ import { registerMcpTools } from './mcp/tools.js';
 setCryptoModule(crypto);
 
 const app = express();
+app.use(cors({
+  origin: ['http://localhost:5173', 'http://localhost:5174'],
+  credentials: true,
+}));
 app.use(express.json());
 
 // Database instance
