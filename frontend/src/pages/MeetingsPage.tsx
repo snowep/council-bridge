@@ -83,12 +83,13 @@ const MeetingsPage: React.FC = () => {
     try {
       setLoading(true);
       setError(null);
-      const response = await apiClient.get<{ data: Meeting[] }>('/api/meetings');
-      setMeetings(response.data);
+      const response = await apiClient.get<{ meetings: Meeting[], limit: number, offset: number }>('/api/meetings');
+      setMeetings(Array.isArray(response.meetings) ? response.meetings : []);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to fetch meetings';
       setError(message);
       console.error('Meetings fetch error:', err);
+      setMeetings([]);
     } finally {
       setLoading(false);
     }
@@ -97,11 +98,11 @@ const MeetingsPage: React.FC = () => {
   const fetchMeetingDetails = async (meetingId: string) => {
     try {
       const [meetingRes, phasesRes] = await Promise.all([
-        apiClient.get<Meeting>(`/api/meetings/${meetingId}`),
-        apiClient.get<{ data: MeetingPhase[] }>(`/api/meetings/${meetingId}/phases`),
+        apiClient.get<{ meeting: Meeting }>(`/api/meetings/${meetingId}`),
+        apiClient.get<{ phases: MeetingPhase[] }>(`/api/meetings/${meetingId}/phases`),
       ]);
-      setSelectedMeeting(meetingRes);
-      setPhases(phasesRes.data);
+      setSelectedMeeting(meetingRes.meeting);
+      setPhases(Array.isArray(phasesRes.phases) ? phasesRes.phases : []);
       setViewDialogOpen(true);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to fetch meeting details';

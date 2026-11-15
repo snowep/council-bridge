@@ -146,12 +146,13 @@ const TasksPage: React.FC = () => {
   const fetchTasks = async () => {
     try {
       setLoading(true);
-      const response = await apiClient.get<{ data: Task[] }>('/api/tasks');
-      setTasks(response.data);
+      const response = await apiClient.get<{ tasks: Task[], limit: number, offset: number }>('/api/tasks');
+      setTasks(Array.isArray(response.tasks) ? response.tasks : []);
       setError(null);
     } catch (err) {
       setError('Failed to fetch tasks');
       console.error('Failed to fetch tasks:', err);
+      setTasks([]);
     } finally {
       setLoading(false);
     }
@@ -160,23 +161,26 @@ const TasksPage: React.FC = () => {
   const fetchDivisionsAndStaff = async () => {
     try {
       const [divisionsResponse, staffResponse] = await Promise.all([
-        apiClient.get<{ data: Array<{ division_id: string; name: string }> }>('/api/organization/divisions'),
-        apiClient.get<{ data: Array<{ staff_id: string; name: string; division_id: string }> }>('/api/organization/staff'),
+        apiClient.get<{ divisions: Array<{ division_id: string; name: string }> }>('/api/organization/divisions'),
+        apiClient.get<{ staff: Array<{ staff_id: string; name: string; division_id: string }> }>('/api/staff'),
       ]);
-      setDivisions(divisionsResponse.data);
-      setStaff(staffResponse.data);
+      setDivisions(Array.isArray(divisionsResponse.divisions) ? divisionsResponse.divisions : []);
+      setStaff(Array.isArray(staffResponse.staff) ? staffResponse.staff : []);
     } catch (err) {
       console.error('Failed to fetch divisions/staff:', err);
+      setDivisions([]);
+      setStaff([]);
     }
   };
 
   const fetchTaskDetail = async (taskId: string) => {
     try {
-      const response = await apiClient.get<Task>(`/api/tasks/${taskId}`);
-      setSelectedTask(response);
+      const response = await apiClient.get<{ task: Task }>(`/api/tasks/${taskId}`);
+      setSelectedTask(response.task);
     } catch (err) {
       console.error('Failed to fetch task detail:', err);
       showSnackbar('Failed to fetch task detail', 'error');
+      setSelectedTask(null);
     }
   };
 
