@@ -25,6 +25,29 @@ import {
 } from './inputs.js';
 import { createMemory } from './memory.js';
 
+// --- Task Audit Helper ---
+
+export function logTaskAudit(
+  db: DatabaseInstance,
+  taskId: string,
+  mutationType: 'create' | 'update' | 'assign' | 'status_change' | 'dependency_change' | 'cancel' | 'complete',
+  details: Record<string, any>,
+  actorType: string,
+  actorId: string,
+  runtime: string
+): void {
+  db.runPreparedStatement('insertTaskAudit', [
+    db.generateId(),
+    taskId,
+    mutationType,
+    JSON.stringify(details),
+    actorType,
+    actorId,
+    runtime,
+    new Date().toISOString()
+  ]);
+}
+
 // --- Division Operations ---
 
 export function createDivision(
@@ -215,7 +238,8 @@ export function getStaffDivisions(
 
 export function createTask(
   db: DatabaseInstance,
-  input: CreateTaskInput
+  input: CreateTaskInput,
+  ctx?: { owner_type: string; owner_id: string; runtime: string }
 ): Task {
   const now = new Date().toISOString();
   const taskId = db.generateId();
@@ -237,6 +261,11 @@ export function createTask(
     JSON.stringify(input.dependencies ?? []),
     input.deliverable_id ?? null
   ]);
+
+  // Log task creation audit
+  if (ctx) {
+    logTaskAudit(db, taskId, 'create', { title: input.title, assigned_to_type: input.assigned_to_type, assigned_to_id: input.assigned_to_id }, ctx.owner_type, ctx.owner_id, ctx.runtime);
+  }
 
   const result = db.query('SELECT * FROM tasks WHERE task_id = ?', [taskId]);
   return result[0] as Task;
@@ -278,7 +307,8 @@ export function listTasks(
 export function updateTask(
   db: DatabaseInstance,
   taskId: string,
-  updates: UpdateTaskInput
+  updates: UpdateTaskInput,
+  ctx?: { owner_type: string; owner_id: string; runtime: string }
 ): Task {
   const existing = getTaskById(db, taskId);
   if (!existing) throw new Error(`Task '${taskId}' not found`);
@@ -299,6 +329,45 @@ export function updateTask(
     now,
     taskId
   ]);
+
+  // Log task mutation audit
+  if (ctx) {
+    const mutationTypes: Array<'update' | 'assign' | 'status_change' | 'dependency_change' | 'cancel' | 'complete'> = [];
+    const details: Record<string, any> = {};
+
+    if (updates.status && updates.status !== existing.status) {
+      mutationTypes.push('status_change');
+      details.old_status = existing.status;
+      details.new_status = updates.status;
+    }
+    if (updates.assigned_to_type && updates.assigned_to_type !== existing.assigned_to_type) {
+      mutationTypes.push('assign');
+      details.old_assigned_to_type = existing.assigned_to_type;
+      details.new_assigned_to_type = updates.assigned_to_type;
+    }
+    if (updates.assigned_to_id && updates.assigned_to_id !== existing.assigned_to_id) {
+      mutationTypes.push('assign');
+      details.old_assigned_to_id = existing.assigned_to_id;
+      details.new_assigned_to_id = updates.assigned_to_id;
+    }
+    if (updates.dependencies !== undefined) {
+      mutationTypes.push('dependency_change');
+      details.old_dependencies = existing.dependencies;
+      details.new_dependencies = updates.dependencies;
+    }
+    if (updates.title && updates.title !== existing.title) {
+      mutationTypes.push('update');
+      details.old_title = existing.title;
+      details.new_title = updates.title;
+    }
+    if (updates.completed_at && !existing.completed_at) {
+      mutationTypes.push('complete');
+    }
+
+    for (const mutationType of mutationTypes) {
+      logTaskAudit(db, taskId, mutationType, details, ctx.owner_type, ctx.owner_id, ctx.runtime);
+    }
+  }
 
   const result = db.query('SELECT * FROM tasks WHERE task_id = ?', [taskId]);
   return result[0] as Task;

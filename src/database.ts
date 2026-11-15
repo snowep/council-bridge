@@ -237,8 +237,9 @@ function createDatabase(dbPath?: string): DatabaseInstance {
     }
   }
 
-  // Development: default to persistent local database
-  if (!isProduction && !isTest && (!dbPath || dbPath === ':memory:')) {
+  // Development: default to persistent local database ONLY when no path provided
+  // Explicit :memory: should always be respected for testing
+  if (!isProduction && !isTest && !dbPath) {
     dbPath = path.join(process.cwd(), 'data', 'council.db');
   }
 

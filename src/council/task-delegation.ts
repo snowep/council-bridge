@@ -5,6 +5,7 @@ import { DatabaseInstance } from '../database.js';
 import { Task, MemoryOwnerType } from './types.js';
 import { OperationContext, requireAuthenticated, requireFounder } from './operations.js';
 import { createMemory } from './memory.js';
+import { logTaskAudit } from './divisions.js';
 import { randomUUID } from 'node:crypto';
 
 // Task statuses (matching existing TaskSchema)
@@ -982,6 +983,9 @@ export function submitDeliverable(
   db.db.prepare('UPDATE tasks SET status = ?, updated_at = ? WHERE task_id = ?').run(
     'review', now, deliverable.task_id
   );
+
+  // Log task status change audit
+  logTaskAudit(db, deliverable.task_id, 'status_change', { old_status: task.status, new_status: 'review' }, identity.owner_type, identity.owner_id, identity.runtime);
 
   // Create audit memory entry
   const memoryId = uniqueId('mem');

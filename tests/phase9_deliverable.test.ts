@@ -3,7 +3,9 @@
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
-import { createDatabase, DatabaseInstance } from '../src/database.js';
+import { createTestDatabase } from './helpers/test-database.js';
+import { initializeTestDatabase } from './helpers/test-migrations.js';
+import { DatabaseInstance } from '../src/database.js';
 import {
   createDivision,
   registerStaffAgent,
@@ -43,10 +45,13 @@ function uniqueStaffId(prefix: string): string {
 }
 
 describe('Phase 9 Batch 4: Deliverable Workflow', () => {
-  let db: DatabaseInstance;
+  let db: ReturnType<typeof createTestDatabase>;
+  let dbInstance: DatabaseInstance;
 
-  beforeEach(() => {
-    db = createDatabase(':memory:');
+  beforeEach(async () => {
+    db = createTestDatabase('deliverable-workflow');
+    await initializeTestDatabase(db.instance);
+    dbInstance = db.instance;
   });
 
   afterEach(() => {
@@ -55,7 +60,7 @@ describe('Phase 9 Batch 4: Deliverable Workflow', () => {
 
   function setupTestDivision(): string {
     const divisionId = uniqueName('Division');
-    createDivision(db, {
+    createDivision(dbInstance, {
       division_id: divisionId,
       name: divisionId,
       description: 'Test division'
@@ -65,7 +70,7 @@ describe('Phase 9 Batch 4: Deliverable Workflow', () => {
 
   function setupTestStaff(divisionId: string, name: string, role: string, status = 'active'): string {
     const staffId = uniqueStaffId('staff');
-    registerStaffAgent(db, {
+    registerStaffAgent(dbInstance, {
       staff_id: staffId,
       name,
       role,
@@ -74,12 +79,12 @@ describe('Phase 9 Batch 4: Deliverable Workflow', () => {
       permissions: [],
       status
     });
-    db.runPreparedStatement('insertDivisionMember', [divisionId, staffId, new Date().toISOString()]);
+    dbInstance.runPreparedStatement('insertDivisionMember', [divisionId, staffId, new Date().toISOString()]);
     return staffId;
   }
 
   function setupTask(divisionId: string, staffId: string, title: string = 'Test Task') {
-    const task = createBasicTask(db, {
+    const task = createBasicTask(dbInstance, {
       title,
       description: 'Test task description',
       assigned_to_type: 'staff',
@@ -100,7 +105,7 @@ describe('Phase 9 Batch 4: Deliverable Workflow', () => {
     const staffCtx = { owner_type: 'staff' as const, owner_id: staffId, runtime: 'claude' as const };
 
     // Create draft
-    const draft = createDeliverableDraft(db, staffCtx, {
+    const draft = createDeliverableDraft(dbInstance, staffCtx, {
       task_id: taskId,
       content: 'Draft content',
       quality_score: 80
@@ -111,7 +116,7 @@ describe('Phase 9 Batch 4: Deliverable Workflow', () => {
     assert.ok(draft.deliverable_id.startsWith('del-'));
 
     // Submit draft
-    const submitted = submitDeliverable(db, staffCtx, {
+    const submitted = submitDeliverable(dbInstance, staffCtx, {
       deliverable_id: draft.deliverable_id
     });
 
@@ -119,7 +124,7 @@ describe('Phase 9 Batch 4: Deliverable Workflow', () => {
     assert.strictEqual(submitted.quality_score, 80);
 
     // Task status should be review
-    const updatedTask = getBasicTaskById(db, taskId);
+    const updatedTask = getBasicTaskById(dbInstance, taskId);
     assert.strictEqual(updatedTask!.status, 'review');
   });
 
@@ -133,7 +138,7 @@ describe('Phase 9 Batch 4: Deliverable Workflow', () => {
     const otherCtx = { owner_type: 'staff' as const, owner_id: staffId2, runtime: 'claude' as const };
 
     assert.throws(() => {
-      createDeliverableDraft(db, otherCtx, {
+      createDeliverableDraft(dbInstance, otherCtx, {
         task_id: taskId,
         content: 'Unauthorized draft'
       });
@@ -146,18 +151,18 @@ describe('Phase 9 Batch 4: Deliverable Workflow', () => {
     const staffId = setupTestStaff(divisionId, 'Dev', 'Developer');
     const reviewerId = setupTestStaff(divisionId, 'Reviewer', 'Senior Dev');
     // Make reviewer the division head
-    updateDivision(db, divisionId, { head_staff_id: reviewerId });
+    updateDivision(dbInstance, divisionId, { head_staff_id: reviewerId });
     const taskId = setupTask(divisionId, staffId);
 
     const staffCtx = { owner_type: 'staff' as const, owner_id: staffId, runtime: 'claude' as const };
     const founderContext = { ...founderCtx };
 
     // Create and submit deliverable
-    const draft = createDeliverableDraft(db, staffCtx, { task_id: taskId, content: 'Content' });
-    submitDeliverable(db, staffCtx, { deliverable_id: draft.deliverable_id });
+    const draft = createDeliverableDraft(dbInstance, staffCtx, { task_id: taskId, content: 'Content' });
+    submitDeliverable(dbInstance, staffCtx, { deliverable_id: draft.deliverable_id });
 
     // Assign reviewer (founder can assign)
-    const assigned = assignReviewer(db, founderContext, {
+    const assigned = assignReviewer(dbInstance, founderContext, {
       deliverable_id: draft.deliverable_id,
       reviewer_type: 'division_head',
       reviewer_id: reviewerId
@@ -173,7 +178,7 @@ describe('Phase 9 Batch 4: Deliverable Workflow', () => {
     const staffId = setupTestStaff(divisionId, 'Dev', 'Developer');
     const reviewerId = setupTestStaff(divisionId, 'Reviewer', 'Senior Dev');
     // Make reviewer the division head
-    updateDivision(db, divisionId, { head_staff_id: reviewerId });
+    updateDivision(dbInstance, divisionId, { head_staff_id: reviewerId });
     const taskId = setupTask(divisionId, staffId);
 
     const staffCtx = { owner_type: 'staff' as const, owner_id: staffId, runtime: 'claude' as const };
@@ -181,18 +186,18 @@ describe('Phase 9 Batch 4: Deliverable Workflow', () => {
     const founderContext = { ...founderCtx };
 
     // Create and submit deliverable
-    const draft = createDeliverableDraft(db, staffCtx, { task_id: taskId, content: 'Content', quality_score: 85 });
-    submitDeliverable(db, staffCtx, { deliverable_id: draft.deliverable_id });
+    const draft = createDeliverableDraft(dbInstance, staffCtx, { task_id: taskId, content: 'Content', quality_score: 85 });
+    submitDeliverable(dbInstance, staffCtx, { deliverable_id: draft.deliverable_id });
 
     // Assign reviewer
-    assignReviewer(db, founderContext, {
+    assignReviewer(dbInstance, founderContext, {
       deliverable_id: draft.deliverable_id,
       reviewer_type: 'division_head',
       reviewer_id: reviewerId
     });
 
     // Reviewer approves
-    const approved = approveDeliverable(db, reviewerCtx, {
+    const approved = approveDeliverable(dbInstance, reviewerCtx, {
       deliverable_id: draft.deliverable_id,
       quality_score: 85
     });
@@ -201,7 +206,7 @@ describe('Phase 9 Batch 4: Deliverable Workflow', () => {
     assert.strictEqual(approved.requires_founder_sig, false);
 
     // Verify deliverable was updated in database
-    const updatedDeliverable = db.query('SELECT * FROM deliverables WHERE deliverable_id = ?', [draft.deliverable_id]);
+    const updatedDeliverable = dbInstance.query('SELECT * FROM deliverables WHERE deliverable_id = ?', [draft.deliverable_id]);
     assert.strictEqual(updatedDeliverable[0].status, 'accepted');
     assert.strictEqual(updatedDeliverable[0].approved_by_type, 'division_head');
     assert.strictEqual(updatedDeliverable[0].approved_by_id, reviewerId);
@@ -220,24 +225,24 @@ describe('Phase 9 Batch 4: Deliverable Workflow', () => {
     const founderContext = { ...founderCtx };
 
     // Make reviewer the division head
-    updateDivision(db, divisionId, { head_staff_id: reviewerId });
+    updateDivision(dbInstance, divisionId, { head_staff_id: reviewerId });
 
     // Set autonomy level 2 for this task type (requires division head approval)
-    db.runPreparedStatement('insertTaskAutonomyLevel', [
+    dbInstance.runPreparedStatement('insertTaskAutonomyLevel', [
       'Permission Task', 2, 'Requires division head'
     ]);
 
-    const draft = createDeliverableDraft(db, staffCtx, { task_id: taskId, content: 'Content', quality_score: 85 });
-    submitDeliverable(db, staffCtx, { deliverable_id: draft.deliverable_id });
+    const draft = createDeliverableDraft(dbInstance, staffCtx, { task_id: taskId, content: 'Content', quality_score: 85 });
+    submitDeliverable(dbInstance, staffCtx, { deliverable_id: draft.deliverable_id });
 
-    assignReviewer(db, founderContext, {
+    assignReviewer(dbInstance, founderContext, {
       deliverable_id: draft.deliverable_id,
       reviewer_type: 'division_head',
       reviewer_id: reviewerId
     });
 
     assert.throws(() => {
-      approveDeliverable(db, otherCtx, {
+      approveDeliverable(dbInstance, otherCtx, {
         deliverable_id: draft.deliverable_id,
         quality_score: 85
       });
@@ -256,19 +261,19 @@ describe('Phase 9 Batch 4: Deliverable Workflow', () => {
     const founderContext = { ...founderCtx };
 
     // Make reviewer the division head BEFORE creating deliverable
-    updateDivision(db, divisionId, { head_staff_id: reviewerId });
+    updateDivision(dbInstance, divisionId, { head_staff_id: reviewerId });
 
-    const draft = createDeliverableDraft(db, staffCtx, { task_id: taskId, content: 'Initial content', quality_score: 60 });
-    submitDeliverable(db, staffCtx, { deliverable_id: draft.deliverable_id });
+    const draft = createDeliverableDraft(dbInstance, staffCtx, { task_id: taskId, content: 'Initial content', quality_score: 60 });
+    submitDeliverable(dbInstance, staffCtx, { deliverable_id: draft.deliverable_id });
 
-    assignReviewer(db, founderContext, {
+    assignReviewer(dbInstance, founderContext, {
       deliverable_id: draft.deliverable_id,
       reviewer_type: 'division_head',
       reviewer_id: reviewerId
     });
 
     // Request revision
-    const revised = requestRevision(db, reviewerCtx, {
+    const revised = requestRevision(dbInstance, reviewerCtx, {
       deliverable_id: draft.deliverable_id,
       revision_notes: 'Need more tests'
     });
@@ -277,7 +282,7 @@ describe('Phase 9 Batch 4: Deliverable Workflow', () => {
     assert.strictEqual(revised.revision_notes, 'Need more tests');
 
     // Resubmit
-    const resubmitted = resubmitDeliverable(db, staffCtx, {
+    const resubmitted = resubmitDeliverable(dbInstance, staffCtx, {
       deliverable_id: draft.deliverable_id,
       content: 'Improved content with tests',
       quality_score: 85
@@ -288,7 +293,7 @@ describe('Phase 9 Batch 4: Deliverable Workflow', () => {
     assert.strictEqual(resubmitted.quality_score, 85);
 
     // History should have 2 versions
-    const history = getDeliverableHistory(db, staffCtx, draft.deliverable_id);
+    const history = getDeliverableHistory(dbInstance, staffCtx, draft.deliverable_id);
     assert.ok(history.length >= 2);
   });
 
@@ -300,18 +305,18 @@ describe('Phase 9 Batch 4: Deliverable Workflow', () => {
 
     const staffCtx = { owner_type: 'staff' as const, owner_id: staffId, runtime: 'claude' as const };
 
-    const draft = createDeliverableDraft(db, staffCtx, { task_id: taskId, content: 'Content' });
+    const draft = createDeliverableDraft(dbInstance, staffCtx, { task_id: taskId, content: 'Content' });
 
     assert.throws(() => {
-      submitDeliverable(db, staffCtx, { deliverable_id: draft.deliverable_id, quality_score: -1 });
+      submitDeliverable(dbInstance, staffCtx, { deliverable_id: draft.deliverable_id, quality_score: -1 });
     }, /Quality score must be between 0 and 100/);
 
     assert.throws(() => {
-      submitDeliverable(db, staffCtx, { deliverable_id: draft.deliverable_id, quality_score: 101 });
+      submitDeliverable(dbInstance, staffCtx, { deliverable_id: draft.deliverable_id, quality_score: 101 });
     }, /Quality score must be between 0 and 100/);
 
     // Valid scores should work
-    const result = submitDeliverable(db, staffCtx, { deliverable_id: draft.deliverable_id, quality_score: 75 });
+    const result = submitDeliverable(dbInstance, staffCtx, { deliverable_id: draft.deliverable_id, quality_score: 75 });
     assert.strictEqual(result.quality_score, 75);
   });
 
@@ -321,7 +326,7 @@ describe('Phase 9 Batch 4: Deliverable Workflow', () => {
     const staffId = setupTestStaff(divisionId, 'Dev', 'Developer');
     const reviewerId = setupTestStaff(divisionId, 'Reviewer', 'Senior Dev');
     // Create task assigned to division for division-specific threshold
-    const task = createBasicTask(db, {
+    const task = createBasicTask(dbInstance, {
       title: 'Test Task',
       description: 'Test task description',
       assigned_to_type: 'division',
@@ -337,20 +342,20 @@ describe('Phase 9 Batch 4: Deliverable Workflow', () => {
     const founderContext = { ...founderCtx };
 
     // Make reviewer the division head BEFORE creating deliverable
-    updateDivision(db, divisionId, { head_staff_id: reviewerId });
+    updateDivision(dbInstance, divisionId, { head_staff_id: reviewerId });
 
     // Set division-specific threshold for this task type
-    setQualityThreshold(db, founderContext, {
+    setQualityThreshold(dbInstance, founderContext, {
       division_id: divisionId,
       task_type: 'Test Task',
       min_quality_score: 90,
       requires_review: true
     });
 
-    const draft = createDeliverableDraft(db, staffCtx, { task_id: taskId, content: 'Content', quality_score: 85 });
-    submitDeliverable(db, staffCtx, { deliverable_id: draft.deliverable_id });
+    const draft = createDeliverableDraft(dbInstance, staffCtx, { task_id: taskId, content: 'Content', quality_score: 85 });
+    submitDeliverable(dbInstance, staffCtx, { deliverable_id: draft.deliverable_id });
 
-    assignReviewer(db, founderContext, {
+    assignReviewer(dbInstance, founderContext, {
       deliverable_id: draft.deliverable_id,
       reviewer_type: 'division_head',
       reviewer_id: reviewerId
@@ -358,7 +363,7 @@ describe('Phase 9 Batch 4: Deliverable Workflow', () => {
 
     // Should reject approval due to quality threshold
     assert.throws(() => {
-      approveDeliverable(db, reviewerCtx, {
+      approveDeliverable(dbInstance, reviewerCtx, {
         deliverable_id: draft.deliverable_id,
         quality_score: 85
       });
@@ -378,20 +383,20 @@ describe('Phase 9 Batch 4: Deliverable Workflow', () => {
     const founderContext = { ...founderCtx };
 
     // Make reviewer the division head BEFORE creating deliverable
-    updateDivision(db, divisionId, { head_staff_id: reviewerId });
+    updateDivision(dbInstance, divisionId, { head_staff_id: reviewerId });
 
     // Default global threshold is 70
-    const draft = createDeliverableDraft(db, staffCtx, { task_id: taskId, content: 'Content', quality_score: 65 });
-    submitDeliverable(db, staffCtx, { deliverable_id: draft.deliverable_id });
+    const draft = createDeliverableDraft(dbInstance, staffCtx, { task_id: taskId, content: 'Content', quality_score: 65 });
+    submitDeliverable(dbInstance, staffCtx, { deliverable_id: draft.deliverable_id });
 
-    assignReviewer(db, founderContext, {
+    assignReviewer(dbInstance, founderContext, {
       deliverable_id: draft.deliverable_id,
       reviewer_type: 'division_head',
       reviewer_id: reviewerId
     });
 
     assert.throws(() => {
-      approveDeliverable(db, reviewerCtx, {
+      approveDeliverable(dbInstance, reviewerCtx, {
         deliverable_id: draft.deliverable_id,
         quality_score: 65
       });
@@ -405,18 +410,18 @@ describe('Phase 9 Batch 4: Deliverable Workflow', () => {
     const taskId = setupTask(divisionId, staffId, 'Autonomous Task');
 
     // Set autonomy level 1 for this task type
-    db.runPreparedStatement('insertTaskAutonomyLevel', [
+    dbInstance.runPreparedStatement('insertTaskAutonomyLevel', [
       'Autonomous Task', 1, 'Auto-approve'
     ]);
 
     const staffCtx = { owner_type: 'staff' as const, owner_id: staffId, runtime: 'claude' as const };
     const founderContext = { ...founderCtx };
 
-    const draft = createDeliverableDraft(db, staffCtx, { task_id: taskId, content: 'Content', quality_score: 80 });
-    submitDeliverable(db, staffCtx, { deliverable_id: draft.deliverable_id });
+    const draft = createDeliverableDraft(dbInstance, staffCtx, { task_id: taskId, content: 'Content', quality_score: 80 });
+    submitDeliverable(dbInstance, staffCtx, { deliverable_id: draft.deliverable_id });
 
     // Level 1 - no reviewer needed, staff can approve their own deliverable if quality >= threshold
-    const approved = approveDeliverable(db, staffCtx, {
+    const approved = approveDeliverable(dbInstance, staffCtx, {
       deliverable_id: draft.deliverable_id,
       quality_score: 80
     });
@@ -430,7 +435,7 @@ describe('Phase 9 Batch 4: Deliverable Workflow', () => {
     const staffId = setupTestStaff(divisionId, 'Dev', 'Developer');
     const reviewerId = setupTestStaff(divisionId, 'Reviewer', 'Senior Dev');
     // Create task assigned to division for division head check to work
-    const task = createBasicTask(db, {
+    const task = createBasicTask(dbInstance, {
       title: 'Permission Task',
       description: 'Test task description',
       assigned_to_type: 'division',
@@ -442,7 +447,7 @@ describe('Phase 9 Batch 4: Deliverable Workflow', () => {
     const taskId = task.task_id;
 
     // Set autonomy level 2 for this task type
-    db.runPreparedStatement('insertTaskAutonomyLevel', [
+    dbInstance.runPreparedStatement('insertTaskAutonomyLevel', [
       'Permission Task', 2, 'Requires division head'
     ]);
 
@@ -451,12 +456,12 @@ describe('Phase 9 Batch 4: Deliverable Workflow', () => {
     const founderContext = { ...founderCtx };
 
     // Make reviewer the division head BEFORE creating deliverable
-    updateDivision(db, divisionId, { head_staff_id: reviewerId });
+    updateDivision(dbInstance, divisionId, { head_staff_id: reviewerId });
 
-    const draft = createDeliverableDraft(db, staffCtx, { task_id: taskId, content: 'Content', quality_score: 80 });
-    submitDeliverable(db, staffCtx, { deliverable_id: draft.deliverable_id });
+    const draft = createDeliverableDraft(dbInstance, staffCtx, { task_id: taskId, content: 'Content', quality_score: 80 });
+    submitDeliverable(dbInstance, staffCtx, { deliverable_id: draft.deliverable_id });
 
-    assignReviewer(db, founderContext, {
+    assignReviewer(dbInstance, founderContext, {
       deliverable_id: draft.deliverable_id,
       reviewer_type: 'division_head',
       reviewer_id: reviewerId
@@ -464,14 +469,14 @@ describe('Phase 9 Batch 4: Deliverable Workflow', () => {
 
     // Staff cannot approve Level 2
     assert.throws(() => {
-      approveDeliverable(db, staffCtx, {
+      approveDeliverable(dbInstance, staffCtx, {
         deliverable_id: draft.deliverable_id,
         quality_score: 80
       });
     }, /Level 2 requires Division Head or Founder approval/);
 
     // Division head can approve
-    const approved = approveDeliverable(db, reviewerCtx, {
+    const approved = approveDeliverable(dbInstance, reviewerCtx, {
       deliverable_id: draft.deliverable_id,
       quality_score: 80
     });
@@ -486,7 +491,7 @@ describe('Phase 9 Batch 4: Deliverable Workflow', () => {
     const taskId = setupTask(divisionId, staffId, 'Founder Task');
 
     // Set autonomy level 3 for this task type
-    db.runPreparedStatement('insertTaskAutonomyLevel', [
+    dbInstance.runPreparedStatement('insertTaskAutonomyLevel', [
       'Founder Task', 3, 'Requires founder'
     ]);
 
@@ -494,10 +499,10 @@ describe('Phase 9 Batch 4: Deliverable Workflow', () => {
     const reviewerCtx = { owner_type: 'staff' as const, owner_id: reviewerId, runtime: 'claude' as const };
     const founderContext = { ...founderCtx };
 
-    const draft = createDeliverableDraft(db, staffCtx, { task_id: taskId, content: 'Content', quality_score: 80 });
-    submitDeliverable(db, staffCtx, { deliverable_id: draft.deliverable_id });
+    const draft = createDeliverableDraft(dbInstance, staffCtx, { task_id: taskId, content: 'Content', quality_score: 80 });
+    submitDeliverable(dbInstance, staffCtx, { deliverable_id: draft.deliverable_id });
 
-    assignReviewer(db, founderContext, {
+    assignReviewer(dbInstance, founderContext, {
       deliverable_id: draft.deliverable_id,
       reviewer_type: 'founder',
       reviewer_id: 'founder'
@@ -505,7 +510,7 @@ describe('Phase 9 Batch 4: Deliverable Workflow', () => {
 
     // Division head cannot approve Level 3
     assert.throws(() => {
-      approveDeliverable(db, reviewerCtx, {
+      approveDeliverable(dbInstance, reviewerCtx, {
         deliverable_id: draft.deliverable_id,
         quality_score: 80
       });
@@ -514,11 +519,11 @@ describe('Phase 9 Batch 4: Deliverable Workflow', () => {
     // Insert a valid founder nonce for approval
     const nonce = 'test-nonce-' + crypto.randomUUID().slice(0, 8);
     const futureTime = Date.now() + 60000; // 1 minute in future
-    db.runPreparedStatement('insertFounderNonce', ['founder', `approve_deliverable_${draft.deliverable_id}`, nonce, futureTime]);
+    dbInstance.runPreparedStatement('insertFounderNonce', ['founder', `approve_deliverable_${draft.deliverable_id}`, nonce, futureTime]);
     const validSignature = JSON.stringify({ key_id: 'founder', nonce });
 
     // Founder can approve with valid signature
-    const approved = approveDeliverable(db, founderContext, {
+    const approved = approveDeliverable(dbInstance, founderContext, {
       deliverable_id: draft.deliverable_id,
       quality_score: 80,
       founder_signature: validSignature
@@ -532,18 +537,18 @@ describe('Phase 9 Batch 4: Deliverable Workflow', () => {
     const staffId = setupTestStaff(divisionId, 'Dev', 'Developer');
     const taskId = setupTask(divisionId, staffId, 'Founder Task');
 
-    db.runPreparedStatement('insertTaskAutonomyLevel', [
+    dbInstance.runPreparedStatement('insertTaskAutonomyLevel', [
       'Founder Task', 3, 'Requires founder'
     ]);
 
     const staffCtx = { owner_type: 'staff' as const, owner_id: staffId, runtime: 'claude' as const };
     const founderContext = { ...founderCtx };
 
-    const draft = createDeliverableDraft(db, staffCtx, { task_id: taskId, content: 'Content', quality_score: 80 });
-    submitDeliverable(db, staffCtx, { deliverable_id: draft.deliverable_id });
+    const draft = createDeliverableDraft(dbInstance, staffCtx, { task_id: taskId, content: 'Content', quality_score: 80 });
+    submitDeliverable(dbInstance, staffCtx, { deliverable_id: draft.deliverable_id });
 
     assert.throws(() => {
-      approveDeliverable(db, founderContext, {
+      approveDeliverable(dbInstance, founderContext, {
         deliverable_id: draft.deliverable_id,
         quality_score: 80
         // No founder_signature
@@ -557,15 +562,15 @@ describe('Phase 9 Batch 4: Deliverable Workflow', () => {
     const staffId = setupTestStaff(divisionId, 'Dev', 'Developer');
     const taskId = setupTask(divisionId, staffId, 'Founder Task');
 
-    db.runPreparedStatement('insertTaskAutonomyLevel', [
+    dbInstance.runPreparedStatement('insertTaskAutonomyLevel', [
       'Founder Task', 3, 'Requires founder'
     ]);
 
     const staffCtx = { owner_type: 'staff' as const, owner_id: staffId, runtime: 'claude' as const };
     const founderContext = { ...founderCtx };
 
-    const draft = createDeliverableDraft(db, staffCtx, { task_id: taskId, content: 'Content', quality_score: 80 });
-    submitDeliverable(db, staffCtx, { deliverable_id: draft.deliverable_id });
+    const draft = createDeliverableDraft(dbInstance, staffCtx, { task_id: taskId, content: 'Content', quality_score: 80 });
+    submitDeliverable(dbInstance, staffCtx, { deliverable_id: draft.deliverable_id });
 
     // Verify signature validation (founder signature verification should fail)
     const isValid = verifyFounderSignature('invalid-signature', 'test-operation');
@@ -578,20 +583,20 @@ describe('Phase 9 Batch 4: Deliverable Workflow', () => {
     const staffId = setupTestStaff(divisionId, 'Dev', 'Developer');
     const taskId = setupTask(divisionId, staffId, 'Founder Task');
 
-    db.runPreparedStatement('insertTaskAutonomyLevel', [
+    dbInstance.runPreparedStatement('insertTaskAutonomyLevel', [
       'Founder Task', 3, 'Requires founder'
     ]);
 
     const staffCtx = { owner_type: 'staff' as const, owner_id: staffId, runtime: 'claude' as const };
     const founderContext = { ...founderCtx };
 
-    const draft = createDeliverableDraft(db, staffCtx, { task_id: taskId, content: 'Content', quality_score: 80 });
-    submitDeliverable(db, staffCtx, { deliverable_id: draft.deliverable_id });
+    const draft = createDeliverableDraft(dbInstance, staffCtx, { task_id: taskId, content: 'Content', quality_score: 80 });
+    submitDeliverable(dbInstance, staffCtx, { deliverable_id: draft.deliverable_id });
 
     // Nonce should be validated
     // Insert an expired nonce
     const expiredTime = Date.now() - 10000; // 10 seconds ago
-    db.runPreparedStatement('insertFounderNonce', ['founder', 'approve_deliverable', 'test-nonce', expiredTime]);
+    dbInstance.runPreparedStatement('insertFounderNonce', ['founder', 'approve_deliverable', 'test-nonce', expiredTime]);
 
     // Try to use expired nonce - should fail
     const isValid = verifyFounderSignature('test-nonce', 'approve_deliverable');
@@ -604,18 +609,18 @@ describe('Phase 9 Batch 4: Deliverable Workflow', () => {
     const staffId = setupTestStaff(divisionId, 'Dev', 'Developer');
     const taskId = setupTask(divisionId, staffId, 'Founder Task');
 
-    db.runPreparedStatement('insertTaskAutonomyLevel', [
+    dbInstance.runPreparedStatement('insertTaskAutonomyLevel', [
       'Founder Task', 3, 'Requires founder'
     ]);
 
     const staffCtx = { owner_type: 'staff' as const, owner_id: staffId, runtime: 'claude' as const };
 
-    const draft = createDeliverableDraft(db, staffCtx, { task_id: taskId, content: 'Content', quality_score: 80 });
-    submitDeliverable(db, staffCtx, { deliverable_id: draft.deliverable_id });
+    const draft = createDeliverableDraft(dbInstance, staffCtx, { task_id: taskId, content: 'Content', quality_score: 80 });
+    submitDeliverable(dbInstance, staffCtx, { deliverable_id: draft.deliverable_id });
 
     // Staff trying to approve Level 3 should fail
     assert.throws(() => {
-      approveDeliverable(db, staffCtx, {
+      approveDeliverable(dbInstance, staffCtx, {
         deliverable_id: draft.deliverable_id,
         quality_score: 80,
         founder_signature: 'fake-signature'
@@ -635,34 +640,34 @@ describe('Phase 9 Batch 4: Deliverable Workflow', () => {
     const founderContext = { ...founderCtx };
 
     // Make reviewer the division head BEFORE creating deliverable
-    updateDivision(db, divisionId, { head_staff_id: reviewerId });
+    updateDivision(dbInstance, divisionId, { head_staff_id: reviewerId });
 
-    const draft = createDeliverableDraft(db, staffCtx, { task_id: taskId, content: 'v1', quality_score: 70 });
-    submitDeliverable(db, staffCtx, { deliverable_id: draft.deliverable_id });
+    const draft = createDeliverableDraft(dbInstance, staffCtx, { task_id: taskId, content: 'v1', quality_score: 70 });
+    submitDeliverable(dbInstance, staffCtx, { deliverable_id: draft.deliverable_id });
 
-    assignReviewer(db, founderContext, {
+    assignReviewer(dbInstance, founderContext, {
       deliverable_id: draft.deliverable_id,
       reviewer_type: 'division_head',
       reviewer_id: reviewerId
     });
 
-    requestRevision(db, reviewerCtx, {
+    requestRevision(dbInstance, reviewerCtx, {
       deliverable_id: draft.deliverable_id,
       revision_notes: 'Fix tests'
     });
 
-    resubmitDeliverable(db, staffCtx, {
+    resubmitDeliverable(dbInstance, staffCtx, {
       deliverable_id: draft.deliverable_id,
       content: 'v2 with tests',
       quality_score: 85
     });
 
-    approveDeliverable(db, reviewerCtx, {
+    approveDeliverable(dbInstance, reviewerCtx, {
       deliverable_id: draft.deliverable_id,
       quality_score: 85
     });
 
-    const history = getDeliverableHistory(db, staffCtx, draft.deliverable_id);
+    const history = getDeliverableHistory(dbInstance, staffCtx, draft.deliverable_id);
     assert.ok(history.length >= 3);
     assert.strictEqual(history[0].version_num, 1);
     assert.strictEqual(history[1].version_num, 2);
@@ -679,10 +684,10 @@ describe('Phase 9 Batch 4: Deliverable Workflow', () => {
     const reviewerCtx = { owner_type: 'staff' as const, owner_id: reviewerId, runtime: 'claude' as const };
     const founderContext = { ...founderCtx };
 
-    const draft = createDeliverableDraft(db, staffCtx, { task_id: taskId, content: 'Content', quality_score: 80 });
-    submitDeliverable(db, staffCtx, { deliverable_id: draft.deliverable_id });
+    const draft = createDeliverableDraft(dbInstance, staffCtx, { task_id: taskId, content: 'Content', quality_score: 80 });
+    submitDeliverable(dbInstance, staffCtx, { deliverable_id: draft.deliverable_id });
 
-    const history = getDeliverableHistory(db, staffCtx, draft.deliverable_id);
+    const history = getDeliverableHistory(dbInstance, staffCtx, draft.deliverable_id);
 
     // Should have at least the initial submission
     assert.ok(history.length >= 1);
@@ -703,7 +708,7 @@ describe('Phase 9 Batch 4: Deliverable Workflow', () => {
 
     // Staff from division 2 cannot create deliverable for division 1 task
     assert.throws(() => {
-      createDeliverableDraft(db, staffCtx2, {
+      createDeliverableDraft(dbInstance, staffCtx2, {
         task_id: taskId,
         content: 'Cross-division attempt'
       });
@@ -716,7 +721,7 @@ describe('Phase 9 Batch 4: Deliverable Workflow', () => {
     const staffId = setupTestStaff(divisionId, 'Dev', 'Developer');
     const reviewerId = setupTestStaff(divisionId, 'Reviewer', 'Senior Dev');
     // Create task assigned to division for HITL check - also set division head
-    const task = createBasicTask(db, {
+    const task = createBasicTask(dbInstance, {
       title: 'Permission Task',
       description: 'Test task description',
       assigned_to_type: 'division',
@@ -728,28 +733,28 @@ describe('Phase 9 Batch 4: Deliverable Workflow', () => {
     const taskId = task.task_id;
 
     // Set autonomy level 2 for this task type (requires division head approval)
-    db.runPreparedStatement('insertTaskAutonomyLevel', [
+    dbInstance.runPreparedStatement('insertTaskAutonomyLevel', [
       'Permission Task', 2, 'Requires division head'
     ]);
 
     // Make reviewer the division head BEFORE creating deliverable
-    updateDivision(db, divisionId, { head_staff_id: reviewerId });
+    updateDivision(dbInstance, divisionId, { head_staff_id: reviewerId });
 
     const staffCtx = { owner_type: 'staff' as const, owner_id: staffId, runtime: 'claude' as const };
     const reviewerCtx = { owner_type: 'staff' as const, owner_id: reviewerId, runtime: 'claude' as const };
     const founderContext = { ...founderCtx };
 
-    const draft = createDeliverableDraft(db, staffCtx, { task_id: taskId, content: 'Content', quality_score: 85 });
-    submitDeliverable(db, staffCtx, { deliverable_id: draft.deliverable_id });
+    const draft = createDeliverableDraft(dbInstance, staffCtx, { task_id: taskId, content: 'Content', quality_score: 85 });
+    submitDeliverable(dbInstance, staffCtx, { deliverable_id: draft.deliverable_id });
 
-    assignReviewer(db, founderContext, {
+    assignReviewer(dbInstance, founderContext, {
       deliverable_id: draft.deliverable_id,
       reviewer_type: 'division_head',
       reviewer_id: reviewerId
     });
 
     // First approval succeeds (division head can approve Level 2)
-    const approved1 = approveDeliverable(db, reviewerCtx, {
+    const approved1 = approveDeliverable(dbInstance, reviewerCtx, {
       deliverable_id: draft.deliverable_id,
       quality_score: 85
     });
@@ -758,7 +763,7 @@ describe('Phase 9 Batch 4: Deliverable Workflow', () => {
     // Second approval should fail (already accepted - not in reviewable state)
     // The code tries to insert a new version but hits UNIQUE constraint on deliverable_versions
     assert.throws(() => {
-      approveDeliverable(db, reviewerCtx, {
+      approveDeliverable(dbInstance, reviewerCtx, {
         deliverable_id: draft.deliverable_id,
         quality_score: 85
       });
@@ -773,14 +778,14 @@ describe('Phase 9 Batch 4: Deliverable Workflow', () => {
 
     const staffCtx = { owner_type: 'staff' as const, owner_id: staffId, runtime: 'claude' as const };
 
-    const draft = createDeliverableDraft(db, staffCtx, { task_id: taskId, content: 'Content' });
+    const draft = createDeliverableDraft(dbInstance, staffCtx, { task_id: taskId, content: 'Content' });
     assert.strictEqual(draft.task_id, taskId);
 
-    const submitted = submitDeliverable(db, staffCtx, { deliverable_id: draft.deliverable_id });
+    const submitted = submitDeliverable(dbInstance, staffCtx, { deliverable_id: draft.deliverable_id });
     assert.strictEqual(submitted.task_id, taskId);
 
     // Task should be updated to review status
-    const task = getBasicTaskById(db, taskId);
+    const task = getBasicTaskById(dbInstance, taskId);
     assert.strictEqual(task!.status, 'review');
   });
 
@@ -792,25 +797,28 @@ describe('Phase 9 Batch 4: Deliverable Workflow', () => {
 
     const staffCtx = { owner_type: 'staff' as const, owner_id: staffId, runtime: 'claude' as const };
 
-    const draft = createDeliverableDraft(db, staffCtx, { task_id: taskId, content: 'Content', quality_score: 80 });
+    const draft = createDeliverableDraft(dbInstance, staffCtx, { task_id: taskId, content: 'Content', quality_score: 80 });
 
     // Try to submit with invalid deliverable_id
     assert.throws(() => {
-      submitDeliverable(db, staffCtx, { deliverable_id: 'non-existent' });
+      submitDeliverable(dbInstance, staffCtx, { deliverable_id: 'non-existent' });
     });
 
     // Original draft should still exist and be valid
-    const retrieved = db.query('SELECT * FROM deliverables WHERE deliverable_id = ?', [draft.deliverable_id]);
+    const retrieved = dbInstance.query('SELECT * FROM deliverables WHERE deliverable_id = ?', [draft.deliverable_id]);
     assert.strictEqual(retrieved.length, 1);
     assert.strictEqual(retrieved[0].status, 'draft');
   });
 });
 
 describe('Phase 9 Batch 4: Quality Threshold Configuration', () => {
-  let db: DatabaseInstance;
+  let db: ReturnType<typeof createTestDatabase>;
+  let dbInstance: DatabaseInstance;
 
-  beforeEach(() => {
-    db = createDatabase(':memory:');
+  beforeEach(async () => {
+    db = createTestDatabase('quality-threshold');
+    await initializeTestDatabase(db.instance);
+    dbInstance = db.instance;
   });
 
   afterEach(() => {
@@ -820,29 +828,29 @@ describe('Phase 9 Batch 4: Quality Threshold Configuration', () => {
   it('should set and retrieve global quality threshold', () => {
     const founderContext = { ...founderCtx };
 
-    setQualityThreshold(db, founderContext, {
+    setQualityThreshold(dbInstance, founderContext, {
       min_quality_score: 80,
       requires_review: false
     });
 
-    const config = getQualityThresholdConfig(db, founderContext, null, null);
+    const config = getQualityThresholdConfig(dbInstance, founderContext, null, null);
     assert.strictEqual(config.min_quality_score, 80);
     assert.strictEqual(config.requires_review, false);
   });
 
   it('should set and retrieve division-specific threshold', () => {
     const divisionId = 'test-div-threshold-' + crypto.randomUUID().slice(0, 8);
-    createDivision(db, { division_id: divisionId, name: divisionId, description: 'Test' });
+    createDivision(dbInstance, { division_id: divisionId, name: divisionId, description: 'Test' });
 
     const founderContext = { ...founderCtx };
 
-    setQualityThreshold(db, founderContext, {
+    setQualityThreshold(dbInstance, founderContext, {
       division_id: divisionId,
       min_quality_score: 85,
       requires_review: true
     });
 
-    const config = getQualityThresholdConfig(db, founderContext, divisionId, null);
+    const config = getQualityThresholdConfig(dbInstance, founderContext, divisionId, null);
     assert.strictEqual(config.min_quality_score, 85);
     assert.strictEqual(config.requires_review, true);
   });
@@ -851,7 +859,7 @@ describe('Phase 9 Batch 4: Quality Threshold Configuration', () => {
     const staffCtx = { owner_type: 'staff' as const, owner_id: 'staff-1', runtime: 'claude' as const };
 
     assert.throws(() => {
-      setQualityThreshold(db, staffCtx, {
+      setQualityThreshold(dbInstance, staffCtx, {
         min_quality_score: 80,
         requires_review: true
       });
@@ -860,10 +868,13 @@ describe('Phase 9 Batch 4: Quality Threshold Configuration', () => {
 });
 
 describe('Phase 9 Batch 4: HITL Enforcement', () => {
-  let db: DatabaseInstance;
+  let db: ReturnType<typeof createTestDatabase>;
+  let dbInstance: DatabaseInstance;
 
-  beforeEach(() => {
-    db = createDatabase(':memory:');
+  beforeEach(async () => {
+    db = createTestDatabase('hitl-enforcement');
+    await initializeTestDatabase(db.instance);
+    dbInstance = db.instance;
   });
 
   afterEach(() => {
@@ -879,10 +890,10 @@ describe('Phase 9 Batch 4: HITL Enforcement', () => {
 
   it('should check division head status', () => {
     const divisionId = 'test-div-head-' + crypto.randomUUID().slice(0, 8);
-    createDivision(db, { division_id: divisionId, name: divisionId, description: 'Test', head_staff_id: 'staff-head' });
+    createDivision(dbInstance, { division_id: divisionId, name: divisionId, description: 'Test', head_staff_id: 'staff-head' });
 
     // Test helper function
-    const isHead = isDivisionHead(db, { owner_type: 'staff', owner_id: 'staff-head', runtime: 'claude' });
+    const isHead = isDivisionHead(dbInstance, { owner_type: 'staff', owner_id: 'staff-head', runtime: 'claude' });
     assert.strictEqual(typeof isHead, 'boolean');
   });
 });

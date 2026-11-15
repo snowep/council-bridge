@@ -648,7 +648,11 @@ export function listApprovalRequests(
 ): ApprovalRequest[] {
   const identity = requireAuthenticated(ctx);
 
-  // Founder sees all, others see only their own requests
+  // Only Founder can list approval requests
+  if (!isFounder(identity)) {
+    throw new Error('Only Founder can list approval requests');
+  }
+
   const whereClauses: string[] = [];
   const params: any[] = [];
 
@@ -663,12 +667,6 @@ export function listApprovalRequests(
   if (input.requested_by_id) {
     whereClauses.push('requested_by_id = ?');
     params.push(input.requested_by_id);
-  }
-
-  // Non-Founder can only see their own requests
-  if (!isFounder(identity)) {
-    whereClauses.push('(requested_by_type = ? AND requested_by_id = ?)');
-    params.push(identity.owner_type, identity.owner_id);
   }
 
   const where = whereClauses.length > 0 ? 'WHERE ' + whereClauses.join(' AND ') : '';
