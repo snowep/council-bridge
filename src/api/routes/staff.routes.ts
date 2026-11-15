@@ -2,7 +2,7 @@
 // Implements: GET /api/staff, GET /api/organization/staff, GET /api/divisions/members
 
 import { Router, Request, Response } from 'express';
-import { listStaffAgents, getStaffAgentById, getDivisionMembers, getStaffDivisions } from '../../council/divisions.js';
+import { listStaffAgents, getStaffAgentById, getDivisionMembers, getAllDivisionMembers, getStaffDivisions } from '../../council/divisions.js';
 import { getDatabase } from '../../database.js';
 import { authMiddleware, getAuthContext, requireAuth } from '../middleware/authentication.js';
 import { asyncHandler, NotFoundError } from '../middleware/error-handler.js';
@@ -79,7 +79,10 @@ router.get('/organization/staff', asyncHandler(async (req: Request, res: Respons
 router.get('/divisions/members', asyncHandler(async (req: Request, res: Response) => {
   requireAuth(req);
 
-  const members = getDivisionMembers(db, '');
+  const divisionId = req.query.division_id as string | undefined;
+  const members = divisionId
+    ? getDivisionMembers(db, divisionId)
+    : getAllDivisionMembers(db);
 
   res.json({ members });
 }));

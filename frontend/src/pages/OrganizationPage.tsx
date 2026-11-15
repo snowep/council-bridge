@@ -54,15 +54,17 @@ export default function OrganizationPage() {
       setLoading(true);
       setError(null);
       const [divRes, staffRes, memRes] = await Promise.all([
-        apiClient.get<any>('/api/divisions'),
-        apiClient.get<any>('/api/staff'),
-        apiClient.get<any>('/api/divisions/members'),
+        apiClient.get<{ divisions: Division[] }>('/api/divisions'),
+        apiClient.get<{ staff: StaffAgent[] }>('/api/staff'),
+        apiClient.get<{ members: DivisionMember[] }>('/api/staff/divisions/members'),
       ]);
-      setDivisions(Array.isArray(divRes) ? divRes : divRes.data || []);
-      setStaff(Array.isArray(staffRes) ? staffRes : staffRes.data || []);
-      setMembers(Array.isArray(memRes) ? memRes : memRes.data || []);
+      setDivisions(Array.isArray(divRes?.divisions) ? divRes.divisions : []);
+      setStaff(Array.isArray(staffRes?.staff) ? staffRes.staff : []);
+      setMembers(Array.isArray(memRes?.members) ? memRes.members : []);
     } catch (err: any) {
-      setError(err?.response?.data?.error || err.message || 'Failed to fetch data');
+      // Handle error object that might be { code, message } or Error
+      const errorMessage = err?.response?.data?.error || err?.message || err?.message || 'Failed to fetch data';
+      setError(typeof errorMessage === 'string' ? errorMessage : 'Failed to fetch data');
     } finally {
       setLoading(false);
     }

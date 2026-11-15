@@ -161,7 +161,7 @@ const TasksPage: React.FC = () => {
   const fetchDivisionsAndStaff = async () => {
     try {
       const [divisionsResponse, staffResponse] = await Promise.all([
-        apiClient.get<{ divisions: Array<{ division_id: string; name: string }> }>('/api/organization/divisions'),
+        apiClient.get<{ divisions: Array<{ division_id: string; name: string }> }>('/api/divisions/organization/divisions'),
         apiClient.get<{ staff: Array<{ staff_id: string; name: string; division_id: string }> }>('/api/staff'),
       ]);
       setDivisions(Array.isArray(divisionsResponse.divisions) ? divisionsResponse.divisions : []);

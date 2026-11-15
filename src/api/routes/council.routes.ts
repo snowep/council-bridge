@@ -5,6 +5,8 @@ import { Router, Request, Response } from 'express';
 import { getDatabase } from '../../database.js';
 import { listMemoryEntries } from '../../council/memory.js';
 import { listMeetings } from '../../council/meetings.js';
+import { getActiveConstitution, getStaffRuntimePersonas } from '../../council/divisions.js';
+import { getDatabase } from '../../database.js';
 import { authMiddleware, getAuthContext, requireAuth } from '../middleware/authentication.js';
 import { asyncHandler, NotFoundError } from '../middleware/error-handler.js';
 import { ListMeetingsSchema } from '../schemas/index.js';
@@ -20,12 +22,10 @@ router.get('/seats', asyncHandler(async (req: Request, res: Response) => {
   requireAuth(req);
 
   const stmt = db.db.prepare(`
-    SELECT cs.*, s.name as seat_name, s.description as seat_description,
-           u.name as occupant_name, u.runtime as occupant_runtime
+    SELECT cs.*, cs.name as seat_name, cs.description as seat_description,
+           NULL as occupant_name, NULL as occupant_runtime
     FROM council_seats cs
-    LEFT JOIN seats s ON cs.seat_id = s.id
-    LEFT JOIN users u ON cs.occupant_id = u.id
-    WHERE cs.is_active = 1
+    WHERE cs.status != 'vacant'
     ORDER BY cs.seat_id
   `);
 
@@ -50,7 +50,7 @@ router.get('/personas', asyncHandler(async (req: Request, res: Response) => {
     offset: 0,
   });
 
-  res.json({ personas });
+  res.json({ data: personas });
 }));
 
 // GET /api/council/meetings - Alias for meetings list
@@ -61,6 +61,36 @@ router.get('/meetings', asyncHandler(async (req: Request, res: Response) => {
   const meetings = listMeetings(db);
 
   res.json({ meetings, limit, offset });
+}));
+
+// GET /api/council/constitution - Get active constitution
+router.get('/constitution', asyncHandler(async (req: Request, res: Response) => {
+  requireAuth(req);
+
+  const constitution = getActiveConstitution(db);
+
+  if (!constitution) {
+    return res.status(404).json({ error: 'No active constitution found', code: 'NOT_FOUND' });
+  }
+
+  res.json({ data: constitution });
+}));
+
+// GET /api/council/runtime-assignments - Get runtime persona assignments
+router.get('/runtime-assignments', asyncHandler(async (req: Request, res: Response) => {
+  requireAuth(req);
+
+  const [claudeAssignments, hermesAssignments] = await Promise.all([
+    getStaffRuntimePersonas(db, 'claude'),
+    getStaffRuntimePersonas(db, 'hermes'),
+  ]);
+
+  const assignments = [
+    ...claudeAssignments.map(a => ({ runtime: 'claude', persona_id: a.staff_id })),
+    ...hermesAssignments.map(a => ({ runtime: 'hermes', persona_id: a.staff_id })),
+  ];
+
+  res.json({ data: assignments });
 }));
 
 export default router;

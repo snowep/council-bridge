@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Box,
   Typography,
@@ -102,14 +102,14 @@ const CouncilPage: React.FC = () => {
         apiClient.get<{ data: Persona[] }>('/api/council/personas'),
         apiClient.get<{ data: RuntimePersonaAssignment[] }>('/api/council/runtime-assignments'),
         apiClient.get<Constitution>('/api/council/constitution'),
-        apiClient.get<{ data: FounderApproval[] }>('/api/council/approvals'),
+        apiClient.get<{ data: FounderApproval[] }>('/api/approvals'),
       ]);
 
-      setSeats(seatsResponse.data);
-      setPersonas(personasResponse.data);
-      setRuntimeAssignments(assignmentsResponse.data);
-      setConstitution(constitutionResponse);
-      setFounderApprovals(approvalsResponse.data);
+      setSeats(Array.isArray(seatsResponse.data) ? seatsResponse.data : []);
+      setPersonas(Array.isArray(personasResponse.data) ? personasResponse.data : []);
+      setRuntimeAssignments(Array.isArray(assignmentsResponse.data) ? assignmentsResponse.data : []);
+      setConstitution(constitutionResponse.data || constitutionResponse);
+      setFounderApprovals(Array.isArray(approvalsResponse.data) ? approvalsResponse.data : []);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to fetch council data';
       setError(message);
@@ -122,6 +122,10 @@ const CouncilPage: React.FC = () => {
   const handleRefresh = () => {
     fetchAllData();
   };
+
+  useEffect(() => {
+    fetchAllData();
+  }, []);
 
   const getPersonaForSeat = (seatId: string) => {
     return personas.find(p => p.seat_id === seatId);

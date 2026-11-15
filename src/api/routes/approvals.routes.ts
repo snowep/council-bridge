@@ -32,7 +32,7 @@ router.get('/', asyncHandler(async (req: Request, res: Response) => {
     requested_by_id: effectiveRequestedById,
   });
 
-  res.json({ approvals, limit, offset });
+  res.json({ data: approvals, limit, offset });
 }));
 
 export default router;

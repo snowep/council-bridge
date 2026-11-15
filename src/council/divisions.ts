@@ -7,7 +7,8 @@ import {
   StaffAgent,
   DivisionMember,
   Task,
-  Deliverable
+  Deliverable,
+  Constitution
 } from './types.js';
 import {
   CreateDivisionInput,
@@ -224,6 +225,36 @@ export function getDivisionMembers(
 ): DivisionMember[] {
   const result = db.query('SELECT * FROM division_members WHERE division_id = ?', [divisionId]);
   return result as DivisionMember[];
+}
+
+export function getAllDivisionMembers(
+  db: DatabaseInstance
+): DivisionMember[] {
+  const result = db.query('SELECT * FROM division_members');
+  return result as DivisionMember[];
+}
+
+export function getStaffRuntimePersonas(
+  db: DatabaseInstance,
+  runtime: string
+): Array<{ runtime: string; staff_id: string }> {
+  const result = db.query('SELECT * FROM staff_runtime_personas WHERE runtime = ?', [runtime]);
+  return result as Array<{ runtime: string; staff_id: string }>;
+}
+
+export function getActiveConstitution(
+  db: DatabaseInstance
+): Constitution | undefined {
+  const row = db.query('SELECT * FROM constitutions WHERE status = ?', ['active'])[0];
+  return row ? {
+    constitution_id: row.version,
+    version: row.version,
+    content: row.content,
+    status: row.status,
+    approved_by_founder: Boolean(row.approved_by_founder),
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  } as Constitution : undefined;
 }
 
 export function getStaffDivisions(
