@@ -62,9 +62,11 @@ export default function ChatPage() {
   const fetchConversations = async () => {
     try {
       const response = await apiClient.get<Conversation[]>('/api/messages/conversations');
-      setConversations(response);
+      // Handle response that might be an object with error or empty array
+      setConversations(Array.isArray(response) ? response : []);
     } catch (err: any) {
       console.error('Failed to fetch conversations:', err);
+      setConversations([]);
     } finally {
       setLoading(false);
     }
@@ -73,9 +75,10 @@ export default function ChatPage() {
   const fetchMessages = async (conversationId: string) => {
     try {
       const response = await apiClient.get<Message[]>(`/api/messages/${conversationId}`);
-      setMessages(response);
+      setMessages(Array.isArray(response) ? response : []);
     } catch (err: any) {
       console.error('Failed to fetch messages:', err);
+      setMessages([]);
     }
   };
 
