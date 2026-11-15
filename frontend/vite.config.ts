@@ -1,6 +1,10 @@
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
 import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // https://vite.dev/config/
 export default defineConfig({
@@ -51,5 +55,8 @@ export default defineConfig({
         },
       },
     },
+  },
+  define: {
+    'import.meta.env.VITE_LOCAL_SINGLE_USER_MODE': JSON.stringify(process.env.LOCAL_SINGLE_USER_MODE === 'true'),
   },
 });

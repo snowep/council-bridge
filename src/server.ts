@@ -62,7 +62,7 @@ import deliverablesRoutes from './api/routes/deliverables.routes.js';
 import qualityRoutes from './api/routes/quality.routes.js';
 
 // Import middleware
-import { authMiddleware, getAuthContext } from './api/middleware/authentication.js';
+import { authMiddleware, getAuthContext, validateLocalSingleUserConfig, isLocalSingleUserMode, getLocalBindAddress } from './api/middleware/authentication.js';
 import { errorHandler } from './api/middleware/error-handler.js';
 
 // Initialize crypto module for operations
@@ -104,6 +104,8 @@ async function initDb() {
 const config = getAuthConfig();
 const PRODUCTION_MODE = isProductionMode();
 const DEVELOPMENT_MODE = isDevelopmentMode();
+const LOCAL_MODE = isLocalSingleUserMode();
+const LOCAL_BIND_ADDRESS = getLocalBindAddress();
 
 // Validate auth configuration on startup
 const authValidation = validateAuthMode();
@@ -118,10 +120,25 @@ if (!authValidation.valid) {
   }
 }
 
+// Validate local single-user mode configuration
+const localConfigValidation = validateLocalSingleUserConfig();
+if (!localConfigValidation.valid) {
+  console.error('⚠️  LOCAL SINGLE-USER MODE CONFIGURATION ERRORS:');
+  for (const error of localConfigValidation.errors) {
+    console.error(`   - ${error}`);
+  }
+  console.error('❌ Server will not start with invalid local single-user mode config');
+  process.exit(1);
+}
+
 console.log(`🔐 Auth Mode: ${config.mode.toUpperCase()}`);
 console.log(`🔐 Hardcoded Fallback: ${config.allow_hardcoded_fallback ? 'ENABLED (development only)' : 'DISABLED'}`);
 console.log(`🔐 Session Timeout: ${config.session_timeout_ms / 1000 / 60} minutes`);
 console.log(`🔐 Founder Key ID: ${getFounderKeyId() ?? 'NOT INITIALIZED'}`);
+if (LOCAL_MODE) {
+  console.log(`🔐 Local Single-User Mode: ENABLED (bind: ${LOCAL_BIND_ADDRESS})`);
+  console.log(`🔐 Loopback Restriction: ACTIVE`);
+}
 
 // Rate limiting for founder-signature endpoints (DoS protection)
 const founderSignatureRateLimit = rateLimit({
@@ -428,7 +445,7 @@ app.all('/mcp', authMiddleware, async (req, res) => {
 app.use(errorHandler);
 
 // Start server
-const PORT = process.env.PORT || 3334;
+const PORT = parseInt(process.env.PORT || '3334', 10);
 
 initDb().then(() => {
   setDatabaseInstance(db);
@@ -437,8 +454,9 @@ initDb().then(() => {
     cleanupExpiredSessions();
   }, 5 * 60 * 1000);
 
-  app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT} [${config.mode.toUpperCase()}]`);
+  const bindAddress = LOCAL_MODE ? LOCAL_BIND_ADDRESS : '0.0.0.0';
+  app.listen(PORT, bindAddress, () => {
+    console.log(`Server running on ${bindAddress}:${PORT} [${config.mode.toUpperCase()}${LOCAL_MODE ? ' + LOCAL' : ''}]`);
   });
 });
 

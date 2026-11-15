@@ -108,7 +108,7 @@ const CouncilPage: React.FC = () => {
       setSeats(Array.isArray(seatsResponse.data) ? seatsResponse.data : []);
       setPersonas(Array.isArray(personasResponse.data) ? personasResponse.data : []);
       setRuntimeAssignments(Array.isArray(assignmentsResponse.data) ? assignmentsResponse.data : []);
-      setConstitution(constitutionResponse.data || constitutionResponse);
+      setConstitution(constitutionResponse);
       setFounderApprovals(Array.isArray(approvalsResponse.data) ? approvalsResponse.data : []);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to fetch council data';

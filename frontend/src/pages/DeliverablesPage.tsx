@@ -255,6 +255,21 @@ export default function DeliverablesPage() {
     }
   };
 
+  const handleAssignReviewer = async () => {
+    if (!selectedDeliverable || !reviewData.reviewer_type || !reviewData.reviewer_id) return;
+    try {
+      await apiClient.put(`/api/deliverables/${selectedDeliverable.deliverable_id}/assign-reviewer`, {
+        reviewer_type: reviewData.reviewer_type,
+        reviewer_id: reviewData.reviewer_id,
+      });
+      fetchDeliverables();
+      fetchDeliverableDetail(selectedDeliverable.deliverable_id);
+    } catch (err: any) {
+      console.error('Failed to assign reviewer:', err);
+      alert('Failed to assign reviewer: ' + (err?.response?.data?.error || err.message));
+    }
+  };
+
   const handleSelectDeliverable = (deliverable: Deliverable) => {
     setSelectedDeliverable(deliverable);
     fetchDeliverableDetail(deliverable.deliverable_id);
@@ -674,7 +689,13 @@ export default function DeliverablesPage() {
                   </Select>
                 </FormControl>
 
-                <Button variant="contained" startIcon={<GavelOutlined />} onClick={() => { /* Assign reviewer API call */ }} fullWidth>
+                <Button
+                  variant="contained"
+                  startIcon={<GavelOutlined />}
+                  onClick={handleAssignReviewer}
+                  disabled={!reviewData.reviewer_type || !reviewData.reviewer_id}
+                  fullWidth
+                >
                   Assign Reviewer
                 </Button>
               </CardContent>

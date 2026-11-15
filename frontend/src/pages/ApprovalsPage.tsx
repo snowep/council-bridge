@@ -8,15 +8,28 @@ import {
   CircularProgress,
   Alert,
   Chip,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Paper,
+  IconButton,
+  Tooltip,
 } from '@mui/material';
-import { VerifiedUserOutlined, RefreshOutlined } from '@mui/icons-material';
+import { VerifiedUserOutlined, RefreshOutlined, CheckCircleOutlined, CancelOutlined } from '@mui/icons-material';
+import { useAppAuth } from '../app/App';
 import { apiClient } from '../services/api';
 import type { ApprovalRequest } from '../types/api';
 
 export default function ApprovalsPage() {
+  const { authContext } = useAppAuth();
+  const isFounder = authContext?.owner_type === 'founder';
   const [approvals, setApprovals] = useState<ApprovalRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [processing, setProcessing] = useState<Set<string>>(new Set());
 
   const fetchApprovals = async () => {
     try {
@@ -29,6 +42,40 @@ export default function ApprovalsPage() {
       setError(err?.response?.data?.error || err.message || 'Failed to fetch approvals');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleApprove = async (approvalRequestId: string) => {
+    setProcessing(prev => new Set(prev).add(approvalRequestId));
+    try {
+      await apiClient.post('/api/executions/approve', {
+        approval_request_id: approvalRequestId,
+        approved: true,
+      });
+      fetchApprovals();
+    } catch (err: any) {
+      console.error('Failed to approve:', err);
+      alert('Failed to approve: ' + (err?.response?.data?.error || err.message));
+    } finally {
+      setProcessing(prev => { const next = new Set(prev); next.delete(approvalRequestId); return next; });
+    }
+  };
+
+  const handleReject = async (approvalRequestId: string) => {
+    if (!window.confirm('Reject this approval request? This action cannot be undone.')) return;
+    setProcessing(prev => new Set(prev).add(approvalRequestId));
+    try {
+      await apiClient.post('/api/executions/approve', {
+        approval_request_id: approvalRequestId,
+        approved: false,
+        rejection_reason: 'Rejected by user',
+      });
+      fetchApprovals();
+    } catch (err: any) {
+      console.error('Failed to reject:', err);
+      alert('Failed to reject: ' + (err?.response?.data?.error || err.message));
+    } finally {
+      setProcessing(prev => { const next = new Set(prev); next.delete(approvalRequestId); return next; });
     }
   };
 
@@ -74,58 +121,88 @@ export default function ApprovalsPage() {
         <Card>
           <CardContent>
             <Typography variant="h6" sx={{ mb: 2 }}>Pending Approvals ({approvals.filter(a => a.status === 'pending').length})</Typography>
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <thead>
-                  <tr style={{ borderBottom: '1px solid', borderColor: 'divider' }}>
-                    <th style={{ textAlign: 'left', padding: '12px 16px' }}>Approval ID</th>
-                    <th style={{ textAlign: 'left', padding: '12px 16px' }}>Execution</th>
-                    <th style={{ textAlign: 'left', padding: '12px 16px' }}>Action</th>
-                    <th style={{ textAlign: 'left', padding: '12px 16px' }}>Requested By</th>
-                    <th style={{ textAlign: 'left', padding: '12px 16px' }}>Priority</th>
-                    <th style={{ textAlign: 'left', padding: '12px 16px' }}>Status</th>
-                    <th style={{ textAlign: 'left', padding: '12px 16px' }}>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
+            <TableContainer component={Paper}>
+              <Table stickyHeader>
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Approval ID</TableCell>
+                    <TableCell>Execution</TableCell>
+                    <TableCell>Action</TableCell>
+                    <TableCell>Requested By</TableCell>
+                    <TableCell>Priority</TableCell>
+                    <TableCell>Status</TableCell>
+                    <TableCell align="right">Actions</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
                   {approvals.map((approval) => (
-                    <tr key={approval.approval_request_id} style={{ borderBottom: '1px solid', borderColor: 'divider' }}>
-                      <td style={{ padding: '12px 16px', fontFamily: 'monospace', fontSize: '0.875rem' }}>
+                    <TableRow key={approval.approval_request_id} hover>
+                      <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.875rem' }}>
                         #{approval.approval_request_id.slice(0, 8)}
-                      </td>
-                      <td style={{ padding: '12px 16px', fontFamily: 'monospace', fontSize: '0.875rem' }}>
+                      </TableCell>
+                      <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.875rem' }}>
                         #{approval.execution_id.slice(0, 8)}
-                      </td>
-                      <td style={{ padding: '12px 16px', maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {approval.action_description}
-                      </td>
-                      <td style={{ padding: '12px 16px' }}>
+                      </TableCell>
+                      <TableCell>
+                        <Typography variant="body2" sx={{ maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {approval.action_description}
+                        </Typography>
+                      </TableCell>
+                      <TableCell>
                         <Chip label={approval.requested_by_type} size="small" variant="outlined" />
                         <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>{approval.requested_by_id}</Typography>
-                      </td>
-                      <td style={{ padding: '12px 16px' }}>
+                      </TableCell>
+                      <TableCell>
                         <Chip label={approval.priority} size="small" variant="outlined" />
-                      </td>
-                      <td style={{ padding: '12px 16px' }}>
-                        <Chip label={approval.status} size="small" color={approval.status === 'approved' ? 'success' : approval.status === 'rejected' ? 'error' : 'warning'} />
-                      </td>
-                      <td style={{ padding: '12px 16px' }}>
-                        {approval.status === 'pending' && (
+                      </TableCell>
+                      <TableCell>
+                        <Chip
+                          label={approval.status}
+                          size="small"
+                          color={approval.status === 'approved' ? 'success' : approval.status === 'rejected' ? 'error' : 'warning'}
+                          variant="outlined"
+                        />
+                      </TableCell>
+                      <TableCell align="right">
+                        {approval.status === 'pending' && isFounder && (
                           <Box sx={{ display: 'flex', gap: 1 }}>
-                            <Button size="small" variant="contained" color="success" onClick={() => alert('Approve: ' + approval.approval_request_id)}>
-                              Approve
-                            </Button>
-                            <Button size="small" variant="outlined" color="error" onClick={() => alert('Reject: ' + approval.approval_request_id)}>
-                              Reject
-                            </Button>
+                            <Tooltip title="Approve">
+                              <IconButton
+                                size="small"
+                                color="success"
+                                onClick={() => handleApprove(approval.approval_request_id)}
+                                disabled={processing.has(approval.approval_request_id)}
+                              >
+                                {processing.has(approval.approval_request_id) ? (
+                                  <CircularProgress size={18} color="inherit" />
+                                ) : (
+                                  <CheckCircleOutlined fontSize="small" />
+                                )}
+                              </IconButton>
+                            </Tooltip>
+                            <Tooltip title="Reject">
+                              <IconButton
+                                size="small"
+                                color="error"
+                                onClick={() => handleReject(approval.approval_request_id)}
+                                disabled={processing.has(approval.approval_request_id)}
+                              >
+                                <CancelOutlined fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
                           </Box>
                         )}
-                      </td>
-                    </tr>
+                        {!isFounder && approval.status === 'pending' && (
+                          <Typography variant="caption" color="text.secondary">
+                            Founder action required
+                          </Typography>
+                        )}
+                      </TableCell>
+                    </TableRow>
                   ))}
-                </tbody>
-              </table>
-            </div>
+                </TableBody>
+              </Table>
+            </TableContainer>
           </CardContent>
         </Card>
       )}

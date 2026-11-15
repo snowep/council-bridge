@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   Box,
   Typography,
@@ -12,11 +12,27 @@ import {
   ListItemText,
   Avatar,
   Chip,
+  IconButton,
+  Alert,
+  Drawer,
+  Divider,
+  useMediaQuery,
 } from '@mui/material';
-import { ChatOutlined, SendOutlined, PersonOutlined, AccountBalanceOutlined, BusinessOutlined } from '@mui/icons-material';
+import {
+  ChatOutlined,
+  SendOutlined,
+  PersonOutlined,
+  AccountBalanceOutlined,
+  BusinessOutlined,
+  SearchOutlined,
+  Menu as MenuIcon,
+  CloseOutlined,
+  RefreshOutlined,
+} from '@mui/icons-material';
 import { apiClient } from '../services/api';
 import type { Message, Conversation } from '../types/api';
 import { useAppAuth } from '../app/App';
+import { useTheme } from '@mui/material/styles';
 
 const ParticipantIcon = ({ type, size = 'small' }: { type: string; size?: 'small' | 'medium' | 'large' }) => {
   switch (type) {
@@ -53,20 +69,34 @@ const formatTime = (dateString: string) => {
 
 export default function ChatPage() {
   const { authContext } = useAppAuth();
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [filteredConversations, setFilteredConversations] = useState<Conversation[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [newMessage, setNewMessage] = useState('');
+  const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
+  const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const fetchConversations = async () => {
     try {
+      setFetchError(null);
       const response = await apiClient.get<Conversation[]>('/api/messages/conversations');
-      // Handle response that might be an object with error or empty array
-      setConversations(Array.isArray(response) ? response : []);
+      const list = Array.isArray(response) ? response : [];
+      setConversations(list);
+      setFilteredConversations(list);
     } catch (err: any) {
+      const msg = err?.response?.data?.error || err.message || 'Failed to fetch conversations';
+      setFetchError(msg);
       console.error('Failed to fetch conversations:', err);
       setConversations([]);
+      setFilteredConversations([]);
     } finally {
       setLoading(false);
     }
@@ -74,9 +104,12 @@ export default function ChatPage() {
 
   const fetchMessages = async (conversationId: string) => {
     try {
+      setFetchError(null);
       const response = await apiClient.get<Message[]>(`/api/messages/${conversationId}`);
       setMessages(Array.isArray(response) ? response : []);
     } catch (err: any) {
+      const msg = err?.response?.data?.error || err.message || 'Failed to fetch messages';
+      setFetchError(msg);
       console.error('Failed to fetch messages:', err);
       setMessages([]);
     }
@@ -85,14 +118,24 @@ export default function ChatPage() {
   const handleSelectConversation = (conversation: Conversation) => {
     setSelectedConversation(conversation);
     fetchMessages(conversation.participant_id);
+    if (isMobile) setMobileDrawerOpen(false);
+  };
+
+  const handleSearch = (value: string) => {
+    const filtered = conversations.filter(conv =>
+      conv.participant_name.toLowerCase().includes(value.toLowerCase()) ||
+      conv.participant_id.toLowerCase().includes(value.toLowerCase())
+    );
+    setFilteredConversations(filtered);
   };
 
   const sendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newMessage.trim() || !selectedConversation) return;
-
     const content = newMessage.trim();
-    setNewMessage('');
+    if (!content || !selectedConversation || sending) return;
+
+    setSending(true);
+    setSendError(null);
 
     try {
       const response = await apiClient.post<Message>('/api/messages', {
@@ -100,14 +143,37 @@ export default function ChatPage() {
         content,
       });
       setMessages(prev => [...prev, response]);
+      setNewMessage('');
+      // Update conversation list with new last message
+      setConversations(prev => prev.map(conv =>
+        conv.participant_id === selectedConversation.participant_id
+          ? { ...conv, last_message: response }
+          : conv
+      ));
     } catch (err: any) {
+      const msg = err?.response?.data?.error || err.message || 'Failed to send message';
+      setSendError(msg);
       console.error('Failed to send message:', err);
+    } finally {
+      setSending(false);
     }
+  };
+
+  const retrySend = () => {
+    sendMessage(new Event('submit') as unknown as React.FormEvent);
   };
 
   useEffect(() => {
     fetchConversations();
   }, []);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  useEffect(() => {
+    handleSearch('');
+  }, [conversations]);
 
   if (loading) {
     return (
@@ -119,33 +185,51 @@ export default function ChatPage() {
 
   return (
     <Box sx={{ display: 'flex', height: 'calc(100vh - 120px)' }}>
-      {/* Conversation List */}
-      <Paper sx={{ width: 380, borderRight: 1, borderColor: 'divider', display: 'flex', flexDirection: 'column' }}>
-        <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}>
+      {/* Mobile Drawer for Conversation List */}
+      <Drawer
+        variant="temporary"
+        open={mobileDrawerOpen}
+        onClose={() => setMobileDrawerOpen(false)}
+        ModalProps={{ keepMounted: true }}
+        sx={{
+          display: { xs: 'block', md: 'none' },
+          '& .MuiDrawer-paper': { width: 320, boxSizing: 'border-box' },
+        }}
+      >
+        <Box sx={{ p: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <Typography variant="h6" sx={{ fontWeight: 600 }}>Conversations</Typography>
+          <IconButton onClick={() => setMobileDrawerOpen(false)}><CloseOutlined /></IconButton>
         </Box>
-        <Box sx={{ p: 1, borderBottom: 1, borderColor: 'divider' }}>
+        <Box sx={{ p: 1 }}>
           <TextField
             placeholder="Search conversations..."
             size="small"
             fullWidth
+            inputRef={searchRef}
+            onChange={(e) => handleSearch(e.target.value)}
+            slotProps={{ input: { startAdornment: <SearchOutlined color="action" /> } }}
           />
         </Box>
+        <Divider />
         <Box sx={{ flex: 1, overflow: 'auto' }}>
-          {conversations.length === 0 ? (
+          {filteredConversations.length === 0 ? (
             <Box sx={{ p: 3, textAlign: 'center' }}>
               <ChatOutlined sx={{ fontSize: 48, color: 'text.secondary', mb: 2 }} />
-              <Typography variant="body1" color="text.secondary">No conversations yet</Typography>
+              <Typography variant="body1" color="text.secondary">
+                {fetchError ? 'Failed to load conversations' : 'No conversations yet'}
+              </Typography>
+              {fetchError && (
+                <Button variant="outlined" startIcon={<RefreshOutlined />} onClick={fetchConversations} sx={{ mt: 2 }}>
+                  Retry
+                </Button>
+              )}
             </Box>
           ) : (
             <List>
-              {conversations.map((conv) => {
+              {filteredConversations.map((conv) => {
                 const type = getParticipantType(conv.participant_id);
                 return (
-                  <ListItem
-                    key={conv.participant_id}
-                    sx={{ borderBottom: 1, borderColor: 'divider' }}
-                  >
+                  <ListItem key={conv.participant_id} sx={{ borderBottom: 1, borderColor: 'divider' }}>
                     <ListItemButton
                       selected={selectedConversation?.participant_id === conv.participant_id}
                       onClick={() => handleSelectConversation(conv)}
@@ -167,7 +251,79 @@ export default function ChatPage() {
             </List>
           )}
         </Box>
-      </Paper>
+      </Drawer>
+
+      {/* Desktop Conversation List / Mobile Toggle Button */}
+      <Box
+        sx={{
+          display: { xs: 'none', md: 'flex' },
+          width: 380,
+          borderRight: 1,
+          borderColor: 'divider',
+          flexDirection: 'column',
+        }}
+      >
+        <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}>
+          <Typography variant="h6" sx={{ fontWeight: 600 }}>Conversations</Typography>
+        </Box>
+        <Box sx={{ p: 1, borderBottom: 1, borderColor: 'divider' }}>
+          <TextField
+            placeholder="Search conversations..."
+            size="small"
+            fullWidth
+            inputRef={searchRef}
+            onChange={(e) => handleSearch(e.target.value)}
+            slotProps={{ input: { startAdornment: <SearchOutlined color="action" /> } }}
+          />
+        </Box>
+        <Box sx={{ flex: 1, overflow: 'auto' }}>
+          {filteredConversations.length === 0 ? (
+            <Box sx={{ p: 3, textAlign: 'center' }}>
+              <ChatOutlined sx={{ fontSize: 48, color: 'text.secondary', mb: 2 }} />
+              <Typography variant="body1" color="text.secondary">
+                {fetchError ? 'Failed to load conversations' : 'No conversations yet'}
+              </Typography>
+              {fetchError && (
+                <Button variant="outlined" startIcon={<RefreshOutlined />} onClick={fetchConversations} sx={{ mt: 2 }}>
+                  Retry
+                </Button>
+              )}
+            </Box>
+          ) : (
+            <List>
+              {filteredConversations.map((conv) => {
+                const type = getParticipantType(conv.participant_id);
+                return (
+                  <ListItem key={conv.participant_id} sx={{ borderBottom: 1, borderColor: 'divider' }}>
+                    <ListItemButton
+                      selected={selectedConversation?.participant_id === conv.participant_id}
+                      onClick={() => handleSelectConversation(conv)}
+                    >
+                      <Avatar sx={{ bgcolor: PARTICIPANT_COLORS[type] + '.main' }}>
+                        <ParticipantIcon type={type} size="small" />
+                      </Avatar>
+                      <ListItemText
+                        primary={conv.participant_name}
+                        secondary={conv.last_message?.content || 'No messages yet'}
+                      />
+                      {conv.unread_count > 0 && (
+                        <Chip label={conv.unread_count} size="small" color="primary" variant="outlined" />
+                      )}
+                    </ListItemButton>
+                  </ListItem>
+                );
+              })}
+            </List>
+          )}
+        </Box>
+      </Box>
+
+      {/* Mobile Toggle Button */}
+      <Box sx={{ display: { xs: 'flex', md: 'none' }, position: 'fixed', top: 72, left: 16, zIndex: 1200 }}>
+        <IconButton onClick={() => setMobileDrawerOpen(true)} aria-label="Open conversations">
+          <MenuIcon />
+        </IconButton>
+      </Box>
 
       {/* Message View */}
       <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
@@ -187,7 +343,25 @@ export default function ChatPage() {
               </Box>
             </Paper>
 
-            <Box sx={{ flex: 1, overflow: 'auto', p: 2, display: 'flex', flexDirection: 'column', gap: 1 }}>
+            {fetchError && (
+              <Alert severity="error" sx={{ m: 2, mb: 0 }} onClose={() => setFetchError(null)}>
+                {fetchError}
+                <Button size="small" onClick={() => selectedConversation && fetchMessages(selectedConversation.participant_id)}>
+                  Retry
+                </Button>
+              </Alert>
+            )}
+
+            <Box
+              sx={{
+                flex: 1,
+                overflow: 'auto',
+                p: 2,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 1,
+              }}
+            >
               {messages.length === 0 ? (
                 <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   <Typography color="text.secondary">No messages yet. Start the conversation!</Typography>
@@ -219,9 +393,18 @@ export default function ChatPage() {
                   </Box>
                 ))
               )}
+              <div ref={messagesEndRef} />
             </Box>
 
             <Paper sx={{ p: 2, borderTop: 1, borderColor: 'divider' }}>
+              {sendError && (
+                <Alert severity="error" sx={{ mb: 1 }} onClose={() => setSendError(null)}>
+                  Failed to send: {sendError}
+                  <Button size="small" variant="outlined" onClick={retrySend} sx={{ ml: 1 }}>
+                    Retry
+                  </Button>
+                </Alert>
+              )}
               <Box sx={{ display: 'flex', gap: 1 }}>
                 <TextField
                   fullWidth
@@ -232,10 +415,22 @@ export default function ChatPage() {
                   rows={1}
                   maxRows={4}
                   size="small"
-                  onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(e); } }}
+                  disabled={sending}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      sendMessage(e);
+                    }
+                  }}
+                  slotProps={{ input: { 'aria-label': 'Message input' } }}
                 />
-                <Button variant="contained" startIcon={<SendOutlined />} disabled={!newMessage.trim()} onClick={sendMessage}>
-                  Send
+                <Button
+                  variant="contained"
+                  startIcon={<SendOutlined />}
+                  disabled={!newMessage.trim() || sending}
+                  onClick={sendMessage}
+                >
+                  {sending ? <CircularProgress size={20} color="inherit" /> : 'Send'}
                 </Button>
               </Box>
             </Paper>

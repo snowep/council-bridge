@@ -1,5 +1,6 @@
 // Auth Configuration and Mode Management
 // Phase 8: Production-ready auth with explicit mode control
+// Phase 10: Local single-user Founder mode
 
 export type AuthMode = 'development' | 'production';
 
@@ -9,6 +10,8 @@ export interface AuthConfig {
   max_sessions: number;
   require_founder_signature_for: string[];
   allow_hardcoded_fallback: boolean;
+  local_single_user_mode: boolean;
+  local_single_user_bind_address: string;
 }
 
 export const DEFAULT_AUTH_CONFIG: AuthConfig = {
@@ -23,7 +26,9 @@ export const DEFAULT_AUTH_CONFIG: AuthConfig = {
     'revoke_cross_division_access',
     'create_session'
   ],
-  allow_hardcoded_fallback: true // Only in development mode
+  allow_hardcoded_fallback: true, // Only in development mode
+  local_single_user_mode: process.env.LOCAL_SINGLE_USER_MODE === 'true',
+  local_single_user_bind_address: process.env.LOCAL_SINGLE_USER_BIND_ADDRESS || '127.0.0.1'
 };
 
 export function getAuthConfig(): AuthConfig {
@@ -31,7 +36,9 @@ export function getAuthConfig(): AuthConfig {
   return {
     ...DEFAULT_AUTH_CONFIG,
     mode,
-    allow_hardcoded_fallback: mode === 'development'
+    allow_hardcoded_fallback: mode === 'development',
+    local_single_user_mode: process.env.LOCAL_SINGLE_USER_MODE === 'true',
+    local_single_user_bind_address: process.env.LOCAL_SINGLE_USER_BIND_ADDRESS || '127.0.0.1'
   };
 }
 
@@ -41,4 +48,12 @@ export function isProductionMode(): boolean {
 
 export function isDevelopmentMode(): boolean {
   return getAuthConfig().mode === 'development';
+}
+
+export function isLocalSingleUserMode(): boolean {
+  return getAuthConfig().local_single_user_mode;
+}
+
+export function getLocalBindAddress(): string {
+  return getAuthConfig().local_single_user_bind_address;
 }

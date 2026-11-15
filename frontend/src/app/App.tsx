@@ -17,6 +17,9 @@ import ApprovalsPage from '../pages/ApprovalsPage';
 import LoginPage from '../pages/LoginPage';
 import Layout from '../layouts/Layout';
 
+// Check if local single-user mode is enabled (set by Vite at build time or runtime env)
+const LOCAL_SINGLE_USER_MODE = import.meta.env.VITE_LOCAL_SINGLE_USER_MODE === 'true' || import.meta.env.DEV;
+
 // Auth context for the app
 interface AppAuthContextType {
   authContext: AuthContext | null;
@@ -44,7 +47,20 @@ function AppAuthProvider({ children }: { children: ReactNode }) {
 
   const refreshAuth = async () => {
     try {
-      if (apiClient.isAuthenticated()) {
+      if (LOCAL_SINGLE_USER_MODE) {
+        // In local single-user mode, auto-authenticate as Founder without API call
+        const localAuthContext: AuthContext = {
+          owner_type: 'founder',
+          owner_id: 'founder',
+          runtime: 'claude',
+          session_id: 'local-founder',
+          permissions: [],
+          expires_at: Infinity,
+          issued_at: Date.now(),
+          founder_signed: true
+        };
+        setAuthContext(localAuthContext);
+      } else if (apiClient.isAuthenticated()) {
         const status = await apiClient.getAuthStatus();
         setAuthContext(status.session);
       } else {
@@ -52,7 +68,22 @@ function AppAuthProvider({ children }: { children: ReactNode }) {
       }
     } catch (error) {
       console.error('Failed to refresh auth:', error);
-      setAuthContext(null);
+      if (LOCAL_SINGLE_USER_MODE) {
+        // Fallback to local Founder context on error
+        const localAuthContext: AuthContext = {
+          owner_type: 'founder',
+          owner_id: 'founder',
+          runtime: 'claude',
+          session_id: 'local-founder',
+          permissions: [],
+          expires_at: Infinity,
+          issued_at: Date.now(),
+          founder_signed: true
+        };
+        setAuthContext(localAuthContext);
+      } else {
+        setAuthContext(null);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -120,6 +151,11 @@ function ProtectedRoute({ children }: { children: ReactNode }) {
     return null;
   }
 
+  // In local single-user mode, always allow access (already authenticated)
+  if (LOCAL_SINGLE_USER_MODE) {
+    return <>{children}</>;
+  }
+
   if (!authContext) {
     return <Navigate to="/login" replace />;
   }
@@ -133,7 +169,8 @@ export default function App() {
       <ThemeWrapper>
         <AppAuthProvider>
           <Routes>
-            <Route path="/login" element={<LoginPage />} />
+            {/* No login page in local single-user mode */}
+            {!LOCAL_SINGLE_USER_MODE && <Route path="/login" element={<LoginPage />} />}
             <Route
               path="/*"
               element={

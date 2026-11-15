@@ -1,7 +1,9 @@
 import axios, { type AxiosInstance, type InternalAxiosRequestConfig, AxiosError } from 'axios';
 import type { SessionTokenResponse, AuthStatusResponse, FounderPublicKeyResponse } from '../types/api';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3334';
+// Use relative URL when frontend and backend share origin (production with Vite proxy)
+// Fall back to explicit URL for development or separate deployments
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 
 class ApiClient {
   private client: AxiosInstance;
@@ -14,6 +16,7 @@ class ApiClient {
         'Content-Type': 'application/json',
       },
       timeout: 30000,
+      withCredentials: true,
     });
 
     // Request interceptor to add auth token

@@ -1,4 +1,4 @@
-import { Outlet, useLocation } from 'react-router-dom';
+import { Outlet, NavLink } from 'react-router-dom';
 import {
   Box,
   Drawer,
@@ -6,7 +6,6 @@ import {
   Toolbar,
   List,
   ListItem,
-  ListItemButton,
   ListItemIcon,
   ListItemText,
   Typography,
@@ -40,6 +39,8 @@ import { useState, useEffect } from 'react';
 import { useAppAuth } from '../app/App';
 import { useTheme as useMuiTheme } from '@mui/material/styles';
 
+const LOCAL_SINGLE_USER_MODE = import.meta.env.VITE_LOCAL_SINGLE_USER_MODE === 'true' || import.meta.env.DEV;
+
 const drawerWidth = 260;
 
 const navigationItems = [
@@ -58,7 +59,6 @@ const navigationItems = [
 export default function Layout() {
   const theme = useMuiTheme();
   useMediaQuery(theme.breakpoints.down('md'));
-  const location = useLocation();
   const { authContext, logout } = useAppAuth();
   const [darkMode, setDarkMode] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -107,29 +107,32 @@ export default function Layout() {
       <List component="nav" aria-label="main navigation">
         {navigationItems.map((item) => (
           <ListItem key={item.path} disablePadding sx={{ mb: 0.5 }}>
-            <ListItemButton
-              component="a"
-              href={item.path}
-              selected={location.pathname === item.path}
+            <NavLink
+              to={item.path}
               onClick={handleDrawerClose}
-              sx={{
+              style={({ isActive }) => ({
                 borderRadius: 2,
                 mx: 1,
-                '&.Mui-selected': {
-                  backgroundColor: 'primary.main',
-                  color: 'primary.contrastText',
-                  '&:hover': {
-                    backgroundColor: 'primary.dark',
-                  },
-                  '& .MuiListItemIcon-root': {
-                    color: 'primary.contrastText',
-                  },
+                display: 'flex',
+                alignItems: 'center',
+                textDecoration: 'none',
+                color: isActive ? 'primary.contrastText' : 'inherit',
+                backgroundColor: isActive ? 'primary.main' : 'transparent',
+                '&:hover': {
+                  backgroundColor: isActive ? 'primary.dark' : 'action.hover',
                 },
-              }}
+                '& .MuiListItemIcon-root': {
+                  color: isActive ? 'primary.contrastText' : 'inherit',
+                  minWidth: 40,
+                },
+                '& .MuiListItemTextPrimary': {
+                  color: isActive ? 'primary.contrastText' : 'inherit',
+                },
+              })}
             >
-              <ListItemIcon sx={{ minWidth: 40 }}>{item.icon}</ListItemIcon>
+              <ListItemIcon>{item.icon}</ListItemIcon>
               <ListItemText primary={item.label} />
-            </ListItemButton>
+            </NavLink>
           </ListItem>
         ))}
       </List>
@@ -248,22 +251,27 @@ export default function Layout() {
           </Typography>
           <Typography variant="caption" color="text.secondary">
             {authContext?.runtime} • {authContext?.owner_type}
+            {LOCAL_SINGLE_USER_MODE && ' • Local Mode'}
           </Typography>
         </Box>
         <Divider />
-        <MenuItem onClick={handleMenuClose}>
-          <ListItemIcon><PersonOutlined fontSize="small" /></ListItemIcon>
-          Profile
-        </MenuItem>
-        <MenuItem onClick={handleMenuClose}>
-          <ListItemIcon><SettingsOutlined fontSize="small" /></ListItemIcon>
-          Settings
-        </MenuItem>
-        <Divider />
-        <MenuItem onClick={handleLogout}>
-          <ListItemIcon><LogoutOutlined fontSize="small" /></ListItemIcon>
-          Logout
-        </MenuItem>
+        {!LOCAL_SINGLE_USER_MODE && (
+          <>
+            <MenuItem onClick={handleMenuClose}>
+              <ListItemIcon><PersonOutlined fontSize="small" /></ListItemIcon>
+              Profile
+            </MenuItem>
+            <MenuItem onClick={handleMenuClose}>
+              <ListItemIcon><SettingsOutlined fontSize="small" /></ListItemIcon>
+              Settings
+            </MenuItem>
+            <Divider />
+            <MenuItem onClick={handleLogout}>
+              <ListItemIcon><LogoutOutlined fontSize="small" /></ListItemIcon>
+              Logout
+            </MenuItem>
+          </>
+        )}
       </Menu>
     </Box>
   );

@@ -6,7 +6,6 @@ import { getDatabase } from '../../database.js';
 import { listMemoryEntries } from '../../council/memory.js';
 import { listMeetings } from '../../council/meetings.js';
 import { getActiveConstitution, getStaffRuntimePersonas } from '../../council/divisions.js';
-import { getDatabase } from '../../database.js';
 import { authMiddleware, getAuthContext, requireAuth } from '../middleware/authentication.js';
 import { asyncHandler, NotFoundError } from '../middleware/error-handler.js';
 import { ListMeetingsSchema } from '../schemas/index.js';

@@ -238,13 +238,38 @@ export default function ExecutionsPage() {
 
   const handleApprove = async (executionId: string) => {
     try {
-      await apiClient.post(`/api/executions/${executionId}/approve`);
+      // Find the approval request for this execution
+      const approval = approvalRequests.find(a => a.execution_id === executionId && a.status === 'pending');
+      if (!approval) {
+        alert('No pending approval request found for this execution');
+        return;
+      }
+      await apiClient.post('/api/executions/approve', {
+        approval_request_id: approval.approval_request_id,
+        approved: true,
+      });
       fetchExecutions();
       fetchApprovalRequests();
       if (selectedExecution?.execution_id === executionId) fetchExecutionDetail(executionId);
     } catch (err: any) {
       console.error('Failed to approve:', err);
       alert('Failed to approve: ' + (err?.response?.data?.error || err.message));
+    }
+  };
+
+  const handleReject = async (approvalRequestId: string) => {
+    if (!window.confirm('Reject this execution request? This action cannot be undone.')) return;
+    try {
+      await apiClient.post('/api/executions/approve', {
+        approval_request_id: approvalRequestId,
+        approved: false,
+        rejection_reason: 'Rejected by user',
+      });
+      fetchExecutions();
+      fetchApprovalRequests();
+    } catch (err: any) {
+      console.error('Failed to reject:', err);
+      alert('Failed to reject: ' + (err?.response?.data?.error || err.message));
     }
   };
 
@@ -535,9 +560,17 @@ export default function ExecutionsPage() {
                     <Typography variant="h6" gutterBottom>Quick Actions</Typography>
                     <Stack spacing={1.5} sx={{ mt: 1 }}>
                       {selectedExecution.status === 'approval_required' && (
-                        <Button variant="contained" color="success" startIcon={<CheckCircleOutlined />} onClick={() => handleApprove(selectedExecution.execution_id)} fullWidth>
-                          Approve Execution
-                        </Button>
+                        <>
+                          <Button variant="contained" color="success" startIcon={<CheckCircleOutlined />} onClick={() => handleApprove(selectedExecution.execution_id)} fullWidth>
+                            Approve Execution
+                          </Button>
+                          <Button variant="outlined" color="error" startIcon={<CancelOutlined />} onClick={() => {
+                            const approval = approvalRequests.find(a => a.execution_id === selectedExecution.execution_id && a.status === 'pending');
+                            if (approval) handleReject(approval.approval_request_id);
+                          }} fullWidth>
+                            Reject Execution
+                          </Button>
+                        </>
                       )}
                       {['proposed', 'permission_check', 'approval_required', 'approved', 'queued'].includes(selectedExecution.status) && (
                         <Button variant="contained" startIcon={<PlayArrowOutlined />} onClick={() => handleExecute(selectedExecution.execution_id)} fullWidth>
@@ -693,7 +726,7 @@ export default function ExecutionsPage() {
                           <IconButton color="success" size="small" onClick={() => handleApprove(approval.execution_id)}>
                             <CheckCircleOutlined fontSize="small" />
                           </IconButton>
-                          <IconButton color="error" size="small" onClick={() => { alert('Reject not implemented'); }}>
+                          <IconButton color="error" size="small" onClick={() => handleReject(approval.approval_request_id)}>
                             <CancelOutlined fontSize="small" />
                           </IconButton>
                         </>
