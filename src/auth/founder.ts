@@ -44,6 +44,18 @@ const NONCE_EXPIRY_MS = REQUEST_TIMESTAMP_TOLERANCE_MS + 60 * 1000; // 6 minutes
 let cachedKeyPair: FounderKeyPair | null = null;
 let cachedKeyPairMtime: number = 0;
 
+// Clear cache - for testing only
+export function clearFounderKeyCache(): void {
+  cachedKeyPair = null;
+  cachedKeyPairMtime = 0;
+}
+
+// Set cache directly - for testing only
+export function setFounderKeyCache(keyPair: FounderKeyPair): void {
+  cachedKeyPair = keyPair;
+  cachedKeyPairMtime = getKeyFileMtime();
+}
+
 let dbInstance: DatabaseInstance | null = null;
 
 export function setDatabaseInstance(db: DatabaseInstance): void {
@@ -159,11 +171,35 @@ export function loadFounderKeyPair(): FounderKeyPair | null {
 
     // Validate key structure
     if (!keyPair.public_key || !keyPair.private_key_pem || !keyPair.key_id) {
+      // Clear cache on invalid structure
+      cachedKeyPair = null;
+      cachedKeyPairMtime = 0;
       return null;
     }
 
     cachedKeyPair = keyPair;
     cachedKeyPairMtime = mtime;
+    return keyPair;
+  } catch (error) {
+    // Clear cache on parse error
+    cachedKeyPair = null;
+    cachedKeyPairMtime = 0;
+    return null;
+  }
+}
+
+// Always read from disk (bypasses cache) - used for security-critical validation
+export function loadFounderKeyPairFresh(): FounderKeyPair | null {
+  try {
+    if (!existsSync(KEY_FILE)) return null;
+    const data = readFileSync(KEY_FILE, 'utf-8');
+    const keyPair = JSON.parse(data) as FounderKeyPair;
+
+    // Validate key structure
+    if (!keyPair.public_key || !keyPair.private_key_pem || !keyPair.key_id) {
+      return null;
+    }
+
     return keyPair;
   } catch (error) {
     return null;

@@ -20,14 +20,11 @@ data/
 .playwright-mcp/
 frontend/test-results/
 frontend/playwright-report/
-.secrets/archive/
+.secrets/
 .taste-skill/
 public/
-docs/audits/release/*.md
-tests/security/founder-key-permissions.test.ts
-tests/security/founder-key-startup.test.ts
-tests/security/founder-signature-replay.test.ts
-tests/security/production-auth-fallback.test.ts
-tests/security/session-signing.test.ts
-tests/integration/migration-dependencies.test.ts
-migrations/
+# Generated test artifacts (keep source test files tracked)
+tests/**/*.test.ts
+!tests/**/*.test.ts
+tests/**/*.test.js
+!tests/**/*.test.js

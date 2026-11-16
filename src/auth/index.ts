@@ -2,7 +2,7 @@
 // Import config for validateAuthMode - use dynamic import to avoid circular issues
 import { getAuthConfig } from './config.js';
 import { DatabaseInstance } from '../database.js';
-import { getFounderKeyId, getFounderPublicKey } from './founder.js';
+import { getFounderKeyId, getFounderPublicKey, loadFounderKeyPairFresh } from './founder.js';
 
 export * from './config.js';
 export * from './session.js';
@@ -83,14 +83,15 @@ export function validateAuthMode(): { valid: boolean; errors: string[] } {
  * SEC-04: Validate Founder key configuration at startup
  * Must be called before any founder-signed operations are accepted
  * Returns { valid, errors } where valid is true when keys are properly configured
+ * Uses fresh load from disk (bypasses cache) for security-critical validation
  */
 export function validateFounderKeyConfiguration(): { valid: boolean; errors: string[] } {
   const errors: string[] = [];
   const config = getAuthConfig();
 
-  const keyId = getFounderKeyId();
-  const publicKey = getFounderPublicKey();
-  const hasKeyMaterial = keyId !== null && publicKey !== null;
+  // Use fresh load from disk for security validation
+  const keyPair = loadFounderKeyPairFresh();
+  const hasKeyMaterial = keyPair !== null;
 
   if (config.mode === 'production') {
     if (!hasKeyMaterial) {
