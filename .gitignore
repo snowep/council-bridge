@@ -1,7 +1,9 @@
 node_modules/
 dist/
-data/*.db
-data/*.db-*
+*.db
+*.db-shm
+*.db-wal
+*.db-journal
 *.log
 .env
 .env.local
@@ -9,6 +11,9 @@ data/*.db-*
 .vscode/
 *.tsbuildinfo
 coverage/
-data/
 graphify-out/
-.*/
+test-*/
+data/
+.playwright-mcp/
+frontend/test-results/
+frontend/playwright-report/

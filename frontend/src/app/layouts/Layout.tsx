@@ -36,7 +36,7 @@ import {
   LightModeOutlined,
 } from '@mui/icons-material';
 import { useState, useEffect } from 'react';
-import { useAppAuth } from '../App';
+import { useAppAuth } from '../use-app-auth';
 import { useTheme as useMuiTheme } from '@mui/material/styles';
 
 const LOCAL_SINGLE_USER_MODE = import.meta.env.VITE_LOCAL_SINGLE_USER_MODE === 'true' || import.meta.env.DEV;

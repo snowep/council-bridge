@@ -1,633 +1,288 @@
-# Council Bridge — Repository Structure Refactor
-
-## Project
+# Council Bridge — Post-Refactor Remediation & Final Verification
 
 Repository: `C:\Projects\council-bridge`
 
-Remote: `https://github.com/snowep/council-bridge`
-
-Current branch: `master`
-
-Audited commit: `5e2c19df47354004cb1b565e24026889363fd014`
-
-## Founder authorization boundary
-
-Phase 10 has been formally accepted.
-
-This task is the repository structure refactor only.
-
-The Founder has requested the audit and implementation plan. Before implementation begins, verify that the Founder has explicitly authorized execution of this prompt.
-
-Do not:
-- Modify the production database.
-- Run database migrations.
-- Change production records.
-- Rewrite Git history.
-- Force-push.
-- Change Phase 8 authentication or security behavior.
-- Change Council governance or permission policies.
-- Introduce new application features.
-- Rewrite domain logic merely to make the structure look cleaner.
-
-The task is to reorganize the repository while preserving application behavior.
-
----
-
-# STAGE 0 — PREFLIGHT
-
-1. Confirm repository path and current branch.
-2. Run:
-   - `git status --short`
-   - `git branch --show-current`
-   - `git log -1 --oneline`
-3. Confirm the current commit matches the expected audited revision or identify newer commits.
-4. Inspect all local changes.
-5. If the working tree contains uncommitted changes, STOP and report them. Do not discard or overwrite them.
-6. Create a dedicated branch:
-
-`refactor/repository-structure`
-
-Do not commit or push yet.
-
-If the branch already exists, inspect it before proceeding. Never overwrite existing work.
-
-Create a complete pre-refactor file inventory and retain it for comparison.
-
----
-
-# STAGE 1 — CREATE THE TARGET DIRECTORY STRUCTURE
-
-Create the following directories:
-
-```text
-docs/
-  architecture/
-  operations/
-  organization/
-    agent-definitions/
-      developer/
-      marketing/
-      finance/
-      creative/
-      research/
-      operations/
-    personas/
-    history/
-  research/
-    agency-agents/
-    personas/
-  audits/
-    codebase/
-    database/
-    frontend/
-    security/
-    architecture/
-  phases/
-    phase-04/
-    phase-05/
-    phase-06/
-    phase-07/
-    phase-08/
-    phase-09/
-    phase-10/
-  archive/
-    implementation-plans/
-      phase-09/
-      phase-10/
-    prompts/
-      phase-10/
-    roadmaps/
-    sdd/
-      phase-09/
-    superseded/
-
-frontend/src/
-  app/
-    layouts/
-  features/
-    auth/
-      pages/
-    dashboard/
-      pages/
-    chat/
-      pages/
-    council/
-      pages/
-    meetings/
-      pages/
-    memory/
-      pages/
-    organization/
-      pages/
-    tasks/
-      pages/
-    executions/
-      pages/
-    deliverables/
-      pages/
-    approvals/
-      pages/
-  shared/
-    api/
-    components/
-    hooks/
-    theme/
-    types/
-    styles/
-
-frontend/tests/
-  e2e/
-
-scripts/
-  diagnostics/
-  maintenance/
-  seed/
-  archive/
+Branch: `refactor/repository-structure`
 
-src/
-  api/
-    middleware/
-    routes/
-    schemas/
-  auth/
-  communication/
-  council/
-  infrastructure/
-    database/
-  mcp/
-  migration-runner/
+Current refactor commit: `6d6234d`
 
-tests/
-  unit/
-  integration/
-  security/
-  migrations/
-  helpers/
-```
+## Objective
 
-Do not introduce additional architectural layers without a demonstrated need.
+Complete the post-refactor audit, investigate all seven Ponytail findings, verify every previously unchecked item, implement justified fixes, and produce a final acceptance recommendation.
 
----
+This is a verification and remediation task.
 
-# STAGE 2 — MOVE DOCUMENTATION
+Do not begin another architectural refactor.
 
-Use `git mv` wherever possible to preserve file history.
+## Stage 1 — Establish baseline
 
-## Phase documents
+1. Confirm branch and commit.
+2. Confirm working tree is clean.
+3. Read the five repository restructure reports under `docs/audits/codebase/`.
+4. Read the current README and `.gitignore`.
+5. Run the full backend and frontend test suites before changing anything.
+6. Record exact baseline failures, warnings, and test counts.
 
-Move:
-- `PHASE4_*.md` → `docs/phases/phase-04/`
-- `PHASE5_*.md` → `docs/phases/phase-05/`
-- `PHASE6_*.md` → `docs/phases/phase-06/`
-- `PHASE7_*.md` → `docs/phases/phase-07/`
-- `PHASE8_*.md` → `docs/phases/phase-08/`
-- `PHASE9_*.md` → `docs/phases/phase-09/`
-- `PHASE10_*.md` → `docs/phases/phase-10/`
+Do not label a failure pre-existing without evidence from the baseline or previous committed reports.
 
-Preserve original filenames.
+## Stage 2 — MCP authentication findings
 
-Move BATCH3A and BATCH3 final verification reports to:
+Investigate these findings individually:
 
-`docs/phases/phase-08/modularization/`
+### Finding 1: Authentication error code mismatch
 
-Move:
-- `CODEBASE_SIMPLIFICATION_AUDIT.md`
-- `CODEBASE_SIMPLIFICATION_REPORT.md`
+Affected:
+- `tests/mcp-auth.test.ts:82`
+- `tests/mcp-auth.test.ts:105`
 
-to `docs/audits/codebase/`.
+Expected: `AUTH_INVALID_TOKEN`
 
-Move `COUNCIL_MODULARIZATION_INTEGRATION_REPORT.md` to `docs/audits/architecture/phase-08/`.
+Actual: `INVALID_SESSION`
 
-Move:
-- `DATABASE_FINDINGS_INVESTIGATION.md`
-- `DATABASE_REMEDIATION_PROPOSAL.md`
-- `DATABASE_TEST_ISOLATION_AUDIT.md`
+Determine the intended public error contract by inspecting:
+- Authentication implementation.
+- MCP response schemas.
+- API error conventions.
+- Existing security documentation.
+- Other authentication tests.
 
-to `docs/audits/database/`.
+Do not blindly change test expectations.
 
-Move:
-- `FRONTEND_CONTROL_INVENTORY.md`
-- `FRONTEND_SOURCE_AUDIT.md`
+If `INVALID_SESSION` is the correct established contract, update the tests and relevant documentation.
 
-to `docs/audits/frontend/phase-10/`.
+If `AUTH_INVALID_TOKEN` is the intended contract, correct the implementation without breaking existing clients.
 
-Move remaining root `FRONTEND_*` completion reports to `docs/phases/phase-10/frontend/`.
+### Finding 2: Unauthenticated MCP tool call returns HTTP 406
 
-Move:
-- `COUNCIL_PERSONA_RESEARCH_REPORT.md`
-- `steve_jobs_philosophy_evidence.md`
+Affected:
+- `tests/mcp-tools.test.ts:408`
+- `src/mcp/tools.ts:210`
 
-to `docs/research/personas/`.
+Expected: HTTP 401, `AUTH_REQUIRED`.
 
-Move `agency-agents-audit-report.md` to `docs/research/agency-agents/`.
+Actual: HTTP 406, `Not Acceptable`.
 
-Move `DIVISION_HEAD_REVISION_REPORT.md` to `docs/organization/history/`.
+Trace the complete request lifecycle:
+- HTTP transport.
+- MCP Streamable HTTP negotiation.
+- Authentication middleware.
+- Tool invocation.
+- Error serialization.
 
-Move `council-bridge-roster.md` to:
+Determine whether 406 originates from MCP protocol content negotiation or application authentication.
 
-`docs/organization/roster-v2.2-draft.md`
+Do not force HTTP 401 if that would violate the MCP transport contract.
 
-Move `MASTER_ROADMAP.md` to:
+The result must provide consistent, documented authentication semantics while preserving protocol compatibility.
 
-`docs/archive/roadmaps/MASTER_ROADMAP_2026-11-13.md`
+### Finding 3: Production fail-closed tests
 
-Move `NEXT_PROMPT.md` to:
+Affected:
+- `tests/mcp-auth.test.ts:386`
+- `tests/mcp-auth.test.ts:402`
 
-`docs/archive/prompts/phase-10/NEXT_PROMPT.md`
+Expected: HTTP 401.
 
-Do not discard historical Phase 6 correction-report versions.
+Actual: HTTP 200.
 
-## Historical planning documents
+Investigate whether:
+- Tests are configuring production mode correctly.
+- Authentication middleware is actually mounted.
+- The tested request reaches the protected endpoint.
+- Local single-user mode is accidentally enabled.
+- Environment configuration leaks between tests.
+- Authentication is bypassed by a compatibility path.
 
-Move `.superpowers/sdd/2026-11-14-phase9-pre-batch3-gate2-remediation/` to:
+This is a security-sensitive finding.
 
-`docs/archive/sdd/phase-09/gate-2/`
+Do not weaken the assertions to make the tests pass.
 
-Move `.superpowers/sdd/2026-11-14-phase9-pre-batch3-gate3-remediation/` to:
+Verify:
+1. Production mode without valid authentication fails closed.
+2. Invalid session tokens are rejected.
+3. Expired sessions are rejected.
+4. Founder-only operations reject non-Founder identities.
+5. Local single-user mode only accepts loopback connections.
+6. Production mode cannot silently fall back to local single-user authentication.
 
-`docs/archive/sdd/phase-09/gate-3/`
+If implementation is insecure, fix it and add regression tests.
 
-Move both files from `docs/superpowers/plans/` to:
+## Stage 3 — React findings
 
-`docs/archive/implementation-plans/phase-09/`
+### Finding 4: Missing exhaustive dependencies
 
-Move:
+Inspect all three affected React effects.
 
-`ai/memory-bank/tasks/phase10-batch1-migration-backup-tasklist.md`
+- Identify the actual dependencies.
+- Use `useCallback` only where it clarifies stable function identity.
+- Avoid stale closures.
+- Preserve existing behavior.
 
-to:
+### Findings 5 and 6: Synchronous state updates inside effects
 
-`docs/archive/implementation-plans/phase-10/`
+Inspect the 13 affected files.
 
-Remove the obsolete `.claude/scheduled_tasks.lock` file. Do not remove actual Claude project instructions if any are added later.
+For each instance:
+- Determine whether the state is derived from props or existing state.
+- Prefer render-time derivation when appropriate.
+- Preserve legitimate asynchronous loading and event-driven state updates.
+- Avoid unnecessary useEffect or useMemo additions.
 
----
+Do not refactor all 13 files mechanically.
 
-# STAGE 3 — ORGANIZATIONAL DEFINITIONS
+### Finding 7: Fast Refresh warning
 
-Move the contents of `proposed/agents/` into:
+Inspect `frontend/src/app/App.tsx`.
 
-`docs/organization/agent-definitions/`
+Move non-component exports to an appropriate helper/constants module if necessary.
 
-Preserve all six division directories and all existing Markdown filenames.
+Preserve imports and application behavior.
 
-Move `proposed/personas/` into:
+Run frontend lint and production build afterward.
 
-`docs/organization/personas/`
+## Stage 4 — Documentation verification
 
-Expected retained definitions:
-- 6 Division Heads
-- 45 specialists
-- 4 Council personas
+### README
 
-Verify all 55 files are accounted for.
+Rewrite the root `README.md` if it does not accurately describe the current application.
 
-Do not rewrite persona content or change staff identities.
+Include:
+- Council Bridge purpose.
+- Current backend/frontend architecture.
+- Requirements and setup.
+- Local single-user Founder mode.
+- Production authentication.
+- MCP connection.
+- Database configuration.
+- Migration runner.
+- Backup and restore.
+- Testing commands.
+- Current repository structure.
 
----
+Do not describe completed phases as upcoming work.
 
-# STAGE 4 — BACKEND SOURCE ORGANIZATION
+### Git ignore
 
-Move:
-- `src/agents.ts` → `src/communication/agents.ts`
-- `src/messages.ts` → `src/communication/messages.ts`
+Inspect every `.gitignore` pattern.
 
-Move the implementation currently in `src/database.ts` to:
+Check:
+- Whether production database paths are protected.
+- Whether backups are protected.
+- Whether migrations and SQL source files remain tracked.
+- Whether documentation remains trackable.
+- Whether test artifacts and build output are excluded.
+- Whether broad patterns accidentally exclude legitimate source files.
 
-`src/infrastructure/database/database.ts`
+Do not remove useful ignore rules without evidence.
 
-Preserve a compatibility facade at `src/database.ts` if needed to avoid breaking existing imports during the transition. Update imports deliberately and verify the resulting dependency graph.
+## Stage 5 — Verify repository restructuring
 
-Keep:
-- `src/server.ts`
-- `src/api/`
-- `src/auth/`
-- `src/council/`
-- `src/mcp/`
-- `src/migration-runner/`
+Compare commit `6d6234d` against its parent.
 
-Keep `src/council.ts` as the existing compatibility facade.
+Verify:
 
-Move `src/init-council.ts` to `scripts/seed/initialize-council.ts` only after confirming it remains relevant and safe.
+1. All moved files have valid destinations.
+2. All removed files are recorded in the removal register.
+3. All merged files are documented.
+4. No required source files were lost.
+5. No stale imports remain.
+6. Package scripts use the correct paths.
+7. All documentation links resolve.
+8. Migration files remain unchanged.
+9. The five restructure reports accurately describe the final state.
 
-Inspect `src/ui.ts` and `src/globals.d.ts`. If they are not referenced by any active entry point or required tooling, remove them.
+Correct stale statements in:
+- `REPOSITORY_RESTRUCTURE_IMPLEMENTATION_REPORT.md`
+- `REPOSITORY_FILE_MAPPING_FINAL.md`
+- `REPOSITORY_REMOVAL_REGISTER.md`
+- `REPOSITORY_REGRESSION_REPORT.md`
+- `REPOSITORY_SECURITY_ARTIFACT_REPORT.md`
 
-## Authentication middleware
+### Historical database artifacts
 
-Compare:
-- `src/auth/middleware.ts`
-- `src/api/middleware/authentication.ts`
+Do not inspect or expose sensitive database records.
 
-They have overlapping responsibilities.
+Verify tracked paths and Git history metadata only.
 
-Do not simply delete one.
+Distinguish:
+- Files removed from the current repository tree.
+- Historical copies that may remain in previous commits.
 
-Determine which implementation is actually used, compare local single-user mode, development fallback, production fail-closed behavior, and session validation.
+Do not rewrite Git history.
 
-Consolidate into one canonical implementation only if behavior can be preserved. Keep a compatibility re-export where necessary.
+## Stage 6 — Full regression
 
-Add regression tests for:
-- Production fail-closed authentication.
-- Local single-user loopback restriction.
-- Invalid and expired tokens.
-- Founder authorization.
-- Session identity validation.
+Run:
 
-Do not weaken Phase 8 security.
-
-## Database instance warning
-
-The current code creates a configured database instance in `server.ts`, while API route modules import `databaseInstance` directly.
-
-Document this issue in the refactor report.
-
-Do not silently redesign the database lifecycle as part of the directory moves. Do not change the production database path or database contents.
-
----
-
-# STAGE 5 — FRONTEND FEATURE ORGANIZATION
-
-Move the operational page components into their corresponding `frontend/src/features/*/pages/` directories.
-
-Move:
-- `frontend/src/layouts/Layout.tsx` → `frontend/src/app/layouts/Layout.tsx`
-- `frontend/src/services/api.ts` → `frontend/src/shared/api/client.ts`
-- `frontend/src/hooks/useApi.ts` → `frontend/src/shared/hooks/useApi.ts`
-- `frontend/src/theme/index.ts` → `frontend/src/shared/theme/index.ts`
-- `frontend/src/types/api.ts` → `frontend/src/shared/types/api.ts`
-
-Update all imports, router declarations, and aliases.
-
-Keep the current React, TypeScript, MUI, Vite, and React Router stack.
-
-Do not redesign UI or alter component behavior.
-
-## Remove unused Vite starter
-
-Verify references before removing:
-- `frontend/src/App.tsx`
-- `frontend/src/App.css`
-- `frontend/src/assets/hero.png`
-- `frontend/src/assets/react.svg`
-- `frontend/src/assets/vite.svg`
-- `frontend/public/icons.svg`
-
-`frontend/src/main.tsx` currently uses `./app/App`. Preserve this entry point.
-
-Inspect `frontend/src/index.css` and `frontend/src/styles/pages.css`. Merge useful styles into the shared styles directory if they are actually used. Remove unused styles only after reference checks.
-
-Keep `frontend/public/favicon.svg`.
-
-Replace the default Vite content in `frontend/README.md` with Council Bridge frontend setup and development instructions.
-
-## Frontend E2E
-
-Move E2E tests into `frontend/tests/e2e/`.
-
-Retain:
-- `pages.spec.ts`
-- `phase10-verification.spec.ts`
-- `simple-test.spec.ts` if it provides distinct smoke coverage.
-
-Inspect all debug specs. Preserve any unique assertions in canonical tests, then remove obsolete debugging specifications.
-
-Update Playwright configuration and package scripts.
-
-Move curated screenshots to:
-
-`docs/phases/phase-10/evidence/screenshots/`
-
-Remove debug screenshots.
-
-Remove generated `frontend/test-results/.last-run.json` and ignore generated test output.
-
-Move:
-- `frontend/FRONTEND_API_INTEGRATION_REPORT.md`
-- `frontend/FRONTEND_FIX_IMPLEMENTATION_REPORT.md`
-
-to `docs/phases/phase-10/frontend/`.
-
----
-
-# STAGE 6 — TEST ORGANIZATION
-
-Move the existing backend tests according to the audited mapping:
-
-- Unit tests → `tests/unit/`
-- Integration tests → `tests/integration/`
-- Security tests → `tests/security/`
-- Migration tests → `tests/migrations/`
-- Test helpers → `tests/helpers/`
-
-Preserve test filenames.
-
-Update:
-- Relative imports.
-- Test runner globs.
-- Root npm test command.
-- Any fixture paths.
-- Test setup and teardown.
-
-Do not weaken assertions, skip tests, or modify expected results merely to make the refactor pass.
-
-All tests must still run.
-
----
-
-# STAGE 7 — SCRIPTS AND MAINTENANCE
-
-Move read-only diagnostic scripts into `scripts/diagnostics/`.
-
-Consolidate duplicate database verification and report-generation scripts only after comparing their behavior.
-
-Archive completed Phase 9 population/remediation scripts under `scripts/archive/` only if their historical value justifies retaining executable copies. Clearly label them as historical and unsupported.
-
-Remove obsolete or dangerous one-off scripts when their functionality is superseded:
-- `scripts/cleanup.ts`
-- `apply-migration-013.cjs`
-- `insert-constitution.ts`
-- obsolete debug scripts
-
-Do not execute any of these scripts.
-
-The migration runner must remain the only supported migration execution mechanism.
-
-Every retained production-database diagnostic must:
-- Require an explicit database path.
-- Default to read-only access.
-- Never silently point to production.
-- Print the resolved database path before inspection.
-
----
-
-# STAGE 8 — DATABASE AND GENERATED ARTIFACT CLEANUP
-
-The repository currently tracks 157 database-related binary artifacts.
-
-Remove the tracked audit database copy and WAL/SHM files from `database-audit-bundle/`.
-
-Preserve the six human-readable audit documents and SQL schema by moving them to:
-
-`docs/audits/database/2026-11-15-snapshot/`
-
-Remove all committed temporary test database artifacts under:
-- `test-backup-*`
-- `test-corrupt-*`
-- `test-data/`
-- `test-integrity-*`
-- `test-recovery-*`
-- `test-restore-*`
-- `test-wal-*`
-
-Ensure tests generate temporary databases automatically and clean them up.
-
-Remove the generated `.playwright-mcp` page snapshot.
-
-Remove empty root files `npm` and `output.txt`.
-
-## Git ignore
-
-Consolidate ignore rules in the root `.gitignore`.
-
-Include appropriate patterns for:
-- `node_modules/`
-- `dist/`
-- `coverage/`
-- `data/`
-- `.secrets/`
-- `*.db`
-- `*.db-shm`
-- `*.db-wal`
-- `*.db-journal`
-- `test-*/`
-- `frontend/test-results/`
-- `frontend/playwright-report/`
-- generated Playwright screenshots
-- `.playwright-mcp/`
-- `.claude/scheduled_tasks.lock`
-- `.env`
-- `.env.local`
-
-Do not ignore source migrations, SQL schemas, or documentation.
-
-Do not delete `data/council.db`, production backups, or any local production database.
-
-Do not rewrite Git history. Report that historical copies of removed public database files may remain in previous commits and require a separate security decision.
-
----
-
-# STAGE 9 — README AND DOCUMENTATION
-
-Rewrite root `README.md` to describe the current Council Bridge application.
-
-It must cover:
-1. Project purpose.
-2. Current architecture.
-3. Backend setup.
-4. Frontend setup.
-5. Local single-user Founder mode.
-6. Production authentication modes.
-7. MCP connection configuration.
-8. Database location and configuration.
-9. Migration runner usage.
-10. Backup and restore.
-11. Testing commands.
-12. Repository structure.
-
-Correct the migration manifest to describe the actual migration files:
-- 001–006
-- 013
-- 014
-
-Do not invent missing migration files or renumber existing migrations.
-
-Preserve historical documents without presenting them as current instructions.
-
----
-
-# STAGE 10 — VERIFICATION
-
-Run the complete verification workflow.
-
-Backend:
+### Backend
 - TypeScript typecheck.
 - Full backend test suite.
-- Import/reference checks.
-- Migration discovery check.
-- Database integrity tests using isolated test databases only.
+- MCP authentication tests.
+- MCP tool tests.
+- Production authentication tests.
+- Authorization and Founder signature tests.
+- Migration tests using isolated test databases.
 
-Frontend:
-- TypeScript build.
+### Frontend
+- TypeScript typecheck.
+- ESLint/Oxlint.
 - Production build.
-- Lint.
-- Playwright E2E tests.
+- All Playwright E2E tests.
+- All 11 application pages.
+- Local single-user mode.
+- Responsive tests across the existing five viewport sizes.
 
-Repository:
-- Verify every moved file exists at its destination.
-- Verify no required source file was lost.
-- Verify no stale imports remain.
-- Verify all package scripts work.
-- Verify `.gitignore` excludes generated database and test artifacts.
-- Verify migration files remain unchanged.
-- Verify production database paths and contents were not accessed or modified.
+### Security
+- Production fail-closed behavior.
+- Local loopback restrictions.
+- Founder-only operations.
+- Invalid and expired session handling.
+- MCP authentication.
+- No credential exposure.
 
-Compare the pre-refactor and post-refactor file inventories.
+Do not run migrations or modify production databases.
 
-Expected result:
-- Every retained file has exactly one canonical destination.
-- Every removed file has an explicit reason.
-- No unapproved application behavior changes.
-- No migration execution.
-- No production database modifications.
-- No Git history rewrite.
+## Stage 7 — Final reports
 
-Do not hide or reclassify pre-existing test failures. Report baseline and post-refactor results separately.
+Update or create:
 
----
+1. `docs/audits/codebase/POST_REFACTOR_FINAL_AUDIT.md`
+2. `docs/audits/codebase/POST_REFACTOR_SECURITY_VERIFICATION.md`
+3. `docs/audits/codebase/POST_REFACTOR_REGRESSION_REPORT.md`
+4. `docs/audits/codebase/POST_REFACTOR_DOCUMENTATION_AUDIT.md`
+5. `docs/audits/codebase/POST_REFACTOR_FINAL_ACCEPTANCE_RECOMMENDATION.md`
 
-# REQUIRED REPORTS
+For each finding, record:
+- Original finding.
+- Root cause.
+- Whether it was valid.
+- Fix applied or reason for no change.
+- Test evidence.
+- Remaining risk.
 
-Create:
+Report baseline and final test counts separately.
 
-1. `docs/audits/codebase/REPOSITORY_RESTRUCTURE_IMPLEMENTATION_REPORT.md`
-2. `docs/audits/codebase/REPOSITORY_FILE_MAPPING_FINAL.md`
-3. `docs/audits/codebase/REPOSITORY_REMOVAL_REGISTER.md`
-4. `docs/audits/codebase/REPOSITORY_REGRESSION_REPORT.md`
-5. `docs/audits/codebase/REPOSITORY_SECURITY_ARTIFACT_REPORT.md`
+Do not classify failed tests as passing or silently skip them.
 
-The final file mapping must include:
-- Original path.
-- New path.
-- Action: KEEP, MOVE, MERGE, or REMOVE.
-- Reason.
-- Verification result.
+## Stop conditions
 
-The removal register must explicitly list every removed file or a complete, reproducible path pattern with the exact number of files affected.
-
-The security report must identify the public database artifacts and explain the difference between removing them from the current tree and purging them from Git history.
-
----
-
-# STOP CONDITIONS
-
-At the end:
-
-- Do not commit.
-- Do not push.
-- Do not merge.
+- Do not merge into master.
+- Do not push unless separately authorized.
 - Do not deploy.
-- Do not run migrations.
-- Do not modify production database contents.
+- Do not modify production databases.
+- Do not execute migrations.
 - Do not rewrite Git history.
-- Do not start another development phase.
+- Do not begin a new phase.
 
-Stop on the refactor branch and report:
-1. Final directory structure.
-2. File count before and after.
-3. Files moved, merged, removed, and retained.
-4. Test results.
-5. TypeScript and production build results.
-6. Any unresolved issues.
-7. Whether the working tree is clean.
+At completion, provide:
+- Final commit and branch.
+- All seven finding dispositions.
+- Backend test results.
+- Frontend E2E results.
+- TypeScript and build results.
+- Security verification results.
+- Documentation and inventory verification.
+- Remaining known issues.
+- Final recommendation: PASS, CONDITIONAL PASS, or FAIL.
 
-Wait for Founder review and explicit authorization before committing or pushing.
+Stop and await Founder review.

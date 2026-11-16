@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   Typography,
@@ -95,7 +95,7 @@ export default function MemoryPage() {
   const [selected, setSelected] = useState<MemoryEntry | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
 
-  const fetchMemory = async () => {
+  const fetchMemory = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -118,7 +118,7 @@ export default function MemoryPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [page, pageSize, search, category, ownerType]);
 
   const openDetail = (entry: MemoryEntry) => {
     setSelected(entry);
@@ -133,7 +133,7 @@ export default function MemoryPage() {
 
   useEffect(() => {
     fetchMemory();
-  }, [page, category, ownerType]);
+  }, [fetchMemory]);
 
   return (
     <Box sx={{ width: '100%', pb: 4 }}>

@@ -42,19 +42,21 @@ CREATE TABLE deliverables_new (
 );
 
 -- Copy data from old table
+-- Note: old deliverables table (after 013) does NOT have updated_at column
+-- Let updated_at use DEFAULT from new table definition
 INSERT INTO deliverables_new (
   deliverable_id, task_id, submitted_by_type, submitted_by_id, content, status,
   reviewed_by_type, reviewed_by_id, reviewed_at, created_at, version, quality_score,
   reviewer_type, reviewer_id, approved_at, approved_by_type, approved_by_id,
   founder_signature, founder_signed_at, revision_notes,
-  file_references, task_relationships, audit_log, updated_at, execution_id
+  file_references, task_relationships, audit_log, execution_id
 )
 SELECT
   deliverable_id, task_id, submitted_by_type, submitted_by_id, content, status,
   reviewed_by_type, reviewed_by_id, reviewed_at, created_at, version, quality_score,
   reviewer_type, reviewer_id, approved_at, approved_by_type, approved_by_id,
   founder_signature, founder_signed_at, revision_notes,
-  file_references, task_relationships, audit_log, updated_at, execution_id
+  file_references, task_relationships, audit_log, execution_id
 FROM deliverables;
 
 -- Drop old table and rename new

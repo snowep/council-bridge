@@ -264,20 +264,12 @@ describe('Phase 10 Batch 1: Migration Runner & Backup/Restore', () => {
       createPhase4Schema(db);
       const { registry, ledger, backupManager, validator, executor } = setupMigrationRunner(db);
 
-      // Pre-apply 001-006 by recording in ledger
-      for (const id of ['001', '002', '003', '004', '005', '006']) {
-        const m = registry.getById(id);
-        if (m) {
-          const sql = fs.readFileSync(m.filepath, 'utf-8');
-          const checksum = crypto.createHash('sha256').update(sql).digest('hex');
-          db.prepare(`
-            INSERT INTO migration_ledger (migration_id, filename, checksum, applied_at, applied_by, duration_ms, status, backup_path, notes)
-            VALUES (?, ?, ?, datetime('now'), ?, ?, 'success', ?, ?)
-          `).run(id, m.filename, checksum, 'test', 0, '', JSON.stringify({}));
-        }
-      }
+      // Actually run migrations 001-006 to establish proper schema state
+      const firstSix = registry.getOrdered().filter(m => ['001', '002', '003', '004', '005', '006'].includes(m.id));
+      const results1 = await executor.executeAll(firstSix.map(m => m.id), { createBackup: true });
+      assert.ok(results1.every(r => r.success), 'Migrations 001-006 should succeed');
 
-      // Execute pending
+      // Execute pending (should be 013, 014)
       const pending = registry.getOrdered().filter(m => !ledger.isApplied(m.id));
       assert.ok(pending.some(m => m.id === '013'), 'Migration 013 should be pending');
 

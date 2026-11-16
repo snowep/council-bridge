@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Box,
   Typography,
@@ -31,7 +31,7 @@ import {
 } from '@mui/icons-material';
 import { apiClient } from '@shared/api/client';
 import type { Message, Conversation } from '@shared/types/api';
-import { useAppAuth } from '@app/App';
+import { useAppAuth } from '@app/use-app-auth';
 import { useTheme } from '@mui/material/styles';
 
 const ParticipantIcon = ({ type, size = 'small' }: { type: string; size?: 'small' | 'medium' | 'large' }) => {
@@ -121,13 +121,13 @@ export default function ChatPage() {
     if (isMobile) setMobileDrawerOpen(false);
   };
 
-  const handleSearch = (value: string) => {
+  const handleSearch = useCallback((value: string) => {
     const filtered = conversations.filter(conv =>
       conv.participant_name.toLowerCase().includes(value.toLowerCase()) ||
       conv.participant_id.toLowerCase().includes(value.toLowerCase())
     );
     setFilteredConversations(filtered);
-  };
+  }, [conversations]);
 
   const sendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -173,7 +173,7 @@ export default function ChatPage() {
 
   useEffect(() => {
     handleSearch('');
-  }, [conversations]);
+  }, [handleSearch]);
 
   if (loading) {
     return (

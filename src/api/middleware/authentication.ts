@@ -6,10 +6,11 @@ import { Request, Response, NextFunction } from 'express';
 import { validateSessionToken } from '../../auth/session.js';
 import { getAuthConfig, isProductionMode, isDevelopmentMode, isLocalSingleUserMode as isLocalSingleUserModeFn, getLocalBindAddress as getLocalBindAddressFn, AuthContext } from '../../auth/index.js';
 
-const config = getAuthConfig();
-const PRODUCTION_MODE = isProductionMode();
-const DEVELOPMENT_MODE = isDevelopmentMode();
-const LOCAL_MODE = isLocalSingleUserModeFn();
+// These must be functions, not cached values, because tests change process.env.AUTH_MODE at runtime
+function getConfig() { return getAuthConfig(); }
+function isProd() { return getConfig().mode === 'production'; }
+function isDev() { return getConfig().mode === 'development'; }
+function isLocal() { return getConfig().local_single_user_mode; }
 
 function isLoopbackAddress(ip: string | undefined): boolean {
   if (!ip) return false;
@@ -33,7 +34,7 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction):
   const clientIp = getClientIp(req);
 
   // LOCAL SINGLE-USER MODE
-  if (LOCAL_MODE) {
+  if (isLocal()) {
     // Reject non-loopback requests in local mode
     if (!isLoopbackAddress(clientIp)) {
       return res.status(403).json({
@@ -87,7 +88,8 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction):
 
   // NORMAL MODE (development or production)
   // In development with hardcoded fallback enabled, allow requests without auth
-  if (!PRODUCTION_MODE && config.allow_hardcoded_fallback && !authHeader) {
+  const currentConfig = getConfig();
+  if (!isProd() && currentConfig.allow_hardcoded_fallback && !authHeader) {
     // Development fallback - use a default context for testing
     (req as any).authContext = {
       owner_type: 'founder',
@@ -103,10 +105,10 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction):
   }
 
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    if (PRODUCTION_MODE) {
+    if (isProd()) {
       return res.status(401).json({
         error: 'Authentication required',
-        code: 'UNAUTHENTICATED'
+        code: 'AUTH_REQUIRED'
       });
     }
     // Development: allow for backward compatibility
@@ -205,7 +207,7 @@ export function validateLocalSingleUserConfig(): { valid: boolean; errors: strin
 }
 
 export function isLocalSingleUserModeEnabled(): boolean {
-  return isLocalSingleUserModeFn();
+  return isLocal();
 }
 
 export function getLocalSingleUserBindAddress(): string {

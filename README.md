@@ -1,28 +1,20 @@
-# Council Bridge - Phase 1
+# Council Bridge
 
-MCP server for agent-to-agent communication. Provides a message bus where agents can register, send messages, check inboxes, and reply.
+MCP server and REST API for structured multi-agent collaboration. Provides a message bus, council meetings, task delegation, approvals, and memory management with founder-signed authorization.
 
-## Features
+## Architecture
 
-- **Agent Registration**: Register agents with unique IDs, display names, and runtimes
-- **Message Sending**: Agents can send messages to other registered agents
-- **Inbox Checking**: Agents can check their message inbox
-- **Message Replies**: Recipients can reply to messages (maintains reply chain)
-- **Message Listing**: List all messages sent/received by an agent
-- **Persistence**: Messages stored in SQLite with full history
-- **Validation**: All inputs validated with Zod schemas
-- **Access Control**: Only registered agents can send/receive; only recipients can reply
+**Backend**: Express 5 + MCP SDK 1.32 + SQLite (better-sqlite3)
+- Session-based authentication with JWT-style tokens
+- Founder signature verification (Ed25519) for privileged operations
+- Local single-user Founder mode with loopback restriction
+- MCP endpoint at `/mcp` (Streamable HTTP)
+- REST API routes in `src/api/routes/`
+- Database layer in `src/infrastructure/database/`
 
-## MCP Tools
-
-| Tool | Description |
-|------|-------------|
-| `register_agent` | Register a new agent |
-| `list_agents` | List all registered agents |
-| `send_message` | Send a message from one agent to another |
-| `check_inbox` | Check messages for an agent |
-| `reply_message` | Reply to a specific message |
-| `list_messages` | List all messages for an agent |
+**Frontend**: React 19 + Vite + MUI 9 (Material UI)
+- Located in `frontend/`
+- Communicates with backend via REST API
 
 ## Quick Start
 
@@ -45,140 +37,262 @@ npm start
 
 ## Configuration
 
-- **Host**: `127.0.0.1` (localhost only)
-- **Port**: `3333` (or `PORT` env var)
-- **MCP Endpoint**: `http://127.0.0.1:3333/mcp`
-- **Health Endpoint**: `http://127.0.0.1:3333/health`
-- **Database**: `data/council.db` (SQLite with WAL mode)
+| Setting | Value |
+|---------|-------|
+| Host | `127.0.0.1` (localhost only in local mode) |
+| Port | `3334` (or `PORT` env var) |
+| MCP Endpoint | `http://127.0.0.1:3334/mcp` |
+| Health Endpoint | `http://127.0.0.1:3334/health` |
+| Database | `data/council.db` (SQLite with WAL mode) |
+| Local Bind | `127.0.0.1` (loopback only in local mode) |
 
-## Example Usage
+### Environment Variables
 
-### Initialize MCP Session
-```json
-{
-  "jsonrpc": "2.0",
-  "id": 1,
-  "method": "initialize",
-  "params": {
-    "protocolVersion": "2024-11-05",
-    "capabilities": {},
-    "clientInfo": { "name": "my-client", "version": "1.0.0" }
-  }
-}
+```bash
+PORT=3334                    # Server port (default: 3334)
+NODE_ENV=development         # production | development
+DATABASE_PATH=data/council.db  # SQLite database path
+AUTH_MODE=local              # local | production
+FOUNDER_PUBLIC_KEY=...       # Base64 Ed25519 public key
+FOUNDER_PRIVATE_KEY=...      # Base64 Ed25519 private key (dev only)
+SESSION_TIMEOUT_MS=1800000   # 30 minutes
+ALLOW_HARDCODED_FALLBACK=true # Dev only: allow fallback auth
 ```
 
-### Register Agent
-```json
-{
-  "jsonrpc": "2.0",
-  "id": 2,
-  "method": "tools/call",
-  "params": {
-    "name": "register_agent",
-    "arguments": {
-      "agent_id": "agent-1",
-      "display_name": "My Agent",
-      "runtime": "node"
-    }
-  }
-}
-```
+## Authentication
 
-### Send Message
-```json
-{
-  "jsonrpc": "2.0",
-  "id": 3,
-  "method": "tools/call",
-  "params": {
-    "name": "send_message",
-    "arguments": {
-      "sender_id": "agent-1",
-      "recipient_id": "agent-2",
-      "content": "Hello!"
-    }
-  }
-}
-```
+### Session Authentication
+- Bearer token in `Authorization` header
+- Tokens created via `POST /api/auth/session`
+- Validates identity against database
 
-### Check Inbox
-```json
-{
-  "jsonrpc": "2.0",
-  "id": 4,
-  "method": "tools/call",
-  "params": {
-    "name": "check_inbox",
-    "arguments": { "agent_id": "agent-2" }
-  }
-}
-```
+### Founder Signature Verification
+Required for privileged operations in production:
+- Ed25519 signatures over canonical JSON
+- Timestamp (5 min window), nonce (replay protection), key ID
+- Endpoints: `/api/task-autonomy`, `/api/auth/session` (production)
 
-### Reply to Message
-```json
-{
-  "jsonrpc": "2.0",
-  "id": 5,
-  "method": "tools/call",
-  "params": {
-    "name": "reply_message",
-    "arguments": {
-      "agent_id": "agent-2",
-      "message_id": "<message-uuid>",
-      "content": "Hi there!"
-    }
-  }
-}
-```
+### Local Single-User Mode (Founder Mode)
+- `AUTH_MODE=local` enables
+- Binds to `127.0.0.1` only (loopback restriction)
+- No founder signature required for session creation
+- Simplified auth for development
 
-## Project Structure
+## REST API Structure
 
 ```
-src/
-├── server.ts       # Main MCP server with Express + Streamable HTTP
-├── database.ts     # SQLite database setup & prepared statements
-├── agents.ts       # Agent registration & listing logic
-└── messages.ts     # Message sending, inbox, replies, listing
+GET    /health                    # Health check
+POST   /api/auth/session          # Create session
+DELETE /api/auth/session          # Revoke session
+GET    /api/auth/status           # Session status
+GET    /api/auth/founder/public-key  # Founder public key
 
-tests/
-├── agents.test.ts  # Unit tests for agents & messages
-└── server.test.ts  # Integration tests via MCP protocol
+POST   /api/task-autonomy         # Create autonomy level (founder)
+GET    /api/task-autonomy         # List autonomy levels
 
-data/
-└── council.db      # SQLite database (created at runtime)
+GET    /api/messages              # List messages
+POST   /api/messages              # Send message
+GET    /api/messages/:id          # Get message
+GET    /api/messages/inbox/:owner  # Get inbox
+
+GET    /api/meetings              # List meetings
+POST   /api/meetings              # Create meeting
+GET    /api/meetings/:id          # Get meeting
+POST   /api/meetings/:id/start    # Start meeting
+POST   /api/meetings/:id/end      # End meeting
+
+GET    /api/council               # Council operations
+POST   /api/council/delegate      # Delegate task
+
+GET    /api/memory                # Memory entries
+POST   /api/memory                # Create memory
+
+GET    /api/divisions             # List divisions
+POST   /api/divisions             # Create division
+
+GET    /api/staff                 # List staff
+POST   /api/staff                 # Create staff
+
+GET    /api/tasks                 # List tasks
+POST   /api/tasks                 # Create task
+GET    /api/tasks/:id             # Get task
+POST   /api/tasks/:id/approve     # Approve task
+POST   /api/tasks/:id/reject      # Reject task
+
+GET    /api/executions            # List executions
+POST   /api/executions            # Request execution
+GET    /api/executions/:id        # Get execution
+POST   /api/executions/:id/approve # Approve execution
+POST   /api/executions/:id/cancel  # Cancel execution
+
+GET    /api/approvals             # List approvals
+GET    /api/approvals/pending     # Pending approvals
+
+GET    /api/deliverables          # List deliverables
+POST   /api/deliverables          # Create deliverable
+GET    /api/deliverables/:id      # Get deliverable
+
+GET    /api/quality-thresholds    # Quality thresholds
+POST   /api/quality-thresholds    # Create threshold
 ```
 
-## Architecture
+## MCP Tools
 
-- **Transport**: Streamable HTTP (MCP spec) with SSE support
-- **Session Management**: Per-client sessions with UUIDs
-- **DNS Rebinding Protection**: Enabled via SDK's Express integration
-- **Graceful Shutdown**: SIGINT/SIGTERM handlers close all sessions
-- **Health Checks**: `/health` endpoint for monitoring
+The `/mcp` endpoint exposes tools for agent-to-agent communication:
+- `register_agent`, `list_agents`
+- `send_message`, `check_inbox`, `reply_message`, `list_messages`
+- Council operations, meeting management, task delegation
 
-## Database Schema
+## Database
 
-```sql
-agents (
-  id TEXT PRIMARY KEY,           -- UUID
-  agent_id TEXT UNIQUE NOT NULL, -- User-facing ID
-  display_name TEXT NOT NULL,
-  runtime TEXT NOT NULL,
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
-)
+Located in `src/infrastructure/database/database.ts`:
+- SQLite with WAL mode for concurrency
+- Foreign keys enabled
+- Migrations in `migrations/` directory
+- Schema managed by migration runner
 
-messages (
-  id TEXT PRIMARY KEY,           -- UUID
-  sender_id TEXT NOT NULL,       -- FK to agents.agent_id
-  recipient_id TEXT NOT NULL,    -- FK to agents.agent_id
-  content TEXT NOT NULL,
-  reply_to TEXT,                 -- FK to messages.id
-  created_at TEXT NOT NULL
-)
+## Migration Runner CLI
+
+Located in `src/migration-runner/cli.ts`:
+
+```bash
+# Show migration status
+npx tsx src/migration-runner/cli.ts status
+
+# Run pending migrations
+npx tsx src/migration-runner/cli.ts run
+
+# Dry run (validate only)
+npx tsx src/migration-runner/cli.ts run --dry-run
+
+# Run specific migrations
+npx tsx src/migration-runner/cli.ts run 001 002
+
+# Rollback last migration
+npx tsx src/migration-runner/cli.ts rollback
+
+# Rollback N migrations
+npx tsx src/migration-runner/cli.ts rollback 3
+
+# Rollback all
+npx tsx src/migration-runner/cli.ts rollback --all
+
+# Rollback to before specific migration
+npx tsx src/migration-runner/cli.ts rollback --to 010
+
+# Validate migrations
+npx tsx src/migration-runner/cli.ts validate
+
+# Create backup
+npx tsx src/migration-runner/cli.ts backup
+
+# Restore from backup
+npx tsx src/migration-runner/cli.ts restore council-20240101-120000.db
+
+# Verify founder authorization package
+npx tsx src/migration-runner/cli.ts check-authorization
+
+# Compute checksums
+npx tsx src/migration-runner/cli.ts compute-checksums
+
+# Verify ledger checksums
+npx tsx src/migration-runner/cli.ts verify-ledger
 ```
 
-Indexes on: `messages(recipient_id)`, `messages(sender_id)`, `messages(reply_to)`, `messages(created_at)`
+## Backup / Restore
+
+```bash
+# Binary backup (fast, exact copy)
+npx tsx src/migration-runner/cli.ts backup --method binary
+
+# Schema + data dump (portable)
+npx tsx src/migration-runner/cli.ts backup --method full_dump
+
+# Schema only
+npx tsx src/migration-runner/cli.ts backup --method schema_dump
+
+# Restore
+npx tsx src/migration-runner/cli.ts restore <backup-file>
+```
+
+## Testing
+
+```bash
+# All tests
+npm test
+
+# Unit tests only
+tsx --test tests/unit/**/*.test.ts
+
+# Integration tests only
+tsx --test tests/integration/**/*.test.ts
+
+# Security tests
+tsx --test tests/security/**/*.test.ts
+
+# Migration tests
+tsx --test tests/migrations/**/*.test.ts
+```
+
+## Repository Structure
+
+```
+council-bridge/
+├── src/
+│   ├── server.ts                      # Express + MCP server entry
+│   ├── database.ts                    # Database factory (legacy compat)
+│   ├── mcp/
+│   │   └── tools.ts                   # MCP tool registration
+│   ├── auth/
+│   │   ├── index.ts                   # Auth config & modes
+│   │   ├── session.ts                 # Session token management
+│   │   ├── founder.ts                 # Founder Ed25519 verification
+│   │   └── middleware.ts              # Auth middleware
+│   ├── api/
+│   │   ├── middleware/
+│   │   │   ├── authentication.ts      # Auth middleware + local mode
+│   │   │   └── error-handler.ts       # Global error handler
+│   │   ├── routes/                    # REST API routes (12 modules)
+│   │   └── schemas/                   # Zod request/response schemas
+│   ├── council/                       # Council domain logic
+│   │   ├── operations.ts              # Task autonomy, executions
+│   │   ├── meetings.ts                # Meeting lifecycle
+│   │   ├── memory.ts                  # Memory management
+│   │   ├── divisions.ts               # Division management
+│   │   ├── task-delegation.ts         # Task delegation
+│   │   └── types.ts                   # Domain types & Zod schemas
+│   ├── communication/
+│   │   ├── agents.ts                  # Agent registry
+│   │   └── messages.ts                # Message bus
+│   ├── infrastructure/
+│   │   └── database/
+│   │       └── database.ts            # Database layer (WAL, FK, migrations)
+│   └── migration-runner/
+│       ├── cli.ts                     # CLI entry point
+│       ├── registry.ts                # Migration file registry
+│       ├── ledger.ts                  # Applied migrations ledger
+│       ├── executor.ts                # Migration execution engine
+│       ├── rollback.ts                # Rollback engine
+│       ├── backup.ts                  # Backup/restore manager
+│       └── validator.ts               # Pre/post migration validation
+├── migrations/                        # SQL migration files (001-015)
+├── frontend/                          # React 19 + Vite + MUI 9 app
+│   ├── src/
+│   ├── package.json
+│   └── vite.config.ts
+├── tests/
+│   ├── unit/                          # Unit tests
+│   ├── integration/                   # Integration tests
+│   ├── security/                      # Security tests
+│   ├── migrations/                    # Migration tests
+│   └── helpers/                       # Test helpers
+├── data/                              # SQLite database (gitignored)
+├── docs/                              # Documentation
+├── .env.example                       # Environment template
+├── package.json
+├── tsconfig.json
+└── README.md
+```
 
 ## License
 

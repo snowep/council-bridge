@@ -3,7 +3,8 @@
 
 import { describe, it, before, after, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
-import { createDatabase, DatabaseInstance, SCHEMA_VERSION } from '../../src/database.js';
+import { createDatabase, DatabaseInstance } from '../../src/database.js';
+import { SCHEMA_VERSION } from '../../src/infrastructure/database/database.js';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 

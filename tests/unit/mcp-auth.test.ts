@@ -79,7 +79,7 @@ describe('MCP Authentication - Phase 9 Task 2', () => {
         .send({ jsonrpc: '2.0', method: 'initialize', params: {}, id: 3 })
         .expect(401);
 
-      assert.strictEqual(response.body.code, 'AUTH_INVALID_TOKEN');
+      assert.strictEqual(response.body.code, 'INVALID_SESSION');
     });
 
     it('should reject tampered token with 401', async () => {
@@ -102,7 +102,7 @@ describe('MCP Authentication - Phase 9 Task 2', () => {
         .send({ jsonrpc: '2.0', method: 'initialize', params: {}, id: 4 })
         .expect(401);
 
-      assert.strictEqual(response.body.code, 'AUTH_INVALID_TOKEN');
+      assert.strictEqual(response.body.code, 'INVALID_SESSION');
     });
   });
 
@@ -386,7 +386,7 @@ describe('MCP Authentication - Phase 9 Task 2', () => {
         .expect(401);
 
       assert.strictEqual(response.body.code, 'AUTH_REQUIRED');
-      assert.ok(response.body.message.includes('Authorization: Bearer'));
+      assert.ok(response.body.error.includes('Authentication required'));
     });
 
     it('should not allow hardcoded identity fallback in production', async () => {

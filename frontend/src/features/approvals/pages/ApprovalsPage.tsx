@@ -19,7 +19,7 @@ import {
   Tooltip,
 } from '@mui/material';
 import { VerifiedUserOutlined, RefreshOutlined, CheckCircleOutlined, CancelOutlined } from '@mui/icons-material';
-import { useAppAuth } from '@app/App';
+import { useAppAuth } from '@app/use-app-auth';
 import { apiClient } from '@shared/api/client';
 import type { ApprovalRequest } from '@shared/types/api';
 

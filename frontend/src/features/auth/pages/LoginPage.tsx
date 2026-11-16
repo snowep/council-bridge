@@ -12,7 +12,7 @@ import {
   FormControl,
   CircularProgress,
 } from '@mui/material';
-import { useAppAuth } from '@app/App';
+import { useAppAuth } from '@app/use-app-auth';
 
 const RUNTIME_OPTIONS = [
   { value: 'claude', label: 'Claude Code' },

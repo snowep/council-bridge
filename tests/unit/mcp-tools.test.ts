@@ -403,6 +403,7 @@ describe('MCP Tool Registration - Phase 9 Task 3', () => {
     it('should reject unauthenticated tool calls', async () => {
       const response = await request(server)
         .post('/mcp')
+        .set('Accept', 'application/json, text/event-stream')
         .send({ jsonrpc: '2.0', method: 'tools/call', params: { name: 'list_agents', arguments: {} }, id: 1 })
         .set('Content-Type', 'application/json')
         .expect(401);

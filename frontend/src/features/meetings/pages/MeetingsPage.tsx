@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Tabs,
   Tab,
@@ -75,11 +75,7 @@ const MeetingsPage: React.FC = () => {
     setValue(newValue);
   };
 
-  useEffect(() => {
-    fetchMeetings();
-  }, []);
-
-  const fetchMeetings = async () => {
+  const fetchMeetings = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -93,7 +89,11 @@ const MeetingsPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    fetchMeetings();
+  }, [fetchMeetings]);
 
   const fetchMeetingDetails = async (meetingId: string) => {
     try {

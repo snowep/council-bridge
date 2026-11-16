@@ -1,9 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { ThemeProvider, CssBaseline } from '@mui/material';
-import { useState, useEffect, createContext, useContext, type ReactNode } from 'react';
+import { useState, useEffect, type ReactNode } from 'react';
 import { lightTheme, darkTheme } from '../shared/theme';
-import { apiClient } from '../shared/api/client';
-import type { AuthContext } from '../shared/types/api';
 import DashboardPage from '../features/dashboard/pages/DashboardPage';
 import ChatPage from '../features/chat/pages/ChatPage';
 import CouncilPage from '../features/council/pages/CouncilPage';
@@ -16,108 +14,21 @@ import DeliverablesPage from '../features/deliverables/pages/DeliverablesPage';
 import ApprovalsPage from '../features/approvals/pages/ApprovalsPage';
 import LoginPage from '../features/auth/pages/LoginPage';
 import Layout from '../app/layouts/Layout';
+import { AppAuthProvider } from './auth-context';
+import { useAppAuth } from './use-app-auth';
+import { LOCAL_SINGLE_USER_MODE } from './constants';
 
-// Check if local single-user mode is enabled (set by Vite at build time or runtime env)
-const LOCAL_SINGLE_USER_MODE = import.meta.env.VITE_LOCAL_SINGLE_USER_MODE === 'true' || import.meta.env.DEV;
-
-// Auth context for the app
-interface AppAuthContextType {
-  authContext: AuthContext | null;
-  isLoading: boolean;
-  login: (ownerType: string, ownerId: string, runtime: 'claude' | 'hermes') => Promise<void>;
-  logout: () => Promise<void>;
-  refreshAuth: () => Promise<void>;
-  navigateAfterLogin: () => void;
-}
-
-const AppAuthContext = createContext<AppAuthContextType | null>(null);
-
-export const useAppAuth = () => {
-  const context = useContext(AppAuthContext);
-  if (!context) {
-    throw new Error('useAppAuth must be used within AppAuthProvider');
-  }
-  return context;
-};
-
-function AppAuthProvider({ children }: { children: ReactNode }) {
-  const [authContext, setAuthContext] = useState<AuthContext | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+function AppAuthProviderWithNavigate({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
-
-  const refreshAuth = async () => {
-    try {
-      if (LOCAL_SINGLE_USER_MODE) {
-        // In local single-user mode, auto-authenticate as Founder without API call
-        const localAuthContext: AuthContext = {
-          owner_type: 'founder',
-          owner_id: 'founder',
-          runtime: 'claude',
-          session_id: 'local-founder',
-          permissions: [],
-          expires_at: Infinity,
-          issued_at: Date.now(),
-          founder_signed: true
-        };
-        setAuthContext(localAuthContext);
-      } else if (apiClient.isAuthenticated()) {
-        const status = await apiClient.getAuthStatus();
-        setAuthContext(status.session);
-      } else {
-        setAuthContext(null);
-      }
-    } catch (error) {
-      console.error('Failed to refresh auth:', error);
-      if (LOCAL_SINGLE_USER_MODE) {
-        // Fallback to local Founder context on error
-        const localAuthContext: AuthContext = {
-          owner_type: 'founder',
-          owner_id: 'founder',
-          runtime: 'claude',
-          session_id: 'local-founder',
-          permissions: [],
-          expires_at: Infinity,
-          issued_at: Date.now(),
-          founder_signed: true
-        };
-        setAuthContext(localAuthContext);
-      } else {
-        setAuthContext(null);
-      }
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const login = async (ownerType: string, ownerId: string, runtime: 'claude' | 'hermes') => {
-    const response = await apiClient.createSession(ownerType, ownerId, runtime);
-    apiClient.setSessionToken(response.session_token);
-    await refreshAuth();
-  };
-
-  const logout = async () => {
-    try {
-      await apiClient.deleteSession();
-    } catch (error) {
-      console.error('Logout error:', error);
-    } finally {
-      apiClient.clearSession();
-      setAuthContext(null);
-    }
-  };
 
   const navigateAfterLogin = () => {
     navigate('/', { replace: true });
   };
 
-  useEffect(() => {
-    refreshAuth();
-  }, []);
-
   return (
-    <AppAuthContext.Provider value={{ authContext, isLoading, login, logout, refreshAuth, navigateAfterLogin }}>
+    <AppAuthProvider navigateAfterLogin={navigateAfterLogin}>
       {children}
-    </AppAuthContext.Provider>
+    </AppAuthProvider>
   );
 }
 
@@ -167,7 +78,7 @@ export default function App() {
   return (
     <BrowserRouter>
       <ThemeWrapper>
-        <AppAuthProvider>
+        <AppAuthProviderWithNavigate>
           <Routes>
             {/* No login page in local single-user mode */}
             {!LOCAL_SINGLE_USER_MODE && <Route path="/login" element={<LoginPage />} />}
@@ -192,7 +103,7 @@ export default function App() {
               <Route path="approvals" element={<ApprovalsPage />} />
             </Route>
           </Routes>
-        </AppAuthProvider>
+        </AppAuthProviderWithNavigate>
       </ThemeWrapper>
     </BrowserRouter>
   );
