@@ -20,8 +20,8 @@ import {
   cancelExecutionRequest,
   requireAuthenticated
 } from '../council/operations.js';
-import { createAgentService } from '../agents.js';
-import { createMessageService } from '../messages.js';
+import { createAgentService } from '../communication/agents.js';
+import { createMessageService } from '../communication/messages.js';
 import type { RequestHandlerExtra } from '@modelcontextprotocol/sdk/shared/protocol.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 

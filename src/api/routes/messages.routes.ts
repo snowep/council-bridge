@@ -2,7 +2,7 @@
 // Implements: GET /api/messages/conversations, GET /api/messages/:conversationId, POST /api/messages
 
 import { Router, Request, Response } from 'express';
-import { createMessageService } from '../../messages.js';
+import { createMessageService } from '../../communication/messages.js';
 import { getDatabase } from '../../database.js';
 import { authMiddleware, getAuthContext, requireAuth } from '../middleware/authentication.js';
 import { asyncHandler, ValidationError, NotFoundError } from '../middleware/error-handler.js';
@@ -10,7 +10,7 @@ import { SendMessageSchema, ListConversationsSchema } from '../schemas/index.js'
 
 const router = Router();
 import { databaseInstance as db } from '../../database.js';
-import { createAgentService } from '../../agents.js';
+import { createAgentService } from '../../communication/agents.js';
 const agentService = createAgentService(db);
 const messageService = createMessageService(db, agentService);
 

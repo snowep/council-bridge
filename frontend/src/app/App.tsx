@@ -1,21 +1,21 @@
 import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { ThemeProvider, CssBaseline } from '@mui/material';
 import { useState, useEffect, createContext, useContext, type ReactNode } from 'react';
-import { lightTheme, darkTheme } from '../theme';
-import { apiClient } from '../services/api';
-import type { AuthContext } from '../types/api';
-import DashboardPage from '../pages/DashboardPage';
-import ChatPage from '../pages/ChatPage';
-import CouncilPage from '../pages/CouncilPage';
-import MeetingsPage from '../pages/MeetingsPage';
-import MemoryPage from '../pages/MemoryPage';
-import OrganizationPage from '../pages/OrganizationPage';
-import TasksPage from '../pages/TasksPage';
-import ExecutionsPage from '../pages/ExecutionsPage';
-import DeliverablesPage from '../pages/DeliverablesPage';
-import ApprovalsPage from '../pages/ApprovalsPage';
-import LoginPage from '../pages/LoginPage';
-import Layout from '../layouts/Layout';
+import { lightTheme, darkTheme } from '../shared/theme';
+import { apiClient } from '../shared/api/client';
+import type { AuthContext } from '../shared/types/api';
+import DashboardPage from '../features/dashboard/pages/DashboardPage';
+import ChatPage from '../features/chat/pages/ChatPage';
+import CouncilPage from '../features/council/pages/CouncilPage';
+import MeetingsPage from '../features/meetings/pages/MeetingsPage';
+import MemoryPage from '../features/memory/pages/MemoryPage';
+import OrganizationPage from '../features/organization/pages/OrganizationPage';
+import TasksPage from '../features/tasks/pages/TasksPage';
+import ExecutionsPage from '../features/executions/pages/ExecutionsPage';
+import DeliverablesPage from '../features/deliverables/pages/DeliverablesPage';
+import ApprovalsPage from '../features/approvals/pages/ApprovalsPage';
+import LoginPage from '../features/auth/pages/LoginPage';
+import Layout from '../app/layouts/Layout';
 
 // Check if local single-user mode is enabled (set by Vite at build time or runtime env)
 const LOCAL_SINGLE_USER_MODE = import.meta.env.VITE_LOCAL_SINGLE_USER_MODE === 'true' || import.meta.env.DEV;

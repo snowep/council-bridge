@@ -1,32 +1,79 @@
-# React + TypeScript + Vite
+# Council Bridge Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+React 19 + TypeScript + Vite + MUI application for the Council Bridge multi-agent governance system.
 
-Currently, two official plugins are available:
+## Stack
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- React 19, React Router 7
+- TypeScript 7
+- Material UI 9 (`@mui/material`, `@mui/x-data-grid`, `@mui/x-date-pickers`)
+- Vite 8
+- Oxlint
+- Playwright (E2E)
 
-## React Compiler
+## Setup
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```bash
+npm install
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+## Development
+
+```bash
+npm run dev
+```
+
+The dev server runs on port 5173 and proxies `/api`, `/mcp`, and `/health` to the backend at `http://localhost:3334`.
+
+Start the backend first (from the repository root):
+
+```bash
+npm run dev
+```
+
+## Build
+
+```bash
+npm run build    # TypeScript compile + production Vite build to dist/
+npm run preview  # Serve the production build
+```
+
+## Lint
+
+```bash
+npm run lint     # Oxlint
+```
+
+## E2E Tests
+
+```bash
+npx playwright test          # Run all E2E specs in tests/e2e/
+npx playwright test --headed # Run with a visible browser
+```
+
+E2E specs live in `tests/e2e/`. Playwright output (`test-results/`, `playwright-report/`) is git-ignored.
+
+## Local single-user Founder mode
+
+Start the backend with `LOCAL_SINGLE_USER_MODE=true`. The frontend detects this mode and skips the login flow, auto-authenticating as the Founder over loopback only.
+
+## Structure
+
+```
+src/
+  app/            Application shell: App.tsx router, layouts/
+  features/       Feature modules, one directory per domain, each with pages/
+    auth/ dashboard/ chat/ council/ meetings/ memory/
+    organization/ tasks/ executions/ deliverables/ approvals/
+  shared/         Cross-feature code
+    api/          HTTP client (client.ts)
+    components/   Shared components
+    hooks/        Shared hooks (useApi.ts)
+    theme/        MUI theme (index.ts)
+    types/        API types (api.ts)
+    styles/       Shared CSS
+  components/     Legacy shared components (migrating to shared/)
+  utils/          Utilities
+tests/
+  e2e/            Playwright specs
+```

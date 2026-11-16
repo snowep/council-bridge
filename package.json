@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "tsx --test tests/**/*.test.ts",
+    "test": "tsx --test tests/unit/**/*.test.ts tests/integration/**/*.test.ts tests/security/**/*.test.ts tests/migrations/**/*.test.ts tests/helpers/*.test.ts",
     "dev": "tsx watch src/server.ts",
     "start": "tsx src/server.ts",
     "typecheck": "tsc --noEmit"
