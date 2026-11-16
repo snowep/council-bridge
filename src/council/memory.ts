@@ -331,3 +331,115 @@ export function updateCrossDivisionShare(
   const result = db.query('SELECT * FROM cross_division_shares WHERE share_id = ?', [shareId]);
   return result[0] as CrossDivisionShare;
 }
+
+// --- Activity Operations ---
+
+export interface ActivityItem {
+  id: string;
+  title: string;
+  time: string;
+  type: 'task' | 'deliverable' | 'staff' | 'division' | 'approval' | 'execution' | 'message' | 'meeting';
+  href?: string;
+  metadata?: Record<string, any>;
+}
+
+export function listActivity(
+  db: DatabaseInstance,
+  ctx: { owner_type: string; owner_id: string },
+  options: { limit: number; offset: number }
+): ActivityItem[] {
+  const items: ActivityItem[] = [];
+
+  // 1. Task audit entries (recent task changes)
+  const taskAudit = db.query(`
+    SELECT audit_id, task_id, mutation_type, details, actor_type, actor_id, runtime, created_at
+    FROM task_audit
+    ORDER BY created_at DESC
+    LIMIT ?
+  `, [Math.ceil(options.limit / 3)]);
+
+  for (const audit of taskAudit) {
+    items.push({
+      id: `task-${audit.audit_id}`,
+      title: `Task ${audit.mutation_type}: ${audit.task_id}`,
+      time: audit.created_at,
+      type: 'task',
+      href: `/tasks?task=${audit.task_id}`,
+      metadata: {
+        mutation_type: audit.mutation_type,
+        actor_type: audit.actor_type,
+        actor_id: audit.actor_id,
+        details: audit.details,
+      },
+    });
+  }
+
+  // 2. Memory entries (recent task/deliverable history)
+  const memories = db.query(`
+    SELECT memory_id, title, memory_type, category, owner_type, owner_id, created_at, updated_at
+    FROM memory_entries
+    WHERE archived_at IS NULL
+    ORDER BY updated_at DESC
+    LIMIT ?
+  `, [Math.ceil(options.limit / 3)]);
+
+  for (const mem of memories) {
+    const typeMap: Record<string, ActivityItem['type']> = {
+      task_created: 'task',
+      task_updated: 'task',
+      task_completed: 'task',
+      deliverable_submitted: 'deliverable',
+      deliverable_approved: 'deliverable',
+      deliverable_rejected: 'deliverable',
+      execution_requested: 'execution',
+      execution_approved: 'execution',
+      execution_completed: 'execution',
+      meeting_phase: 'meeting',
+      council_decision: 'approval',
+      staff_appointed: 'staff',
+    };
+    const type = typeMap[mem.memory_type] || 'task';
+    items.push({
+      id: `memory-${mem.memory_id}`,
+      title: mem.title,
+      time: mem.updated_at,
+      type,
+      href: `/memory?entry=${mem.memory_id}`,
+      metadata: {
+        memory_type: mem.memory_type,
+        category: mem.category,
+        owner_type: mem.owner_type,
+        owner_id: mem.owner_id,
+      },
+    });
+  }
+
+  // 3. Recent messages (new conversations)
+  const messages = db.query(`
+    SELECT m.id, m.sender_id, m.recipient_id, m.content, m.created_at
+    FROM messages m
+    WHERE m.sender_id = ? OR m.recipient_id = ?
+    ORDER BY m.created_at DESC
+    LIMIT ?
+  `, [ctx.owner_id, ctx.owner_id, Math.ceil(options.limit / 3)]);
+
+  for (const msg of messages) {
+    items.push({
+      id: `message-${msg.id}`,
+      title: msg.content.length > 80 ? msg.content.substring(0, 80) + '...' : msg.content,
+      time: msg.created_at,
+      type: 'message',
+      href: `/chat?conversation=${msg.sender_id === ctx.owner_id ? msg.recipient_id : msg.sender_id}`,
+      metadata: {
+        sender_id: msg.sender_id,
+        recipient_id: msg.recipient_id,
+      },
+    });
+  }
+
+  // Sort all by time descending
+  items.sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
+
+  // Apply pagination
+  return items.slice(options.offset, options.offset + options.limit);
+}

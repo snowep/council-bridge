@@ -6,7 +6,7 @@ import { createMessageService } from '../../communication/messages.js';
 import { getDatabase } from '../../database.js';
 import { authMiddleware, getAuthContext, requireAuth } from '../middleware/authentication.js';
 import { asyncHandler, ValidationError, NotFoundError } from '../middleware/error-handler.js';
-import { SendMessageSchema, ListConversationsSchema } from '../schemas/index.js';
+import { SendMessageSchema, ListConversationsSchema, ListMessagesInConversationSchema } from '../schemas/index.js';
 
 const router = Router();
 import { databaseInstance as db } from '../../database.js';
@@ -37,19 +37,20 @@ router.get('/conversations', asyncHandler(async (req: Request, res: Response) =>
   res.json({ conversations, limit, offset });
 }));
 
-// GET /api/messages/:conversationId - Get messages in a conversation
+// GET /api/messages/:conversationId - Get messages in a conversation with pagination
 router.get('/:conversationId', asyncHandler(async (req: Request, res: Response) => {
   const ctx = requireAuth(req);
   const conversationId = getParamId(req.params, 'conversationId');
+  const { limit, offset } = ListMessagesInConversationSchema.parse(req.query);
 
   if (!conversationId) {
     throw new ValidationError('Conversation ID required', { conversationId });
   }
 
-  const messages = messageService.checkInbox(ctx.owner_id, conversationId);
+  const allMessages = messageService.checkInbox(ctx.owner_id, conversationId);
 
   // Check if user is part of this conversation
-  const isParticipant = messages.some(m =>
+  const isParticipant = allMessages.some(m =>
     m.sender_id === ctx.owner_id || m.recipient_id === ctx.owner_id
   );
 
@@ -57,10 +58,15 @@ router.get('/:conversationId', asyncHandler(async (req: Request, res: Response) 
     throw new NotFoundError('Conversation not found');
   }
 
-  // Mark as read
-  messageService.markAsRead(ctx.owner_id, conversationId);
+  // Apply pagination
+  const messages = allMessages.slice(offset, offset + limit);
 
-  res.json({ messages });
+  // Mark as read (only for first page)
+  if (offset === 0) {
+    messageService.markAsRead(ctx.owner_id, conversationId);
+  }
+
+  res.json({ messages, limit, offset });
 }));
 
 // POST /api/messages - Send a message
@@ -75,7 +81,7 @@ router.post('/', asyncHandler(async (req: Request, res: Response) => {
     reply_to: input.reply_to,
   });
 
-  res.status(201).json({ message });
+  res.status(201).json(message);
 }));
 
 export default router;

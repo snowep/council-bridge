@@ -38,11 +38,11 @@ export const ListConversationsSchema = z.object({
 export type ListConversationsInput = z.infer<typeof ListConversationsSchema>;
 
 export interface Message {
-  id: string;
+  message_id: string;
   sender_id: string;
   recipient_id: string;
   content: string;
-  reply_to: string | null;
+  status: 'sent' | 'delivered' | 'read' | 'failed';
   created_at: string;
   read_at: string | null;
 }
@@ -80,21 +80,24 @@ export function createMessageService(
       const id = dbInstance.generateId();
       dbInstance.stmt.insertMessage.run(id, input.sender_id, input.recipient_id, input.content, input.reply_to ?? null);
 
-      return dbInstance.stmt.getMessageById.get(id) as Message;
+      const msg = dbInstance.stmt.getMessageById.get(id) as any;
+      return msg ? { ...msg, message_id: msg.id, status: msg.read_at ? 'read' : 'sent' } : msg;
     },
 
     checkInbox(agentId: string, conversationId?: string): Message[] {
       if (!agentService.agentExists(agentId)) {
         throw new Error(`Agent '${agentId}' not found`);
       }
-      const messages = dbInstance.stmt.getMessagesByRecipient.all(agentId, 50) as Message[];
+      // Use listMessages to get BOTH sent and received messages
+      const rawMessages = dbInstance.stmt.listMessages.all(agentId, agentId, 50) as any[];
+      const normalized = rawMessages.map(m => ({ ...m, message_id: m.id, status: m.read_at ? 'read' : 'sent' }));
       if (conversationId) {
         // Get messages for a specific conversation
-        return messages.filter((m: Message) =>
+        return normalized.filter((m: Message) =>
           m.sender_id === conversationId || m.recipient_id === conversationId
         );
       }
-      return messages;
+      return normalized;
     },
 
     replyMessage(input: ReplyMessageInput): Message {
@@ -122,7 +125,8 @@ export function createMessageService(
       if (!agentService.agentExists(input.agent_id)) {
         throw new Error(`Agent '${input.agent_id}' not found`);
       }
-      return dbInstance.stmt.listMessages.all(input.agent_id, input.agent_id, input.limit) as Message[];
+      const messages = dbInstance.stmt.listMessages.all(input.agent_id, input.agent_id, input.limit) as any[];
+      return messages.map(m => ({ ...m, message_id: m.id, status: m.read_at ? 'read' : 'sent' }));
     },
 
     listConversations(input: ListConversationsInput): Conversation[] {
@@ -131,7 +135,8 @@ export function createMessageService(
       }
 
       // Get all messages for this agent (sent or received)
-      const allMessages = dbInstance.stmt.listMessages.all(input.agent_id, input.agent_id, 500) as Message[];
+      const rawMessages = dbInstance.stmt.listMessages.all(input.agent_id, input.agent_id, 500) as any[];
+      const allMessages = rawMessages.map(m => ({ ...m, message_id: m.id, status: m.read_at ? 'read' : 'sent' }));
 
       // Group by conversation partner
       const conversationsMap = new Map<string, { messages: Message[]; partnerId: string }>();

@@ -18,6 +18,7 @@ import {
   Divider,
   useMediaQuery,
   Tooltip,
+  Fab,
 } from '@mui/material';
 import {
   ChatOutlined,
@@ -29,11 +30,13 @@ import {
   Menu as MenuIcon,
   CloseOutlined,
   RefreshOutlined,
+  AddOutlined,
 } from '@mui/icons-material';
 import { apiClient } from '@shared/api/client';
 import type { Message, Conversation } from '@shared/types/api';
 import { useAppAuth } from '@app/use-app-auth';
 import { useTheme } from '@mui/material/styles';
+import { AgentSelectionDialog } from '../components/AgentSelectionDialog';
 
 const ParticipantIcon = ({ type, size = 'small' }: { type: string; size?: 'small' | 'medium' | 'large' }) => {
   switch (type) {
@@ -68,25 +71,21 @@ const formatTime = (dateString: string) => {
   return new Date(dateString + 'Z').toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 };
 
+type ConversationListProps = {
+  conversations: Conversation[];
+  selectedConversation: Conversation | null;
+  onSelect: (conv: Conversation) => void;
+  fetchError: string | null;
+  onRetry: () => void;
+};
+
 const ConversationList = ({
   conversations,
   selectedConversation,
   onSelect,
-  onSearch,
-  searchRef,
   fetchError,
-  onRetry,
-  variant
-}: {
-  conversations: Conversation[];
-  selectedConversation: Conversation | null;
-  onSelect: (conv: Conversation) => void;
-  onSearch: (value: string) => void;
-  searchRef: React.RefObject<HTMLInputElement>;
-  fetchError: string | null;
-  onRetry: () => void;
-  variant: 'drawer' | 'sidebar';
-}) => {
+  onRetry
+}: ConversationListProps) => {
   if (conversations.length === 0) {
     return (
       <Box sx={{ p: 3, textAlign: 'center' }}>
@@ -135,7 +134,6 @@ export default function ChatPage() {
   const { authContext } = useAppAuth();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
-  const [conversations, setConversations] = useState<Conversation[]>([]);
   const [filteredConversations, setFilteredConversations] = useState<Conversation[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
@@ -145,10 +143,11 @@ export default function ChatPage() {
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
-  const [searchValue, setSearchValue] = useState('');
+  const [showNewConversationDialog, setShowNewConversationDialog] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const conversationPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const conversationListPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchConversations = async (search?: string) => {
     try {
@@ -156,43 +155,64 @@ export default function ChatPage() {
       const params = new URLSearchParams();
       if (search) params.set('search', search);
       const response = await apiClient.get<{ conversations: Conversation[]; limit: number; offset: number }>(`/api/messages/conversations?${params.toString()}`);
-      const list = response?.conversations || [];
-      setConversations(list);
+      const list = Array.isArray(response?.conversations) ? response.conversations : [];
       setFilteredConversations(list);
     } catch (err: any) {
       const msg = err?.response?.data?.error || err.message || 'Failed to fetch conversations';
       setFetchError(msg);
       console.error('Failed to fetch conversations:', err);
-      setConversations([]);
       setFilteredConversations([]);
     } finally {
       setLoading(false);
     }
   };
 
-  const fetchMessages = async (conversationId: string) => {
+  const fetchMessages = async (conversationId: string, offset: number = 0) => {
     try {
       setFetchError(null);
-      const response = await apiClient.get<{ messages: Message[] }>(`/api/messages/${conversationId}`);
-      setMessages(response?.messages || []);
+      const response = await apiClient.get<{ messages: Message[]; limit: number; offset: number }>(`/api/messages/${conversationId}?limit=50&offset=${offset}`);
+      const newMessages = Array.isArray(response?.messages) ? response.messages : [];
+      if (offset === 0) {
+        setMessages(newMessages);
+      } else {
+        // Prepend older messages (for infinite scroll)
+        setMessages(prev => [...newMessages, ...prev]);
+      }
     } catch (err: any) {
       const msg = err?.response?.data?.error || err.message || 'Failed to fetch messages';
       setFetchError(msg);
       console.error('Failed to fetch messages:', err);
-      setMessages([]);
+      if (offset === 0) setMessages([]);
     }
   };
 
   const handleSelectConversation = (conversation: Conversation) => {
     setSelectedConversation(conversation);
-    fetchMessages(conversation.participant_id);
+    fetchMessages(conversation.participant_id, 0);
     if (isMobile) setMobileDrawerOpen(false);
   };
 
   const handleSearch = useCallback((value: string) => {
-    setSearchValue(value);
     fetchConversations(value);
   }, []);
+
+  const handleNewConversation = (agent: { id: string; name: string; type: string }) => {
+    // Check if conversation already exists
+    const existing = filteredConversations.find(c => c.participant_id === agent.id);
+    if (existing) {
+      handleSelectConversation(existing);
+      return;
+    }
+    // Create a new conversation entry optimistically
+    const newConv: Conversation = {
+      participant_id: agent.id,
+      participant_name: agent.name,
+      last_message: null,
+      unread_count: 0,
+    };
+    setFilteredConversations(prev => [newConv, ...prev]);
+    handleSelectConversation(newConv);
+  };
 
   const sendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -222,11 +242,6 @@ export default function ChatPage() {
       // Replace temp message with real one
       setMessages(prev => prev.map(m => m.message_id === tempMessage.message_id ? response : m));
       // Update conversation list with new last message
-      setConversations(prev => prev.map(conv =>
-        conv.participant_id === selectedConversation.participant_id
-          ? { ...conv, last_message: response, unread_count: 0 }
-          : conv
-      ));
       setFilteredConversations(prev => prev.map(conv =>
         conv.participant_id === selectedConversation.participant_id
           ? { ...conv, last_message: response, unread_count: 0 }
@@ -249,23 +264,42 @@ export default function ChatPage() {
     }
   };
 
-  // Start polling for selected conversation
   useEffect(() => {
-    if (pollIntervalRef.current) {
-      clearInterval(pollIntervalRef.current);
+    // Selected conversation polling
+    if (conversationPollRef.current) {
+      clearInterval(conversationPollRef.current);
     }
     if (selectedConversation) {
-      pollIntervalRef.current = setInterval(() => {
+      conversationPollRef.current = setInterval(() => {
         fetchMessages(selectedConversation.participant_id);
       }, 3000);
     }
     return () => {
-      if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current);
+      if (conversationPollRef.current) {
+        clearInterval(conversationPollRef.current);
       }
     };
   }, [selectedConversation]);
 
+  // Conversation list polling (every 5 seconds for unread counts)
+  useEffect(() => {
+    if (conversationListPollRef.current) {
+      clearInterval(conversationListPollRef.current);
+    }
+    conversationListPollRef.current = setInterval(() => {
+      if (!loading) {
+        fetchConversations();
+      }
+    }, 5000);
+
+    return () => {
+      if (conversationListPollRef.current) {
+        clearInterval(conversationListPollRef.current);
+      }
+    };
+  }, [loading]);
+
+  // Initial fetch
   useEffect(() => {
     fetchConversations();
   }, []);
@@ -315,11 +349,8 @@ export default function ChatPage() {
             conversations={filteredConversations}
             selectedConversation={selectedConversation}
             onSelect={handleSelectConversation}
-            onSearch={handleSearch}
-            searchRef={searchRef}
             fetchError={fetchError}
             onRetry={fetchConversations}
-            variant="drawer"
           />
         </Box>
       </Drawer>
@@ -352,11 +383,8 @@ export default function ChatPage() {
             conversations={filteredConversations}
             selectedConversation={selectedConversation}
             onSelect={handleSelectConversation}
-            onSearch={handleSearch}
-            searchRef={searchRef}
             fetchError={fetchError}
             onRetry={fetchConversations}
-            variant="sidebar"
           />
         </Box>
       </Box>
@@ -486,6 +514,27 @@ export default function ChatPage() {
           </Box>
         )}
       </Box>
+
+      {/* Floating Action Button for new conversation */}
+      <Box sx={{ position: 'fixed', bottom: 24, right: 24, zIndex: 1100 }}>
+        <Fab
+          color="primary"
+          size="medium"
+          onClick={() => setShowNewConversationDialog(true)}
+          aria-label="Start new conversation"
+          sx={{ boxShadow: 3 }}
+        >
+          <AddOutlined />
+        </Fab>
+      </Box>
+
+      {/* Agent Selection Dialog */}
+      <AgentSelectionDialog
+        open={showNewConversationDialog}
+        onClose={() => setShowNewConversationDialog(false)}
+        onSelect={handleNewConversation}
+        currentUserId={authContext?.owner_id || 'founder'}
+      />
     </Box>
   );
 }

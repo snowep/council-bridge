@@ -36,6 +36,11 @@ export const ListConversationsSchema = z.object({
 });
 export type ListConversationsInput = z.infer<typeof ListConversationsSchema>;
 
+export const ListMessagesInConversationSchema = z.object({
+  ...PaginationSchema.shape,
+});
+export type ListMessagesInConversationInput = z.infer<typeof ListMessagesInConversationSchema>;
+
 // Meetings
 export const ListMeetingsSchema = z.object({
   ...PaginationSchema.shape,
@@ -256,3 +261,9 @@ export const QualityThresholdSchema = z.object({
   requires_review: z.boolean(),
 });
 export type QualityThresholdInput = z.infer<typeof QualityThresholdSchema>;
+
+// Activity
+export const ListActivitySchema = z.object({
+  ...PaginationSchema.shape,
+});
+export type ListActivityInput = z.infer<typeof ListActivitySchema>;

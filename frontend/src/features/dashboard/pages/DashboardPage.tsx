@@ -16,7 +16,6 @@ import {
   ListItem,
   ListItemButton,
   ListItemIcon,
-  ListItemText,
   ListItemSecondaryAction,
   IconButton,
   Tooltip,
@@ -32,6 +31,7 @@ import {
   Visibility,
   ErrorOutlined,
   Info,
+  ChatOutlined,
 } from '@mui/icons-material';
 import { apiClient } from '@shared/api/client';
 import { useNavigate } from 'react-router-dom';
@@ -41,7 +41,7 @@ interface ActivityItem {
   id: string;
   title: string;
   time: string;
-  type: 'deliverable' | 'task' | 'staff' | 'meeting' | 'execution' | 'approval';
+  type: 'deliverable' | 'task' | 'staff' | 'meeting' | 'execution' | 'approval' | 'message';
   href?: string;
   metadata?: Record<string, string>;
 }
@@ -53,6 +53,7 @@ const ACTIVITY_TYPE_CONFIG: Record<ActivityItem['type'], { icon: React.ReactNode
   meeting: { icon: <Gavel fontSize="small" color="warning" />, label: 'Meeting', color: 'warning' },
   execution: { icon: <Visibility fontSize="small" color="info" />, label: 'Execution', color: 'info' },
   approval: { icon: <Business fontSize="small" color="error" />, label: 'Approval', color: 'error' },
+  message: { icon: <ChatOutlined fontSize="small" color="primary" />, label: 'Message', color: 'primary' },
 };
 
 const QUICK_ACTIONS = [
@@ -100,6 +101,7 @@ export default function DashboardPage() {
         }
         case 'approvals': {
           const res = await apiClient.get<{ data: ApprovalRequest[] }>('/api/approvals');
+          // Backend returns { data: ApprovalRequest[] } format
           const apprList = Array.isArray(res?.data) ? res.data : (Array.isArray(res) ? res : []);
           setApprovals(apprList);
           break;
@@ -135,6 +137,14 @@ export default function DashboardPage() {
 
   const handleRetry = (section: keyof typeof loading) => {
     fetchSection(section);
+  };
+
+  // Map display labels to backend keys
+  const sectionKeyMap: Record<string, keyof typeof loading> = {
+    'active divisions': 'divisions',
+    'staff agents': 'staff',
+    'pending approvals': 'approvals',
+    'activity': 'activity',
   };
 
   const handleQuickAction = (href: string) => {
@@ -256,7 +266,7 @@ export default function DashboardPage() {
       <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 3, mb: 4 }}>
         {stats.map((stat, index) => (
           <Box key={index}>
-            <StatCard stat={stat} onRetry={() => handleRetry(stat.label.toLowerCase().replace(' ', '') as keyof typeof loading)} />
+            <StatCard stat={stat} onRetry={() => handleRetry(sectionKeyMap[stat.label.toLowerCase()] as keyof typeof loading)} />
           </Box>
         ))}
       </Box>
@@ -292,20 +302,21 @@ export default function DashboardPage() {
                           py: 1,
                           cursor: item.href ? 'pointer' : 'default',
                           '&:hover': item.href ? { bgcolor: 'action.hover' } : {},
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 2,
                         }}
                       >
-                        <ListItemIcon sx={{ minWidth: 40, color: config.color }}>
+                        <ListItemIcon sx={{ minWidth: 40, color: config.color, flexShrink: 0 }}>
                           {config.icon}
                         </ListItemIcon>
-                        <ListItemText
-                          primary={item.title}
-                          secondary={
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                              <Chip label={config.label} size="small" color={config.color as any} variant="outlined" />
-                              <Typography variant="caption" color="text.secondary">{item.time}</Typography>
-                            </Box>
-                          }
-                        />
+                        <Box sx={{ flex: 1, minWidth: 0 }}>
+                          <Typography variant="body2" component="span">{item.title}</Typography>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5 }}>
+                            <Chip label={config.label} size="small" color={config.color as any} variant="outlined" />
+                            <Typography variant="caption" color="text.secondary" component="span">{item.time}</Typography>
+                          </Box>
+                        </Box>
                         {item.href && (
                           <ListItemSecondaryAction>
                             <IconButton size="small" onClick={(e) => { e.stopPropagation(); navigate(item.href!); }} aria-label="View details">

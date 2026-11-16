@@ -61,6 +61,7 @@ import executionsRoutes from './api/routes/executions.routes.js';
 import approvalsRoutes from './api/routes/approvals.routes.js';
 import deliverablesRoutes from './api/routes/deliverables.routes.js';
 import qualityRoutes from './api/routes/quality.routes.js';
+import activityRoutes from './api/routes/activity.routes.js';
 
 // Import middleware
 import { authMiddleware, getAuthContext, validateLocalSingleUserConfig, isLocalSingleUserMode, getLocalBindAddress } from './api/middleware/authentication.js';
@@ -446,6 +447,7 @@ app.use('/api/executions', executionsRoutes);
 app.use('/api/approvals', approvalsRoutes);
 app.use('/api/deliverables', deliverablesRoutes);
 app.use('/api/quality-thresholds', qualityRoutes);
+app.use('/api/activity', activityRoutes);
 
 // MCP endpoint - create new server+transport per request for stateless operation
 app.all('/mcp', authMiddleware, async (req, res) => {

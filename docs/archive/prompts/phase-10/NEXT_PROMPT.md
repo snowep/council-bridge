@@ -1,616 +1,690 @@
-# COUNCIL BRIDGE — CORE MVP COMPLETION
-## M1 Closure, Security Remediation, Chat Completion & Dashboard Functional Integration
+# COUNCIL BRIDGE — M2 + M3
+## Core Communication, Workflow Completion & Dashboard/UI/UX Functional Integration
 
-Repository: `snowep/council-bridge`  
-Local path: `C:\Projects\council-bridge`  
-Current working branch: `refactor/repository-structure`
+**Repository:** `snowep/council-bridge`  
+**Branch:** `refactor/repository-structure`  
+**Local path:** `C:\Projects\council-bridge`  
+**MCP port:** `3334`
 
-Latest audited commit:
-`73f632d531678360a79b5af30825636651fd1caa`
-
-## OBJECTIVE
-
-Make Council Bridge usable as quickly as possible.
-
-This milestone must focus exclusively on:
-
-1. Core system security and correctness.
-2. M1 closure.
-3. Chat and Claude/Hermes communication.
-4. Dashboard functionality.
-5. Essential UI/UX corrections.
-6. End-to-end verification.
-
-Do not redesign the architecture, introduce unnecessary infrastructure, or expand the product scope.
-
-Preserve the Founder's latest dashboard UI direction.
+**Execution authorization:** Implement M2 and M3 together.  
+**Scope:** Core communication, agent integration, task workflows, dashboard functionality, and UI/UX completion.
 
 ---
 
-# PART 1 — PRESERVE CURRENT STATE
+# 1. PRIMARY OBJECTIVE
 
-Before changes:
+Make Council Bridge function as a usable local single-user coordination system.
 
-- Inspect Git status, branch, and commit SHA.
-- Identify all uncommitted changes.
-- Preserve the latest dashboard modifications.
-- Read the existing M0 and M1 audit documents.
-- Verify the current repository against the previous audit findings.
-- Do not assume previously reported work is complete without checking the code.
+The Founder must be able to:
 
-Do not reset, overwrite, stash, or discard user changes.
+1. Communicate with agents through the Chat interface.
+2. Receive and review agent responses.
+3. Create and manage conversations.
+4. Delegate work to divisions and staff.
+5. Track execution and deliverables.
+6. Review and approve deliverables.
+7. Monitor actual system activity through the dashboard.
+8. Access functional navigation and dashboard actions.
+9. Use the application without encountering misleading, broken, or inert UI controls.
 
----
+Preserve the existing architecture and visual direction.
 
-# PART 2 — CRITICAL FOUNDER KEY INCIDENT
+Do not redesign the entire application unnecessarily.
 
-The published public repository contains:
+Do not implement unrelated future features.
 
-`.secrets/founder-keys.json`
+# 2. PRE-IMPLEMENTATION AUDIT
 
-This file contains private-key material.
+Before modifying code:
 
-Treat every Founder private key ever committed to the public repository as compromised.
+1. Inspect the latest branch and commit.
+2. Inspect the complete current repository structure.
+3. Read the relevant architecture, API, database, security, UI, and convention documentation.
+4. Inspect the current implementation of Chat, messages, MCP tools, task delegation, execution, deliverables, dashboard, routing, layout, and theme.
+5. Identify existing user changes and preserve them.
+6. Verify the reported M1 changes without unnecessarily reimplementing completed work.
+7. Identify existing tests and reusable implementations.
 
-### Required remediation
+Create:
 
-1. Inspect all currently tracked `.secrets` files.
-2. Update `.gitignore` to exclude the entire `.secrets/` directory.
-3. Untrack the existing active key file without destroying unrelated local data.
-4. Generate a completely new Founder key pair.
-5. Write the replacement only to the ignored local `.secrets/` directory.
-6. Never print, log, commit, or include the private key in reports.
-7. Do not archive compromised private keys.
-8. Verify the replacement directory has mode `0700` and key file has mode `0600` where supported.
-9. Verify the replacement key can sign and verify a valid Founder request.
-10. Verify signatures from the previous key are rejected.
-11. Verify the public-key endpoint exposes only the new public key and key ID.
-12. Identify any local clients or configurations that require the new public key.
-
-Do not use the existing compromised key to generate or authorize the replacement.
-
-### Git history
-
-Prepare:
-
-`docs/audits/release/SECRET_HISTORY_PURGE_PLAN.md`
+`docs/audits/release/M2_M3_BASELINE_REPORT.md`
 
 Document:
-- Every affected tracked key path.
-- Whether private-key material remains in historical commits.
-- A safe Git history removal procedure.
-- Affected branches and tags.
-- Required collaborator/repository coordination.
-- Post-purge verification commands.
+- Current implementation status.
+- Confirmed defects.
+- Existing working functionality.
+- Missing functionality.
+- Relevant files.
+- Dependencies.
+- Implementation sequence.
+- Risks.
 
-Do not rewrite shared Git history, force-push, or alter remote branches without explicit Founder approval.
+Do not start by replacing existing implementations.
 
-Key rotation and revocation must not wait for history rewriting.
+# 3. M2 — CORE COMMUNICATION & WORKFLOW COMPLETION
 
----
+## 3.1 Chat API Contract
 
-# PART 3 — REPOSITORY TRACKING CORRECTION
+Inspect and reconcile the complete message contract between:
 
-The current `.gitignore` incorrectly excludes important source files.
+- Backend message model.
+- REST API.
+- MCP message tools.
+- Frontend API types.
+- Chat components.
 
-Review and correct:
+Previously identified discrepancies include:
 
-- `docs/audits/release/*.md`
-- `migrations/`
-- New security test files.
-- New integration test files.
-- Generated test artifacts.
-- `.secrets/`
+- Backend uses `id`, frontend expects `message_id`.
+- Backend POST response returns `{ message }`, frontend expects a direct Message.
 
-Required:
+Establish one consistent contract.
 
-1. M1 reports must be trackable.
-2. Security test source files must be trackable.
-3. Migration source files must be trackable.
-4. Generated test output must remain ignored.
-5. Do not broadly ignore source directories.
-6. Do not accidentally commit private keys or database files.
+Requirements:
 
-Use `git check-ignore -v` and `git ls-files` to verify the result.
+- Use one canonical message identifier.
+- Normalize API response structures.
+- Validate request and response schemas.
+- Preserve message sender and recipient identities.
+- Preserve timestamps and delivery status.
+- Handle validation and authorization errors consistently.
+- Update frontend types to match the actual backend contract.
 
-Confirm that the published branch contains the required M1 reports and test sources after implementation.
+Add contract tests covering every affected endpoint.
 
----
+## 3.2 Bidirectional Conversation History
 
-# PART 4 — CLOSE REMAINING M1 FINDINGS
+Current inbox retrieval reportedly uses recipient-only filtering and excludes messages sent by the current user.
 
-### SEC-02: Founder key permissions
+Fix conversation retrieval.
 
-The implementation in `src/auth/founder.ts` already contains restrictive permission handling.
+Requirements:
+
+- Include incoming and outgoing messages.
+- Group messages by conversation or participant pair using a consistent model.
+- Preserve chronological ordering.
+- Support pagination or incremental history retrieval.
+- Do not arbitrarily truncate history to the latest 50 messages.
+- Prevent duplicate messages during refresh.
+- Persist messages correctly.
+- Maintain sender and recipient attribution.
+- Calculate unread state correctly.
+
+Verify that the Founder can see both sides of a conversation after refreshing or reopening the application.
+
+## 3.3 New Conversation and Agent Selection
+
+Implement a functional way to initiate a conversation.
+
+Requirements:
+
+- Display available agents using existing identity records.
+- Support selection of the intended recipient.
+- Start a new conversation.
+- Display existing conversations.
+- Preserve existing conversation history.
+- Prevent invalid recipients.
+- Respect existing authorization boundaries.
+
+Do not invent new agents or identities.
+
+Use the established Council Bridge identity model.
+
+## 3.4 Chat Refresh and Unread State
+
+Fix conversation synchronization.
+
+Requirements:
+
+- Selected conversation refreshes reliably.
+- Conversation list refreshes independently.
+- Unread counts update correctly.
+- New incoming messages appear without manually reloading the entire page.
+- Message ordering remains consistent.
+- Avoid duplicate polling loops.
+- Clean up polling when components unmount.
+- Handle network failures and recovery.
+- Avoid unnecessary requests.
+
+Use the existing architecture. Do not introduce WebSockets or another infrastructure dependency unless the current implementation demonstrably requires it.
+
+## 3.5 Claude and Hermes Runtime Integration
+
+Verify actual communication through the MCP bridge.
+
+Required workflow:
+
+`Founder UI → Backend → Message Storage → MCP → Agent Runtime → MCP → Backend → Message Storage → Founder UI`
 
 Verify:
-- Directory permissions.
-- File permissions.
-- Existing-file behavior.
-- Windows compatibility.
-- Error handling.
-- Actual key generation behavior.
 
-Add and retain a regression test.
+1. Founder sends a message.
+2. Message is persisted.
+3. Intended agent can retrieve it.
+4. Agent receives the correct sender and conversation context.
+5. Agent sends a response.
+6. Response is persisted.
+7. Founder sees the response in the correct conversation.
+8. History remains available after refresh.
 
-### SEC-05: Deliverable authorization
+Test Claude and Hermes independently where their runtime environments are available.
 
-Inspect:
-- `src/council/divisions.ts`
-- `src/council/legacy.ts`
-- `src/council/task-delegation.ts`
-- `src/api/routes/deliverables.routes.ts`
+IMPORTANT:
 
-Verify:
-- Staff can perform authorized content updates.
-- Division Heads cannot bypass Founder approval.
-- Only authorized users can approve or reject deliverables.
-- Status transitions follow the existing governance model.
-- REST and MCP paths enforce equivalent authorization.
+Do not claim real-time agent communication is operational merely because MCP tools exist.
 
-Add regression tests.
+If an external runtime is unavailable, document the exact missing integration and provide a reproducible verification procedure.
 
-### DB-02: Cross-division sharing
+Do not simulate a successful runtime response and report it as real agent execution.
 
-Inspect:
-- Database schema and migration history.
-- `src/council/memory.ts`
-- `src/council/legacy.ts`
-- Cross-division request and approval workflows.
+## 3.6 Task Delegation and Execution
 
-Resolve the contradiction:
+Inspect the existing workflow:
 
-- Database CHECK currently restricts `granted_by_type` to Founder.
-- Legacy code permits Division Heads to create pending requests using `granted_by_type = 'division'`.
+Council → Divisions → Staff → Delegation → Execution → Deliverable → Approval
 
-Preserve the distinction between:
-- Division Head submitting a request.
-- Founder approving the request.
-- Approved cross-division access.
-
-Do not bypass Founder approval or misrepresent the request creator.
-
-If the database schema must change, create a new migration and add migration tests. Do not modify production databases.
-
-### DB-01: Migration dependencies
-
-Verify transitive dependency resolution.
-
-Test:
-- Direct dependencies.
-- Multiple dependency levels.
-- Missing dependencies.
-- Invalid migration graphs.
-- Correct execution ordering.
-- Already-applied migrations.
-
-Do not run migrations against the active production database.
-
-### Other security verification
-
-Recheck:
-- Session signing secret.
-- Production authentication fallback.
-- Founder startup validation.
-- Founder signature ownership binding.
-- Concurrent nonce replay.
-- SQL parameterization in privacy filters.
-- Deliverable authorization.
-
-Preserve existing security guarantees.
-
----
-
-# PART 5 — CHAT COMPLETION
-
-This is the highest-priority functional feature.
-
-Relevant files:
-
-- `frontend/src/features/chat/pages/ChatPage.tsx`
-- `frontend/src/shared/types/api.ts`
-- `frontend/src/api/client.ts` or its current shared API client path
-- `src/api/routes/messages.routes.ts`
-- `src/communication/messages.ts`
-- `src/mcp/tools.ts`
-- Agent registry and database message statements.
-
-### 5.1 API contract consistency
-
-The current backend returns `Message.id`, while the frontend expects `message_id`.
-
-The backend POST response is `{ message }`, while the frontend expects a direct `Message`.
-
-Resolve all API contract inconsistencies.
-
-Choose one canonical message model and use it consistently in:
-- Backend service.
-- REST response.
-- MCP response where applicable.
-- Frontend TypeScript types.
-- Chat rendering.
-- Optimistic updates.
-- Tests.
-
-Do not use unsafe type casts to conceal mismatches.
-
-### 5.2 Conversation history
-
-Fix `checkInbox` and conversation retrieval.
-
-A conversation must contain messages in both directions:
-- Messages sent by the current identity.
-- Messages received by the current identity.
+Verify every transition.
 
 Requirements:
-- Correct participant filtering.
-- Correct chronological ordering.
-- Persistent history.
-- Pagination for long conversations.
-- Read-state updates.
-- Correct unread counts.
-- No arbitrary history truncation that silently removes earlier messages.
 
-Verify that marking a conversation as read affects only the intended recipient's messages.
+- Founder can initiate an authorized task.
+- Task can be delegated to an appropriate division or staff member.
+- Existing permission rules are enforced.
+- Execution status is persisted.
+- Deliverables are associated with the correct task.
+- Approval decisions are authorized.
+- Status transitions are validated.
+- Activity and audit records remain consistent.
+- Error states are surfaced clearly.
 
-### 5.3 Start new conversations
+Do not change Council governance or authorization semantics.
 
-The current UI only lists existing conversations.
+## 3.7 Deliverable Reviewer Assignment
 
-Add a practical way for the Founder to start a conversation with a registered agent.
+The reviewer assignment endpoint was previously missing.
 
-Requirements:
-- Select an available canonical agent.
-- Display its correct identity and runtime.
-- Prevent selecting nonexistent or inactive agents.
-- Start the conversation by sending the first message.
-- Avoid creating duplicate organizational identities.
-- Preserve authentication and authorization.
-
-Use the existing canonical registry and runtime mappings.
-
-### 5.4 Incoming updates
-
-Implement reliable polling suitable for the existing REST architecture.
-
-Requirements:
-- Refresh the selected conversation every 2–5 seconds.
-- Refresh conversation previews and unread counts.
-- Stop polling when no longer needed.
-- Avoid overlapping requests.
-- Avoid state updates after unmount.
-- Avoid unnecessary polling when the browser tab is inactive.
-- Preserve manual refresh and retry behavior.
-
-WebSockets are not required for this MVP.
-
-### 5.5 Claude and Hermes integration
-
-The MCP message tools currently provide message sending and inbox retrieval.
-
-Verify the actual agent connection workflow.
-
-Acceptance:
-
-Founder → Chat → Bridge → Claude/Hermes → Bridge → Chat → Persistent history.
-
-Test each runtime independently.
-
-Do not claim that Claude or Hermes is connected merely because an MCP endpoint exists.
-
-If runtime clients cannot be accessed during testing:
-- Complete the message bus and Chat implementation.
-- Document the missing runtime configuration.
-- Clearly mark E2E runtime verification as blocked.
-- Do not simulate successful agent responses.
-
-### 5.6 Chat UX
-
-Provide:
-- Agent selection.
-- Conversation list.
-- Message history.
-- New conversation action.
-- Clear sender/recipient presentation.
-- Sending state.
-- Delivery or processing status where supported by real data.
-- Retry on failure.
-- Read/unread indicators.
-- Mobile responsive layout.
-- Accessible input and keyboard behavior.
-- Empty state with a clear way to start a conversation.
-
----
-
-# PART 6 — DASHBOARD FUNCTIONAL INTEGRATION
-
-Relevant files:
-
-- `frontend/src/features/dashboard/pages/DashboardPage.tsx`
-- `frontend/src/app/App.tsx`
-- `frontend/src/app/layouts/Layout.tsx`
-- `frontend/src/shared/theme/index.ts`
-- Backend API route registration and existing services.
-
-Preserve the current dashboard visual direction.
-
-### 6.1 Recent Activity
-
-The dashboard currently requests `/api/activity`, but no such route is registered.
-
-Implement a real database-backed activity endpoint using existing task, deliverable, execution, meeting, and approval records where appropriate.
-
-Requirements:
-- Real records only.
-- Correct timestamps.
-- Correct event types.
-- Authorization filtering.
-- Pagination or a bounded recent-event response.
-- Loading, empty, and error states.
-
-If a reliable activity aggregation is not feasible without expanding scope, remove the misleading widget and its dead navigation rather than returning fake data.
-
-### 6.2 Dashboard statistics
-
-Verify:
-- Active divisions.
-- Total divisions.
-- Active staff.
-- Total staff.
-- Pending approvals.
-
-Correct the retry handler. Current label-to-key conversion produces keys that do not match the dashboard loading state.
-
-Ensure every retry button actually retries its intended section.
-
-### 6.3 Quick actions
-
-Review every dashboard action.
-
-Current problems:
-- Create Division navigates to a read-only Organization page.
-- Invite Staff navigates using a query parameter the page ignores.
-- New Task navigates to Tasks but does not open the creation dialog.
-
-Make every action perform its advertised behavior.
-
-Prefer using existing functionality:
-- Open Organization.
-- View Staff.
-- Open Task creation.
-- Review Approvals.
-- Start Chat.
-
-If an action cannot be implemented without a new workflow, replace it with a truthful navigation action or remove it from the MVP dashboard.
-
-Do not leave decorative or nonfunctional buttons.
-
-### 6.4 Theme management
-
-Consolidate theme state.
-
-Requirements:
-- One source of truth for light/dark mode.
-- Persist the selected mode.
-- Respect system preference on first visit.
-- Update ThemeProvider without a full page reload.
-- Keep the selected mode consistent across all pages.
-- Prevent theme initialization flicker where practical.
-
-### 6.5 Navigation and layout
-
-Fix:
-- NavLink active styles using appropriate MUI styling.
-- Mobile drawer behavior.
-- AppBar contrast in both themes.
-- Unknown-route handling.
-- Inert Settings/Profile menu actions.
-- Accessible labels and keyboard navigation.
-
-Do not introduce unnecessary custom components or replace the existing MUI architecture.
-
-### 6.6 Dashboard UX verification
-
-Test:
-- Loading.
-- Empty state.
-- API failure.
-- Retry.
-- Theme persistence.
-- Navigation.
-- Quick actions.
-- Desktop layout.
-- Mobile layout.
-
----
-
-# PART 7 — DELIVERABLE WORKFLOW INTEGRATION
-
-The current DeliverablesPage calls:
+An endpoint has reportedly been added:
 
 `PUT /api/deliverables/:id/assign-reviewer`
 
-The published backend route does not implement this endpoint.
+Verify:
 
-Resolve the mismatch.
+- Route registration.
+- Request validation.
+- Reviewer identity validation.
+- Authorization.
+- Database persistence.
+- Invalid reviewer handling.
+- Existing reviewer replacement behavior.
+- Frontend integration.
+- Regression tests.
+
+Do not duplicate an existing implementation.
+
+# 4. M3 — DASHBOARD FUNCTIONAL COMPLETION
+
+## 4.1 Dashboard Activity
+
+Previously identified issue:
+
+`DashboardPage.tsx` requests `/api/activity`, but the backend does not register the corresponding route.
+
+Implement a real activity endpoint using existing database and audit information.
+
+Requirements:
+
+- Register the correct endpoint.
+- Return actual persisted activity.
+- Include useful event metadata.
+- Support pagination or a reasonable bounded result.
+- Sort newest first.
+- Handle empty results.
+- Handle server errors.
+- Connect the View All Activity action to a working destination.
+
+Do not fabricate activity records or display placeholder data as real activity.
+
+## 4.2 Dashboard Statistics
+
+Fix dashboard statistics and retry behavior.
+
+Previously identified retry key mismatches include:
+
+- `activedivisions` vs `divisions`
+- `staffagents` vs `staff`
+- `pendingapprovals` vs `approvals`
+
+Requirements:
+
+- Establish canonical statistic identifiers.
+- Ensure retry actions target the correct request.
+- Display loading, success, empty, and error states.
+- Avoid unnecessary repeated requests.
+- Verify counts against actual database records.
+- Ensure dashboard data refreshes after relevant operations.
+
+## 4.3 Dashboard Quick Actions
+
+Make every visible quick action functional.
+
+### Create Division
+
+- Open an actual creation workflow.
+- Validate the form.
+- Use existing backend APIs.
+- Persist the new division.
+- Update dashboard and organization views.
+
+### Invite Staff
+
+- Open an actual staff creation/invitation workflow.
+- Respect existing staff identity and division relationships.
+- Validate input.
+- Use existing authorization.
+- Update relevant views after success.
+
+Do not create fake invitations if the system has no external invitation mechanism. Implement the supported local staff onboarding workflow instead.
+
+### New Task
+
+- Open the actual task creation interface.
+- Support valid task details and assignment.
+- Validate required fields.
+- Persist the task.
+- Refresh task and dashboard views.
+
+Do not merely navigate to a page with an ignored query parameter.
+
+## 4.4 Theme State
+
+Previously identified issue:
+
+- App ThemeWrapper manages MUI theme state.
+- Layout maintains a separate darkMode state.
+- Layout triggers a full page reload.
+
+Consolidate theme ownership.
+
+Requirements:
+
+- One authoritative theme state.
+- Consistent light and dark mode.
+- Immediate theme switching without page reload.
+- Persist preference using the existing supported storage approach.
+- Ensure all pages and components use the same theme.
+- Verify contrast and readability in both modes.
+
+Preserve the existing design system and palette.
+
+## 4.5 Navigation and Layout
+
+Fix invalid nested CSS selectors in inline NavLink styles.
+
+Use the supported MUI styling approach, such as `sx` or `styled`.
+
+Verify:
+
+- Active navigation state.
+- Hover state.
+- Focus state.
+- Keyboard accessibility.
+- Drawer behavior.
+- Responsive navigation.
+- Mobile and desktop layouts.
+
+Do not introduce an unnecessary custom component framework.
+
+Prefer existing MUI components.
+
+## 4.6 Routing
+
+Implement a proper not-found page.
+
+Requirements:
+
+- Unknown paths show a clear 404 state.
+- Provide a route back to the dashboard.
+- Avoid blank pages.
+- Avoid silently redirecting unknown routes to unrelated pages.
+
+Verify all existing navigation destinations.
+
+## 4.7 Settings and Profile Actions
+
+Inspect Settings and Profile menu items.
+
+Requirements:
+
+- Implement actions that are already within current MVP scope.
+- If an action is intentionally deferred, label it clearly as unavailable or coming soon.
+- Do not leave clickable inert controls.
+- Do not imply unsupported functionality exists.
+
+## 4.8 Deferred Pages
+
+Council and Meetings placeholder tabs remain deferred.
+
+Do not implement the full Council or Meetings feature scope as part of M2/M3.
 
 Either:
-- Implement the correctly authorized REST endpoint using existing reviewer assignment logic; or
-- Remove the unsupported action from the UI if it is outside MVP scope.
+- Clearly label these sections as Coming Soon; or
+- Hide unavailable navigation entries where appropriate.
 
-Verify the entire workflow:
+Preserve existing routes and data.
 
-Task → Draft → Submit → Review → Approve/Reject/Revision → Resubmit.
+# 5. UI/UX QUALITY REQUIREMENTS
 
-Ensure the Founder approval requirement cannot be bypassed through REST or MCP.
+Review the application as a complete user-facing product.
 
----
+Prioritize:
 
-# PART 8 — UI/UX SCOPE CONTROL
+- Clear information hierarchy.
+- Consistent spacing.
+- Consistent typography.
+- Readable contrast.
+- Predictable navigation.
+- Responsive layouts.
+- Clear form validation.
+- Useful error messages.
+- Loading indicators.
+- Empty states.
+- Success feedback.
+- Accessible keyboard interactions.
+- Consistent MUI component usage.
 
-The following are not required for the first usable release:
+Inspect at minimum:
 
-- Council Decisions tab.
-- Council Voting tab.
-- Meetings Decisions tab.
-- Meetings Action Items tab.
-- WebSockets.
-- Redis.
-- Advanced analytics.
-- Advanced autonomous behavior.
+- Dashboard.
+- Chat.
+- Organization.
+- Divisions and Staff.
+- Tasks.
+- Deliverables.
+- Settings.
+- Profile.
+- Not-found state.
 
-Keep these clearly marked as deferred.
+Preserve the current dashboard visual direction and established theme.
 
-Do not build them in this milestone.
+Do not introduce decorative redesigns that reduce usability.
 
-Replace browser `alert()` calls in core task and deliverable workflows with consistent MUI Snackbar/Alert handling where practical.
+# 6. TESTING REQUIREMENTS
 
-Keep the interface responsive and predictable.
+## 6.1 Backend
 
----
+Add or update tests for:
 
-# PART 9 — DATABASE CLEANUP APPROVAL GATE
+- Message creation.
+- Message response contract.
+- Bidirectional conversation history.
+- Message authorization.
+- Recipient validation.
+- Unread counts.
+- Activity endpoint.
+- Dashboard statistics.
+- Deliverable reviewer assignment.
+- Task creation.
+- Delegation.
+- Execution.
+- Deliverable transitions.
+- Approval authorization.
 
-The database cleanup manifest still requires explicit Founder approval.
+## 6.2 Frontend
 
-Do not:
-- Delete test records.
-- Archive production records.
-- Apply cleanup migrations.
-- Reset the active database.
-- Modify the active production database.
+Add or update tests for:
 
-You may:
-- Inspect schema.
-- Verify cleanup manifest consistency.
-- Check foreign keys in an isolated test database.
-- Prepare dry-run tooling.
-- Document rollback and recovery.
+- Chat API contract.
+- Conversation creation.
+- Message rendering.
+- Incoming and outgoing messages.
+- Unread state.
+- Chat refresh behavior.
+- Dashboard activity.
+- Dashboard statistics.
+- Retry behavior.
+- Quick actions.
+- Theme switching.
+- Navigation.
+- Not-found page.
+- Deliverable reviewer assignment.
+- Responsive behavior.
 
-Stop before destructive operations.
-
----
-
-# PART 10 — TESTING AND ACCEPTANCE
-
-Run and record actual results.
-
-### Backend
-- Authentication tests.
-- Founder signature tests.
-- Migration tests.
-- Cross-division access tests.
-- Deliverable authorization tests.
-- Message service tests.
-- API contract tests.
-
-### Frontend
-- TypeScript typecheck.
-- Production build.
-- Lint.
-- Chat component tests.
-- Dashboard component tests.
-- API integration tests.
-
-### E2E
+## 6.3 End-to-End
 
 Verify these workflows:
 
-1. Founder opens dashboard.
-2. Dashboard displays real organizational statistics.
-3. Founder starts a new conversation.
-4. Founder sends a message to Claude.
-5. Claude receives and responds.
-6. Founder sees the reply.
-7. Conversation persists after restart.
-8. Repeat for Hermes.
-9. Founder creates a task.
-10. Task is assigned to an authorized agent.
-11. Agent updates task status.
-12. Agent creates and submits a deliverable.
-13. Founder reviews and approves it.
-14. Founder requests and verifies an execution workflow.
+**E2E-01: Founder Chat**
+- Founder creates a conversation.
+- Sends a message.
+- Message persists.
+- History is displayed correctly.
 
-Do not report unexecuted tests as passing.
+**E2E-02: Agent Communication**
+- Founder sends a message.
+- Claude or Hermes retrieves it.
+- Agent replies through MCP.
+- Reply appears in the Founder conversation.
 
-Do not weaken tests to obtain a green result.
+**E2E-03: Task Lifecycle**
+- Founder creates a task.
+- Task is delegated.
+- Staff executes it.
+- Deliverable is submitted.
+- Reviewer is assigned.
+- Authorized approval is completed.
 
----
+**E2E-04: Dashboard**
+- Dashboard loads actual statistics.
+- Activity appears.
+- Retry works.
+- Quick actions open their correct workflows.
 
-# PART 11 — REQUIRED REPORTS
+**E2E-05: Theme and Navigation**
+- Theme switches without reload.
+- Navigation works.
+- Unknown routes display 404.
+- Responsive layouts remain usable.
 
-Create or update:
+## 6.4 Test Isolation
 
-1. `docs/audits/release/M1_CLOSURE_REPORT.md`
-2. `docs/audits/release/SECRET_EXPOSURE_REMEDIATION_REPORT.md`
-3. `docs/audits/release/M1_REGRESSION_REPORT.md`
-4. `docs/audits/release/CHAT_COMPLETION_REPORT.md`
-5. `docs/audits/release/DASHBOARD_FUNCTIONALITY_REPORT.md`
-6. `docs/audits/release/DELIVERABLE_WORKFLOW_REPORT.md`
-7. `docs/audits/release/CORE_MVP_ACCEPTANCE_REPORT.md`
+The reported security tests pass individually but have intermittent failures when executed together.
 
-All reports must be tracked by Git.
+Investigate shared test state.
 
-Include:
-- Findings.
-- Files changed.
-- Tests executed.
-- Results.
-- Remaining blockers.
-- Runtime integration evidence.
-- Database cleanup approval status.
-- Known limitations.
+Requirements:
 
-Never include private keys, tokens, or secret values.
+- Identify shared database, filesystem, environment variables, mocks, module caches, and global state.
+- Ensure each test suite has isolated setup and teardown.
+- Prevent concurrent tests from modifying the same fixtures.
+- Use separate temporary databases where appropriate.
+- Restore modified environment variables.
+- Close open database connections and servers.
+- Avoid changing production code to conceal test failures.
+- Run the full suite repeatedly to establish reproducibility.
 
----
+Report individual test results separately from combined-suite results.
 
-# STRICT EXECUTION BOUNDARIES
+Do not claim the complete test suite passes if it does not.
 
-Authorized:
-- Non-destructive code fixes.
-- Founder key rotation into an ignored local secret directory.
-- Removal of secrets from the current Git index.
-- `.gitignore` corrections.
-- Tests.
-- Documentation.
-- UI/UX fixes.
-- Local isolated test database operations.
+# 7. SECURITY AND DATABASE BOUNDARIES
 
-Not authorized:
-- Production database deletion.
-- Production cleanup migration.
-- Database reset.
-- Production deployment.
-- Git history rewrite.
-- Force push.
-- Merge into master.
-- Changing Council membership.
-- Changing canonical divisions or staff identities.
-- Weakening authentication.
-- Introducing Redis without a demonstrated MVP requirement.
+Preserve all established Phase 8 and M1 security invariants.
 
-Do not push or merge.
+- Production authentication remains fail-closed.
+- No hardcoded identity fallback.
+- No Founder private keys exposed to browser code.
+- No secrets committed to Git.
+- Local single-user mode remains restricted to loopback.
+- No spoofed forwarded IP trust.
+- No weakened permission checks.
+- Founder remains the final approval authority where required.
+- Division Heads cannot bypass Founder approval for cross-division access.
+- Existing database migration runner remains authoritative.
+- Migration checksums and backup requirements remain intact.
 
-Preserve all user changes.
+## Explicitly prohibited without further Founder approval
 
-# COMPLETION CONDITION
+1. Executing database cleanup operations from `DATABASE_CLEANUP_MANIFEST.md`.
+2. Deleting or archiving active database records.
+3. Resetting the production database.
+4. Applying cleanup migrations.
+5. Rewriting Git history.
+6. Running `git filter-repo` against shared history.
+7. Force-pushing.
+8. Merging or deploying.
+9. Changing Council seats, founding personas, or staff identities.
+10. Introducing Redis or unnecessary infrastructure.
 
-This milestone is complete when:
+The history purge plan and database cleanup manifest must remain available for later Founder review.
 
-1. Founder key exposure is remediated locally and the old key is rejected.
-2. No private key remains tracked in the current Git tree.
-3. Git ignore rules permit reports, migrations, and tests to be tracked.
-4. Remaining M1 security and database findings are resolved or explicitly blocked.
-5. Chat API contracts are consistent.
-6. Founder can start and use agent conversations.
-7. Claude and Hermes runtime communication is verified or explicitly marked blocked.
-8. Dashboard actions work as advertised.
-9. Core deliverable workflows work through the REST API.
-10. All critical regression tests pass.
-11. Reports are present in the repository.
-12. No destructive database cleanup has occurred without approval.
+# 8. IMPLEMENTATION ORDER
 
-Stop and present the completion report.
+Execute in controlled batches.
 
-The objective is a secure, usable Council Bridge MVP, not a larger architecture.
+### Batch 1 — Baseline and Contracts
+- Complete pre-implementation audit.
+- Reconcile message API contracts.
+- Confirm database and identity assumptions.
+- Identify reusable code.
+
+### Batch 2 — Chat Core
+- Bidirectional history.
+- Conversation creation.
+- Agent selection.
+- Message persistence.
+- Unread state.
+- Refresh behavior.
+
+### Batch 3 — Runtime and Workflow
+- Claude/Hermes MCP integration verification.
+- Task delegation.
+- Execution lifecycle.
+- Deliverable reviewer assignment.
+- Approval workflow.
+
+### Batch 4 — Dashboard Backend
+- Activity endpoint.
+- Dashboard statistics.
+- Correct retry identifiers.
+- Quick-action backend support.
+
+### Batch 5 — Dashboard and Frontend
+- Quick-action interfaces.
+- Theme consolidation.
+- Navigation styling.
+- Not-found page.
+- Settings/Profile actions.
+- Responsive UI.
+
+### Batch 6 — Regression and Integration
+- Test isolation fixes.
+- Backend tests.
+- Frontend tests.
+- Full E2E tests.
+- Security regression tests.
+- Build and TypeScript verification.
+
+### Batch 7 — Final Audit
+- Review all changed files.
+- Check for regressions.
+- Verify Git tracking.
+- Review documentation.
+- Prepare reports.
+- Produce next milestone recommendation.
+
+Do not skip batches or silently mark incomplete work as finished.
+
+# 9. REQUIRED REPORTS
+
+Create and track these reports:
+
+1. `docs/audits/release/M2_BASELINE_REPORT.md`
+2. `docs/audits/release/M2_CHAT_COMPLETION_REPORT.md`
+3. `docs/audits/release/M2_AGENT_RUNTIME_INTEGRATION_REPORT.md`
+4. `docs/audits/release/M2_WORKFLOW_INTEGRATION_REPORT.md`
+5. `docs/audits/release/M3_DASHBOARD_FUNCTIONALITY_REPORT.md`
+6. `docs/audits/release/M3_UI_UX_AUDIT_REPORT.md`
+7. `docs/audits/release/M2_M3_TEST_REPORT.md`
+8. `docs/audits/release/M2_M3_SECURITY_REGRESSION_REPORT.md`
+9. `docs/audits/release/M2_M3_FINAL_ACCEPTANCE_REPORT.md`
+
+Every report must distinguish:
+
+- Implemented.
+- Tested and passed.
+- Tested and failed.
+- Not tested.
+- Blocked by external dependencies.
+- Deferred by scope.
+
+Include actual test commands and results.
+
+Do not fabricate test results.
+
+# 10. GIT AND DELIVERY RULES
+
+- Work on the current authorized feature branch.
+- Preserve all existing user changes.
+- Do not reset or overwrite user work.
+- Do not force-push.
+- Do not merge.
+- Do not deploy.
+- Do not commit secrets, databases, test artifacts, or generated temporary files.
+- Verify `.gitignore` does not hide source files, migrations, tests, or audit reports.
+- Review `git status` and changed-file lists before delivery.
+
+You may create local commits if consistent with the existing workflow, but do not push without explicit authorization.
+
+# 11. FINAL ACCEPTANCE CRITERIA
+
+M2 and M3 are complete only when:
+
+- Chat API contracts are consistent.
+- Incoming and outgoing history works.
+- New conversations can be created.
+- Agent selection uses valid identities.
+- Message refresh and unread state work.
+- Claude/Hermes integration is verified or explicitly documented as blocked.
+- Task delegation and execution work.
+- Deliverable reviewer assignment works end-to-end.
+- Approval authorization remains enforced.
+- Dashboard activity displays actual data.
+- Dashboard statistics and retry work.
+- Create Division, Invite Staff, and New Task actions work.
+- Theme switching works without reload.
+- Navigation works.
+- Unknown routes show a proper 404 page.
+- No visible MVP action is silently inert.
+- Responsive UI has been verified.
+- Backend and frontend tests have been executed.
+- Test isolation issues have been resolved or precisely documented.
+- TypeScript compilation is clean.
+- Production frontend build succeeds.
+- No critical/high security regression exists.
+- All required reports are tracked.
+
+# 12. FINAL DELIVERY FORMAT
+
+At completion, provide:
+
+1. M2 status.
+2. M3 status.
+3. Commit SHA(s), if committed.
+4. Files created, modified, moved, or removed.
+5. Backend test results.
+6. Frontend test results.
+7. E2E results.
+8. Claude/Hermes runtime integration results.
+9. TypeScript and production build results.
+10. Security regression results.
+11. Outstanding defects.
+12. External blockers.
+13. Database and Git approval gates still pending.
+14. Required Founder decisions.
+15. Recommended next milestone.
+
+**Do not declare M2 or M3 formally accepted.**
+
+Implementation completion and Founder acceptance are separate decisions.
+
+Wait for the Founder to review the final reports and explicitly accept both milestones.
