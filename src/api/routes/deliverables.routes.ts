@@ -13,6 +13,7 @@ import {
   approveDeliverable,
   rejectDeliverable,
   getDeliverableHistory,
+  assignReviewer,
 } from '../../council/task-delegation.js';
 import { listDeliverablesByTask, getDeliverableById } from '../../council/divisions.js';
 import { getDatabase } from '../../database.js';
@@ -23,6 +24,7 @@ import {
   SubmitDeliverableSchema,
   ReviewDeliverableSchema,
   RequestRevisionSchema,
+  AssignReviewerSchema,
   ListDeliverablesSchema,
 } from '../schemas/index.js';
 
@@ -172,6 +174,25 @@ router.put('/:id/revision', asyncHandler(async (req: Request, res: Response) => 
   const result = requestRevision(db, ctx, {
     deliverable_id: id,
     revision_notes: input.revision_notes,
+  });
+
+  res.json({ deliverable: result });
+}));
+
+// PUT /api/deliverables/:id/assign-reviewer - Assign reviewer to deliverable
+router.put('/:id/assign-reviewer', asyncHandler(async (req: Request, res: Response) => {
+  const ctx = requireAuth(req);
+  const id = getParamId(req.params, 'id');
+  const input = AssignReviewerSchema.parse(req.body);
+
+  if (!id) {
+    throw new NotFoundError('Deliverable ID required');
+  }
+
+  const result = assignReviewer(db, ctx, {
+    deliverable_id: id,
+    reviewer_type: input.reviewer_type,
+    reviewer_id: input.reviewer_id,
   });
 
   res.json({ deliverable: result });

@@ -233,6 +233,12 @@ export const RequestRevisionSchema = z.object({
 });
 export type RequestRevisionInput = z.infer<typeof RequestRevisionSchema>;
 
+export const AssignReviewerSchema = z.object({
+  reviewer_type: z.enum(['founder', 'council', 'division_head']),
+  reviewer_id: z.string().min(1).max(255),
+});
+export type AssignReviewerInput = z.infer<typeof AssignReviewerSchema>;
+
 export const ListDeliverablesSchema = z.object({
   ...PaginationSchema.shape,
   task_id: z.string().optional(),

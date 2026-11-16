@@ -16,6 +16,10 @@
 | 003 | 003_tasks_add_columns.sql | ALTER TABLE (additive) | tasks | Add dependencies (JSON), deliverable_id (FK reference) |
 | 004 | 004_deliverables_add_columns.sql | ALTER TABLE (additive) | deliverables | Add file_references, task_relationships, audit_log (all JSON) |
 | 005 | 005_cross_division_shares_stage7.sql | ALTER TABLE (additive) | cross_division_shares | Add request tracking columns (type, status, justification, priority, deadline, approval fields) |
+| 013 | 013_deliverable_workflow.sql | Table Rebuild | deliverables, deliverable_versions, quality_thresholds, task_autonomy_levels | Phase 9 Batch 4 deliverable workflow tables |
+| 014 | 014_fix_deliverables_check_constraint.sql | Table Rebuild | deliverables | Fix CHECK constraint for status values |
+| 015 | 015_add_read_at_to_messages.sql | ALTER TABLE (additive) | messages | Add read_at column for read receipts |
+| 016 | 016_fix_cross_division_shares_granted_by_type.sql | Table Rebuild | cross_division_shares | Fix CHECK constraint to allow 'division' for pending requests, 'founder' for approved |
 
 ---
 
@@ -24,11 +28,11 @@
 ```
 001: staff_agents_default_inactive
     ├─ No dependencies (empty table)
-    └─ Must run before 003, 004 (tasks/deliverables reference staff_agents)
+    └─ Must run before 003, 004, 013 (tasks/deliverables reference staff_agents)
 
 002: cross_division_shares_founder_only
     ├─ No dependencies (empty table)
-    └─ Must run before 005 (adds columns to same table)
+    └─ Must run before 005, 016 (adds columns to same table)
 
 003: tasks_add_columns
     ├─ Depends on: 001, 002
@@ -40,23 +44,39 @@
 
 005: cross_division_shares_stage7
     ├─ Depends on: 002 (must run after table rebuild)
+    └─ Must run before 016 (modifies same table)
+
+013: deliverable_workflow
+    ├─ Depends on: 001, 003, 004 (references tasks, deliverables)
+    └─ No downstream dependencies
+
+014: fix_deliverables_check_constraint
+    ├─ Depends on: 013 (modifies deliverables table)
+    └─ No downstream dependencies
+
+015: add_read_at_to_messages
+    ├─ No dependencies (independent table)
+    └─ No downstream dependencies
+
+016: fix_cross_division_shares_granted_by_type
+    ├─ Depends on: 002, 005 (modifies same table after stage7)
     └─ No downstream dependencies
 ```
 
 **Valid Execution Sequences:**
-- Sequential: 001 → 002 → 003 → 004 → 005 (recommended)
-- Parallel groups: [001, 002] → [003, 004, 005]
+- Sequential: 001 → 002 → 003 → 004 → 005 → 013 → 014 → 015 → 016 (recommended)
+- Parallel groups: [001, 002] → [003, 004, 005, 015] → [013, 016] → 014
 
 ---
 
 ## Migration Count Clarification
 
-**Logical Migrations**: 5 (001-005)
-- 2 table rebuilds (001, 002) — require foreign key handling
-- 3 additive ALTER TABLE operations (003, 004, 005) — safe, no data loss
+**Logical Migrations**: 9 (001-005, 013-016)
+- 5 table rebuilds (001, 002, 013, 014, 016) — require foreign key handling
+- 4 additive ALTER TABLE operations (003, 004, 005, 015) — safe, no data loss
 
 **Previous Documentation Error**: Some docs referred to "3 migrations" grouping additive columns together.
-**Corrected**: This manifest uses 5 explicit migrations for traceability and rollback granularity.
+**Corrected**: This manifest uses 9 explicit migrations for traceability and rollback granularity.
 
 ---
 

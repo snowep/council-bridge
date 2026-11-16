@@ -1,364 +1,616 @@
-# COUNCIL BRIDGE — M1
-## DATA INTEGRITY, DATABASE CLEANUP & CRITICAL SECURITY FIXES
+# COUNCIL BRIDGE — CORE MVP COMPLETION
+## M1 Closure, Security Remediation, Chat Completion & Dashboard Functional Integration
 
 Repository: `snowep/council-bridge`  
-Local path: `C:\Projects\council-bridge`
+Local path: `C:\Projects\council-bridge`  
+Current working branch: `refactor/repository-structure`
 
-The Founder has completed M0 and supplied the current-state audit, release gap analysis, database audit, database cleanup plan, and agent registry audit.
+Latest audited commit:
+`73f632d531678360a79b5af30825636651fd1caa`
 
-The objective is to prepare Council Bridge for its first usable release as quickly as possible.
+## OBJECTIVE
 
-This milestone focuses on:
-1. Database integrity.
-2. Removal of verified test pollution.
-3. Critical authentication and authorization fixes.
-4. Migration correctness.
-5. Reproducible database initialization.
-6. Regression testing.
+Make Council Bridge usable as quickly as possible.
 
-Do not expand the product scope or redesign the dashboard.
+This milestone must focus exclusively on:
+
+1. Core system security and correctness.
+2. M1 closure.
+3. Chat and Claude/Hermes communication.
+4. Dashboard functionality.
+5. Essential UI/UX corrections.
+6. End-to-end verification.
+
+Do not redesign the architecture, introduce unnecessary infrastructure, or expand the product scope.
+
+Preserve the Founder's latest dashboard UI direction.
 
 ---
 
-# PART 1 — ESTABLISH THE BASELINE
+# PART 1 — PRESERVE CURRENT STATE
 
-Before implementation:
+Before changes:
 
-1. Inspect Git status, current branch, and commit SHA.
-2. Preserve all uncommitted dashboard changes.
-3. Read all seven M0 audit documents.
-4. Inspect the actual database schema and migration history.
-5. Identify the active database path and environment.
-6. Establish whether the current database is development, test, or production.
-7. Record existing record counts and database integrity.
-8. Run the existing backend and security test suites.
-9. Identify the actual test coverage. Resolve the contradictory M0 statements about zero backend coverage versus comprehensive critical-path coverage.
+- Inspect Git status, branch, and commit SHA.
+- Identify all uncommitted changes.
+- Preserve the latest dashboard modifications.
+- Read the existing M0 and M1 audit documents.
+- Verify the current repository against the previous audit findings.
+- Do not assume previously reported work is complete without checking the code.
 
-Create a baseline report before making changes.
+Do not reset, overwrite, stash, or discard user changes.
 
-Do not reset, replace, or overwrite the database.
+---
 
-# PART 2 — CRITICAL SECURITY FIXES
+# PART 2 — CRITICAL FOUNDER KEY INCIDENT
 
-Implement and test the following verified findings.
+The published public repository contains:
 
-### SEC-01: Session signing secret
+`.secrets/founder-keys.json`
 
-File: `src/auth/session.ts`
+This file contains private-key material.
 
-Problem:
-Session tokens currently use `config.session_timeout_ms.toString()` as the HMAC signing key.
+Treat every Founder private key ever committed to the public repository as compromised.
+
+### Required remediation
+
+1. Inspect all currently tracked `.secrets` files.
+2. Update `.gitignore` to exclude the entire `.secrets/` directory.
+3. Untrack the existing active key file without destroying unrelated local data.
+4. Generate a completely new Founder key pair.
+5. Write the replacement only to the ignored local `.secrets/` directory.
+6. Never print, log, commit, or include the private key in reports.
+7. Do not archive compromised private keys.
+8. Verify the replacement directory has mode `0700` and key file has mode `0600` where supported.
+9. Verify the replacement key can sign and verify a valid Founder request.
+10. Verify signatures from the previous key are rejected.
+11. Verify the public-key endpoint exposes only the new public key and key ID.
+12. Identify any local clients or configurations that require the new public key.
+
+Do not use the existing compromised key to generate or authorize the replacement.
+
+### Git history
+
+Prepare:
+
+`docs/audits/release/SECRET_HISTORY_PURGE_PLAN.md`
+
+Document:
+- Every affected tracked key path.
+- Whether private-key material remains in historical commits.
+- A safe Git history removal procedure.
+- Affected branches and tags.
+- Required collaborator/repository coordination.
+- Post-purge verification commands.
+
+Do not rewrite shared Git history, force-push, or alter remote branches without explicit Founder approval.
+
+Key rotation and revocation must not wait for history rewriting.
+
+---
+
+# PART 3 — REPOSITORY TRACKING CORRECTION
+
+The current `.gitignore` incorrectly excludes important source files.
+
+Review and correct:
+
+- `docs/audits/release/*.md`
+- `migrations/`
+- New security test files.
+- New integration test files.
+- Generated test artifacts.
+- `.secrets/`
 
 Required:
-- Use `process.env.SESSION_SECRET` as the production signing key.
-- Require a sufficiently strong secret in production.
-- Never derive a signing key from a timeout or other predictable configuration.
-- Use a generated process-local secret in development only.
-- Ensure configuration validation and token signing use the same source.
-- Add regression tests proving tokens cannot be forged using the timeout value.
 
-### SEC-02: Founder private-key directory permissions
+1. M1 reports must be trackable.
+2. Security test source files must be trackable.
+3. Migration source files must be trackable.
+4. Generated test output must remain ignored.
+5. Do not broadly ignore source directories.
+6. Do not accidentally commit private keys or database files.
 
-File: `src/auth/founder.ts`
+Use `git check-ignore -v` and `git ls-files` to verify the result.
 
-Required:
-- Create `.secrets` with restrictive permissions (`0o700`).
-- Keep private key files at `0o600`.
-- Verify existing permissions where supported.
-- Avoid logging private key material.
-- Test directory and file permissions on supported platforms.
+Confirm that the published branch contains the required M1 reports and test sources after implementation.
 
-### SEC-03: Production authentication fallback
+---
 
-File: `src/api/middleware/authentication.ts`
+# PART 4 — CLOSE REMAINING M1 FINDINGS
 
-Required:
-- Never allow hardcoded development Founder fallback when `NODE_ENV=production`.
-- Keep production authentication fail-closed.
-- Preserve legitimate local single-user mode.
-- Reject invalid environment combinations.
-- Add regression tests covering development, test, and production configurations.
+### SEC-02: Founder key permissions
 
-### SEC-04: Founder key validation
+The implementation in `src/auth/founder.ts` already contains restrictive permission handling.
 
-File: `src/auth/index.ts`
+Verify:
+- Directory permissions.
+- File permissions.
+- Existing-file behavior.
+- Windows compatibility.
+- Error handling.
+- Actual key generation behavior.
 
-Required:
-- Validate the required Founder public key or initialized key configuration during production startup.
-- Fail startup with a clear error when required key material is missing.
-- Do not silently defer a mandatory production configuration failure until an endpoint is called.
+Add and retain a regression test.
 
 ### SEC-05: Deliverable authorization
 
-File: `src/council/divisions.ts`
+Inspect:
+- `src/council/divisions.ts`
+- `src/council/legacy.ts`
+- `src/council/task-delegation.ts`
+- `src/api/routes/deliverables.routes.ts`
 
-Required:
-- Review `updateDeliverable`.
-- Define allowed status transitions.
-- Ensure staff and Division Heads cannot accept or approve deliverables without the required authorization.
-- Preserve legitimate task-access permissions for content updates.
-- Add tests for unauthorized status transitions and valid Founder approval.
+Verify:
+- Staff can perform authorized content updates.
+- Division Heads cannot bypass Founder approval.
+- Only authorized users can approve or reject deliverables.
+- Status transitions follow the existing governance model.
+- REST and MCP paths enforce equivalent authorization.
 
-### SEC-06: Founder signature ownership and replay
+Add regression tests.
+
+### DB-02: Cross-division sharing
 
 Inspect:
-- `src/server.ts`
-- `src/auth/founder.ts`
-- `tests/security/phase8_security.test.ts`
-
-Required:
-- Verify that signed owner identity, owner type, and runtime match the values stored in the resulting session.
-- Add a concurrent replay test using the same nonce.
-- Verify exactly one request succeeds and subsequent requests receive the correct replay error.
-- Preserve existing signature verification and nonce-consumption behavior.
-
-# PART 3 — MIGRATION CORRECTNESS
-
-### DB-01: Migration dependency resolution
-
-File: `src/migration-runner/executor.ts`
-
-Required:
-- When specific migration IDs are requested, calculate their transitive dependencies.
-- Execute prerequisites in the correct order.
-- Preserve migration checksums and validation.
-- Reject missing dependencies and invalid migration graphs.
-- Add tests for direct dependencies, transitive dependencies, and ordering.
-- Do not execute migrations against the production database as part of this task.
-
-### DB-02: Cross-division share constraint
-
-Inspect:
-- `src/infrastructure/database/database.ts`
+- Database schema and migration history.
 - `src/council/memory.ts`
 - `src/council/legacy.ts`
+- Cross-division request and approval workflows.
 
-Required:
-- Confirm the constitutional and permission policy for granting cross-division shares.
-- The current migration policy says Founder-only grants.
-- Ensure all code paths follow that policy.
-- Remove or reject unsupported Division-level grants.
-- Add tests proving unauthorized grants fail and authorized Founder grants work.
-- Do not loosen database constraints merely to accommodate incorrect legacy callers.
+Resolve the contradiction:
 
-### DB-03: Database privacy query safety
+- Database CHECK currently restricts `granted_by_type` to Founder.
+- Legacy code permits Division Heads to create pending requests using `granted_by_type = 'division'`.
 
-File: `src/council/operations.ts`
+Preserve the distinction between:
+- Division Head submitting a request.
+- Founder approving the request.
+- Approved cross-division access.
 
-Required:
-- Review dynamic SQL construction in `buildPrivacyFilter`.
-- Replace untrusted interpolated values with parameterized queries.
-- Preserve existing privacy and access-control behavior.
-- Add tests for unusual owner IDs and SQL injection attempts.
+Do not bypass Founder approval or misrepresent the request creator.
 
-### DB-04: Database access performance
+If the database schema must change, create a new migration and add migration tests. Do not modify production databases.
 
-Inspect `checkMemoryAccess` and task-history filtering.
+### DB-01: Migration dependencies
 
-Required:
-- Evaluate the N+1 query issue.
-- Prefer a safe batch query or JOIN where it improves performance.
-- Preserve all existing access-control rules.
-- Add tests for multiple entries with mixed access permissions.
+Verify transitive dependency resolution.
 
-# PART 4 — DATABASE CLEANUP
+Test:
+- Direct dependencies.
+- Multiple dependency levels.
+- Missing dependencies.
+- Invalid migration graphs.
+- Correct execution ordering.
+- Already-applied migrations.
 
-This is the most important data operation in M1.
+Do not run migrations against the active production database.
 
-M0 reports approximately 16,000 test records and approximately 90% database pollution.
+### Other security verification
 
-Do not assume the number is correct. Recount the actual records.
+Recheck:
+- Session signing secret.
+- Production authentication fallback.
+- Founder startup validation.
+- Founder signature ownership binding.
+- Concurrent nonce replay.
+- SQL parameterization in privacy filters.
+- Deliverable authorization.
 
-### Step 1: Inventory
+Preserve existing security guarantees.
 
-Inspect every table and identify:
-- Operational records.
-- Canonical organizational records.
-- Test records.
-- Duplicate records.
-- Orphaned records.
-- Historical records.
-- Records with ambiguous ownership or purpose.
+---
 
-### Step 2: Build an exact cleanup manifest
+# PART 5 — CHAT COMPLETION
 
-Create:
+This is the highest-priority functional feature.
 
-`docs/audits/release/DATABASE_CLEANUP_MANIFEST.md`
+Relevant files:
 
-For every proposed deletion, include:
-- Table.
-- Record ID.
-- Classification.
-- Reason for removal.
-- Related records.
-- Foreign-key implications.
-- Whether cascading deletion is involved.
-- Backup and restoration implications.
+- `frontend/src/features/chat/pages/ChatPage.tsx`
+- `frontend/src/shared/types/api.ts`
+- `frontend/src/api/client.ts` or its current shared API client path
+- `src/api/routes/messages.routes.ts`
+- `src/communication/messages.ts`
+- `src/mcp/tools.ts`
+- Agent registry and database message statements.
 
-Provide exact counts per table.
+### 5.1 API contract consistency
 
-Classify records as:
-- KEEP
-- REMOVE
-- ARCHIVE
-- INVESTIGATE
+The current backend returns `Message.id`, while the frontend expects `message_id`.
 
-Do not classify ambiguous records as REMOVE.
+The backend POST response is `{ message }`, while the frontend expects a direct `Message`.
 
-### Step 3: Protect canonical organization
+Resolve all API contract inconsistencies.
 
-Preserve:
+Choose one canonical message model and use it consistently in:
+- Backend service.
+- REST response.
+- MCP response where applicable.
+- Frontend TypeScript types.
+- Chat rendering.
+- Optimistic updates.
+- Tests.
 
-- 11 Council seats.
-- Four permanent founding personas.
-- Seven replaceable seats.
-- Six divisions.
-- Six Division Heads.
-- Forty-five specialists.
-- Fifty-one logical staff identities.
-- Sixty-two total organizational identities.
-- Eight existing runtime mappings.
-- Constitution v1.0.0.
+Do not use unsafe type casts to conceal mismatches.
 
-Do not remove canonical identities or legitimate organizational history.
+### 5.2 Conversation history
 
-### Step 4: Cleanup execution preparation
+Fix `checkInbox` and conversation retrieval.
 
-Prepare a reproducible, idempotent cleanup script or migration.
+A conversation must contain messages in both directions:
+- Messages sent by the current identity.
+- Messages received by the current identity.
 
 Requirements:
-- Create a verified backup before cleanup.
-- Record the database checksum.
-- Support dry-run mode.
-- Report exact affected records.
-- Respect foreign-key dependencies.
-- Run database integrity checks afterward.
-- Verify canonical organization counts.
-- Provide a rollback/recovery procedure.
+- Correct participant filtering.
+- Correct chronological ordering.
+- Persistent history.
+- Pagination for long conversations.
+- Read-state updates.
+- Correct unread counts.
+- No arbitrary history truncation that silently removes earlier messages.
 
-**STOP BEFORE DELETING OR ARCHIVING ANY RECORDS IN THE ACTIVE DATABASE.**
+Verify that marking a conversation as read affects only the intended recipient's messages.
 
-The Founder must review and explicitly approve the exact cleanup manifest before destructive execution.
+### 5.3 Start new conversations
 
-# PART 5 — SESSION STORE DECISION
+The current UI only lists existing conversations.
 
-M0 identified the in-memory session store as a concern.
+Add a practical way for the Founder to start a conversation with a registered agent.
 
-Current deployment assumption:
-- Local single-user mode.
-- Low tens of concurrent users.
-- Single server instance unless explicitly configured otherwise.
+Requirements:
+- Select an available canonical agent.
+- Display its correct identity and runtime.
+- Prevent selecting nonexistent or inactive agents.
+- Start the conversation by sending the first message.
+- Avoid creating duplicate organizational identities.
+- Preserve authentication and authorization.
 
-For this milestone:
-- Document the single-instance limitation.
-- Verify session expiration and cleanup behavior.
-- Test restart behavior.
-- Verify session invalidation and authentication behavior.
-- Do not introduce Redis unless the current deployment architecture actually requires multiple instances or persistent distributed sessions.
+Use the existing canonical registry and runtime mappings.
 
-Do not add infrastructure merely for theoretical scalability.
+### 5.4 Incoming updates
 
-# PART 6 — REPOSITORY HYGIENE
+Implement reliable polling suitable for the existing REST architecture.
 
-Inspect:
-- Root-level `test-corrupt-*` directories.
-- `test-recovery-*` directories.
-- `test-data` and `test-fk-*` directories.
-- Temporary database files.
-- Test output and generated artifacts.
-- `check_orphans.cjs`.
+Requirements:
+- Refresh the selected conversation every 2–5 seconds.
+- Refresh conversation previews and unread counts.
+- Stop polling when no longer needed.
+- Avoid overlapping requests.
+- Avoid state updates after unmount.
+- Avoid unnecessary polling when the browser tab is inactive.
+- Preserve manual refresh and retry behavior.
 
-Required:
-- Determine which artifacts are tracked and which are generated.
-- Move test output to temporary directories where appropriate.
-- Update `.gitignore` with explicit patterns.
-- Keep legitimate test fixtures.
-- Avoid broad ignore patterns that hide source files.
-- Convert CommonJS scripts to ESM only if appropriate and safe.
+WebSockets are not required for this MVP.
 
-Do not delete tracked files without verifying their purpose.
+### 5.5 Claude and Hermes integration
 
-# PART 7 — TESTING
+The MCP message tools currently provide message sending and inbox retrieval.
 
-Run and record:
+Verify the actual agent connection workflow.
 
-- Backend unit tests.
-- Backend integration tests.
-- Authentication and security tests.
-- Migration runner tests.
+Acceptance:
+
+Founder → Chat → Bridge → Claude/Hermes → Bridge → Chat → Persistent history.
+
+Test each runtime independently.
+
+Do not claim that Claude or Hermes is connected merely because an MCP endpoint exists.
+
+If runtime clients cannot be accessed during testing:
+- Complete the message bus and Chat implementation.
+- Document the missing runtime configuration.
+- Clearly mark E2E runtime verification as blocked.
+- Do not simulate successful agent responses.
+
+### 5.6 Chat UX
+
+Provide:
+- Agent selection.
+- Conversation list.
+- Message history.
+- New conversation action.
+- Clear sender/recipient presentation.
+- Sending state.
+- Delivery or processing status where supported by real data.
+- Retry on failure.
+- Read/unread indicators.
+- Mobile responsive layout.
+- Accessible input and keyboard behavior.
+- Empty state with a clear way to start a conversation.
+
+---
+
+# PART 6 — DASHBOARD FUNCTIONAL INTEGRATION
+
+Relevant files:
+
+- `frontend/src/features/dashboard/pages/DashboardPage.tsx`
+- `frontend/src/app/App.tsx`
+- `frontend/src/app/layouts/Layout.tsx`
+- `frontend/src/shared/theme/index.ts`
+- Backend API route registration and existing services.
+
+Preserve the current dashboard visual direction.
+
+### 6.1 Recent Activity
+
+The dashboard currently requests `/api/activity`, but no such route is registered.
+
+Implement a real database-backed activity endpoint using existing task, deliverable, execution, meeting, and approval records where appropriate.
+
+Requirements:
+- Real records only.
+- Correct timestamps.
+- Correct event types.
+- Authorization filtering.
+- Pagination or a bounded recent-event response.
+- Loading, empty, and error states.
+
+If a reliable activity aggregation is not feasible without expanding scope, remove the misleading widget and its dead navigation rather than returning fake data.
+
+### 6.2 Dashboard statistics
+
+Verify:
+- Active divisions.
+- Total divisions.
+- Active staff.
+- Total staff.
+- Pending approvals.
+
+Correct the retry handler. Current label-to-key conversion produces keys that do not match the dashboard loading state.
+
+Ensure every retry button actually retries its intended section.
+
+### 6.3 Quick actions
+
+Review every dashboard action.
+
+Current problems:
+- Create Division navigates to a read-only Organization page.
+- Invite Staff navigates using a query parameter the page ignores.
+- New Task navigates to Tasks but does not open the creation dialog.
+
+Make every action perform its advertised behavior.
+
+Prefer using existing functionality:
+- Open Organization.
+- View Staff.
+- Open Task creation.
+- Review Approvals.
+- Start Chat.
+
+If an action cannot be implemented without a new workflow, replace it with a truthful navigation action or remove it from the MVP dashboard.
+
+Do not leave decorative or nonfunctional buttons.
+
+### 6.4 Theme management
+
+Consolidate theme state.
+
+Requirements:
+- One source of truth for light/dark mode.
+- Persist the selected mode.
+- Respect system preference on first visit.
+- Update ThemeProvider without a full page reload.
+- Keep the selected mode consistent across all pages.
+- Prevent theme initialization flicker where practical.
+
+### 6.5 Navigation and layout
+
+Fix:
+- NavLink active styles using appropriate MUI styling.
+- Mobile drawer behavior.
+- AppBar contrast in both themes.
+- Unknown-route handling.
+- Inert Settings/Profile menu actions.
+- Accessible labels and keyboard navigation.
+
+Do not introduce unnecessary custom components or replace the existing MUI architecture.
+
+### 6.6 Dashboard UX verification
+
+Test:
+- Loading.
+- Empty state.
+- API failure.
+- Retry.
+- Theme persistence.
+- Navigation.
+- Quick actions.
+- Desktop layout.
+- Mobile layout.
+
+---
+
+# PART 7 — DELIVERABLE WORKFLOW INTEGRATION
+
+The current DeliverablesPage calls:
+
+`PUT /api/deliverables/:id/assign-reviewer`
+
+The published backend route does not implement this endpoint.
+
+Resolve the mismatch.
+
+Either:
+- Implement the correctly authorized REST endpoint using existing reviewer assignment logic; or
+- Remove the unsupported action from the UI if it is outside MVP scope.
+
+Verify the entire workflow:
+
+Task → Draft → Submit → Review → Approve/Reject/Revision → Resubmit.
+
+Ensure the Founder approval requirement cannot be bypassed through REST or MCP.
+
+---
+
+# PART 8 — UI/UX SCOPE CONTROL
+
+The following are not required for the first usable release:
+
+- Council Decisions tab.
+- Council Voting tab.
+- Meetings Decisions tab.
+- Meetings Action Items tab.
+- WebSockets.
+- Redis.
+- Advanced analytics.
+- Advanced autonomous behavior.
+
+Keep these clearly marked as deferred.
+
+Do not build them in this milestone.
+
+Replace browser `alert()` calls in core task and deliverable workflows with consistent MUI Snackbar/Alert handling where practical.
+
+Keep the interface responsive and predictable.
+
+---
+
+# PART 9 — DATABASE CLEANUP APPROVAL GATE
+
+The database cleanup manifest still requires explicit Founder approval.
+
+Do not:
+- Delete test records.
+- Archive production records.
+- Apply cleanup migrations.
+- Reset the active database.
+- Modify the active production database.
+
+You may:
+- Inspect schema.
+- Verify cleanup manifest consistency.
+- Check foreign keys in an isolated test database.
+- Prepare dry-run tooling.
+- Document rollback and recovery.
+
+Stop before destructive operations.
+
+---
+
+# PART 10 — TESTING AND ACCEPTANCE
+
+Run and record actual results.
+
+### Backend
+- Authentication tests.
+- Founder signature tests.
+- Migration tests.
+- Cross-division access tests.
 - Deliverable authorization tests.
-- Database integrity checks.
-- Frontend typecheck.
-- Frontend production build.
+- Message service tests.
+- API contract tests.
 
-Add tests for every security or correctness fix above.
+### Frontend
+- TypeScript typecheck.
+- Production build.
+- Lint.
+- Chat component tests.
+- Dashboard component tests.
+- API integration tests.
 
-Do not claim full coverage unless measured and supported by evidence.
+### E2E
 
-Do not weaken, delete, or rewrite tests simply to obtain passing results.
+Verify these workflows:
 
-# PART 8 — REQUIRED DELIVERABLES
+1. Founder opens dashboard.
+2. Dashboard displays real organizational statistics.
+3. Founder starts a new conversation.
+4. Founder sends a message to Claude.
+5. Claude receives and responds.
+6. Founder sees the reply.
+7. Conversation persists after restart.
+8. Repeat for Hermes.
+9. Founder creates a task.
+10. Task is assigned to an authorized agent.
+11. Agent updates task status.
+12. Agent creates and submits a deliverable.
+13. Founder reviews and approves it.
+14. Founder requests and verifies an execution workflow.
+
+Do not report unexecuted tests as passing.
+
+Do not weaken tests to obtain a green result.
+
+---
+
+# PART 11 — REQUIRED REPORTS
 
 Create or update:
 
-1. `docs/audits/release/M1_BASELINE_REPORT.md`
-2. `docs/audits/release/M1_SECURITY_FIX_REPORT.md`
-3. `docs/audits/release/M1_MIGRATION_REPORT.md`
-4. `docs/audits/release/DATABASE_CLEANUP_MANIFEST.md`
-5. `docs/audits/release/M1_DATABASE_CLEANUP_REPORT.md`
-6. `docs/audits/release/M1_TEST_REPORT.md`
-7. `docs/audits/release/M1_COMPLETION_REPORT.md`
+1. `docs/audits/release/M1_CLOSURE_REPORT.md`
+2. `docs/audits/release/SECRET_EXPOSURE_REMEDIATION_REPORT.md`
+3. `docs/audits/release/M1_REGRESSION_REPORT.md`
+4. `docs/audits/release/CHAT_COMPLETION_REPORT.md`
+5. `docs/audits/release/DASHBOARD_FUNCTIONALITY_REPORT.md`
+6. `docs/audits/release/DELIVERABLE_WORKFLOW_REPORT.md`
+7. `docs/audits/release/CORE_MVP_ACCEPTANCE_REPORT.md`
 
-The completion report must distinguish:
-- Implemented.
-- Tested and passed.
-- Tested and failed.
-- Not implemented.
-- Requires Founder approval.
-- Deferred.
+All reports must be tracked by Git.
 
-# PART 9 — STRICT EXECUTION BOUNDARIES
+Include:
+- Findings.
+- Files changed.
+- Tests executed.
+- Results.
+- Remaining blockers.
+- Runtime integration evidence.
+- Database cleanup approval status.
+- Known limitations.
+
+Never include private keys, tokens, or secret values.
+
+---
+
+# STRICT EXECUTION BOUNDARIES
 
 Authorized:
-- Read-only database inspection.
-- Non-destructive code changes.
-- Security fixes.
-- Migration runner fixes.
-- Test additions.
-- Dry-run cleanup.
+- Non-destructive code fixes.
+- Founder key rotation into an ignored local secret directory.
+- Removal of secrets from the current Git index.
+- `.gitignore` corrections.
+- Tests.
 - Documentation.
+- UI/UX fixes.
 - Local isolated test database operations.
 
 Not authorized:
-- Deleting production records.
-- Archiving production records.
-- Applying production migrations.
-- Resetting or replacing the active database.
-- Changing canonical Council membership.
+- Production database deletion.
+- Production cleanup migration.
+- Database reset.
+- Production deployment.
+- Git history rewrite.
+- Force push.
+- Merge into master.
+- Changing Council membership.
 - Changing canonical divisions or staff identities.
-- Weakening security or permissions.
-- Introducing Redis without demonstrated need.
-- Merging or pushing branches.
-- Deploying.
+- Weakening authentication.
+- Introducing Redis without a demonstrated MVP requirement.
 
-Preserve the Founder's latest dashboard changes.
+Do not push or merge.
+
+Preserve all user changes.
 
 # COMPLETION CONDITION
 
-M1 is complete only when:
+This milestone is complete when:
 
-1. Critical security fixes are implemented and tested.
-2. Migration dependency handling is verified.
-3. Deliverable authorization is correct.
-4. Database cleanup candidates are precisely identified.
-5. A dry-run cleanup produces an exact manifest.
-6. Database recovery procedures are documented.
-7. Regression tests pass or remaining failures are explicitly explained.
-8. All required reports are created.
+1. Founder key exposure is remediated locally and the old key is rejected.
+2. No private key remains tracked in the current Git tree.
+3. Git ignore rules permit reports, migrations, and tests to be tracked.
+4. Remaining M1 security and database findings are resolved or explicitly blocked.
+5. Chat API contracts are consistent.
+6. Founder can start and use agent conversations.
+7. Claude and Hermes runtime communication is verified or explicitly marked blocked.
+8. Dashboard actions work as advertised.
+9. Core deliverable workflows work through the REST API.
+10. All critical regression tests pass.
+11. Reports are present in the repository.
+12. No destructive database cleanup has occurred without approval.
 
-Stop before destructive database cleanup.
+Stop and present the completion report.
 
-Present the exact cleanup manifest and request Founder approval before executing deletion or archival.
-
-The goal is a clean, secure, reliable foundation for M2 and M3. Do not expand scope.
+The objective is a secure, usable Council Bridge MVP, not a larger architecture.

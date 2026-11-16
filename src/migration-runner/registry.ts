@@ -189,7 +189,7 @@ export class MigrationRegistry {
     return result;
   }
 
-  verifyChecksums(): { migration: Migration; valid: boolean; expected: string; actual: string[] }[] {
+  verifyChecksums(): { migration: Migration; valid: boolean; expected: string; actual: string }[] {
     const results = [];
     for (const migration of this.load()) {
       const actual = computeChecksum(migration.filepath);
