@@ -2,14 +2,13 @@
 // Implements: GET /api/activity - Returns aggregated activity from memory, tasks, messages
 
 import { Router, Request, Response } from 'express';
-import { getDatabase } from '../../database.js';
-import { authMiddleware, getAuthContext, requireAuth } from '../middleware/authentication.js';
+import { authMiddleware, requireAuth } from '../middleware/authentication.js';
 import { asyncHandler } from '../middleware/error-handler.js';
 import { ListActivitySchema } from '../schemas/index.js';
 import { listActivity } from '../../council/memory.js';
+import { databaseInstance as db } from '../../database.js';
 
 const router = Router();
-import { databaseInstance as db } from '../../database.js';
 
 // Apply auth middleware to all routes
 router.use(authMiddleware);

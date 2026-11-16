@@ -248,19 +248,70 @@ export default function ChatPage() {
           : conv
       ));
     } catch (err: any) {
-      // Revert optimistic update
+      // Revert optimistic update and store message for retry
       setMessages(prev => prev.filter(m => m.message_id !== tempMessage.message_id));
       const msg = err?.response?.data?.error || err.message || 'Failed to send message';
       setSendError(msg);
+      setPendingFailedMessage(content);
       console.error('Failed to send message:', err);
     } finally {
       setSending(false);
     }
   };
 
-  const retrySend = () => {
-    if (newMessage.trim()) {
-      sendMessage(new Event('submit') as unknown as React.FormEvent);
+  // Track failed message for retry
+  const [pendingFailedMessage, setPendingFailedMessage] = useState<string | null>(null);
+
+  const retrySend = async () => {
+    if (pendingFailedMessage) {
+      setSendError(null);
+      try {
+        await apiClient.post<Message>('/api/messages', {
+          recipient_id: selectedConversation?.participant_id,
+          content: pendingFailedMessage,
+        });
+        setMessages(prev => prev.filter(m => !m.message_id.startsWith('temp-')));
+        setSendError(null);
+        setPendingFailedMessage(null);
+      } catch (err: any) {
+        const msg = err?.response?.data?.error || err.message || 'Retry failed';
+        setSendError(msg);
+      }
+    } else if (newMessage.trim()) {
+      // Fallback for simple retry
+      const tempId = `temp-${Date.now()}`;
+      const tempMessage: Message = {
+        message_id: tempId,
+        sender_id: authContext?.owner_id || 'unknown',
+        recipient_id: selectedConversation?.participant_id || '',
+        content: newMessage.trim(),
+        status: 'sent',
+        created_at: new Date().toISOString(),
+        read_at: null,
+      };
+      setMessages(prev => [...prev, tempMessage]);
+      setNewMessage('');
+      setSending(true);
+      setSendError(null);
+      try {
+        const response = await apiClient.post<Message>('/api/messages', {
+          recipient_id: selectedConversation?.participant_id,
+          content: newMessage.trim(),
+        });
+        setMessages(prev => prev.map(m => m.message_id === tempId ? response : m));
+        setFilteredConversations(prev => prev.map(conv =>
+          conv.participant_id === selectedConversation?.participant_id
+            ? { ...conv, last_message: response, unread_count: 0 }
+            : conv
+        ));
+      } catch (err: any) {
+        setMessages(prev => prev.filter(m => m.message_id !== tempId));
+        const msg = err?.response?.data?.error || err.message || 'Failed to send message';
+        setSendError(msg);
+        setPendingFailedMessage(newMessage.trim());
+      } finally {
+        setSending(false);
+      }
     }
   };
 

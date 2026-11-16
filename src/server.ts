@@ -20,16 +20,21 @@ import {
   verifyFounderOperation,
   getFounderKeyId,
   getFounderPublicKey,
-  setDatabaseInstance
+  setDatabaseInstance,
+  startNonceCleanupInterval,
+  stopNonceCleanupInterval
 } from './auth/founder.js';
 
 import {
   getAuthConfig,
   isProductionMode,
   isDevelopmentMode,
+  isLocalSingleUserMode,
+  getLocalBindAddress,
   AuthContext,
   validateAuthMode,
   validateFounderKeyConfiguration,
+  validateLocalSingleUserConfig,
 } from './auth/index.js';
 
 import {
@@ -64,7 +69,7 @@ import qualityRoutes from './api/routes/quality.routes.js';
 import activityRoutes from './api/routes/activity.routes.js';
 
 // Import middleware
-import { authMiddleware, getAuthContext, validateLocalSingleUserConfig, isLocalSingleUserMode, getLocalBindAddress } from './api/middleware/authentication.js';
+import { authMiddleware, getAuthContext } from './api/middleware/authentication.js';
 import { errorHandler } from './api/middleware/error-handler.js';
 
 // Initialize crypto module for operations
@@ -468,14 +473,31 @@ const PORT = parseInt(process.env.PORT || '3334', 10);
 initDb().then(() => {
   setDatabaseInstance(db);
 
+  // Start scheduled cleanup tasks
   setInterval(() => {
     cleanupExpiredSessions();
   }, 5 * 60 * 1000);
+
+  // Start deterministic founder nonce cleanup
+  startNonceCleanupInterval();
 
   const bindAddress = LOCAL_MODE ? LOCAL_BIND_ADDRESS : '0.0.0.0';
   app.listen(PORT, bindAddress, () => {
     console.log(`Server running on ${bindAddress}:${PORT} [${config.mode.toUpperCase()}${LOCAL_MODE ? ' + LOCAL' : ''}]`);
   });
+});
+
+// Graceful shutdown cleanup
+process.on('SIGTERM', () => {
+  stopNonceCleanupInterval();
+  if (db) db.close();
+  process.exit(0);
+});
+
+process.on('SIGINT', () => {
+  stopNonceCleanupInterval();
+  if (db) db.close();
+  process.exit(0);
 });
 
 export default app;

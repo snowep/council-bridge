@@ -331,7 +331,7 @@ export function registerMcpTools(
         agent_id: args.agent_id,
         limit: args.limit ?? 50,
         offset: args.offset ?? 0,
-        unreadOnly: args.unreadOnly ?? false
+        unread_only: args.unreadOnly ?? false
       });
     })
   );

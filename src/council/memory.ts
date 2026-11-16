@@ -343,20 +343,45 @@ export interface ActivityItem {
   metadata?: Record<string, any>;
 }
 
+// Helper: Check if task belongs to owner context
+function taskBelongsToOwner(db: DatabaseInstance, taskId: string, ownerType: string, ownerId: string): boolean {
+  const task = db.query('SELECT assigned_to_type, assigned_to_id, created_by_type, created_by_id FROM tasks WHERE task_id = ?', [taskId]);
+  if (task.length === 0) return false;
+  const t = task[0];
+  // Founder sees all, others must own the task
+  if (ownerType === 'founder') return true;
+  return t.assigned_to_type === ownerType && t.assigned_to_id === ownerId;
+}
+
 export function listActivity(
   db: DatabaseInstance,
   ctx: { owner_type: string; owner_id: string },
   options: { limit: number; offset: number }
 ): ActivityItem[] {
   const items: ActivityItem[] = [];
+  const isFounder = ctx.owner_type === 'founder';
+  const batchSize = Math.ceil(options.limit / 3);
 
-  // 1. Task audit entries (recent task changes)
-  const taskAudit = db.query(`
-    SELECT audit_id, task_id, mutation_type, details, actor_type, actor_id, runtime, created_at
-    FROM task_audit
-    ORDER BY created_at DESC
-    LIMIT ?
-  `, [Math.ceil(options.limit / 3)]);
+  // 1. Task audit entries (recent task changes) - FILTERED BY AUTHORIZATION
+  // Founder sees all, others only see their tasks
+  let taskAudit: any[];
+  if (isFounder) {
+    taskAudit = db.query(`
+      SELECT audit_id, task_id, mutation_type, details, actor_type, actor_id, runtime, created_at
+      FROM task_audit
+      ORDER BY created_at DESC
+      LIMIT ?
+    `, [batchSize]);
+  } else {
+    taskAudit = db.query(`
+      SELECT ta.audit_id, ta.task_id, ta.mutation_type, ta.details, ta.actor_type, ta.actor_id, ta.runtime, ta.created_at
+      FROM task_audit ta
+      JOIN tasks t ON ta.task_id = t.task_id
+      WHERE (t.assigned_to_type = ? AND t.assigned_to_id = ?) OR (t.created_by_type = ? AND t.created_by_id = ?)
+      ORDER BY ta.created_at DESC
+      LIMIT ?
+    `, [ctx.owner_type, ctx.owner_id, ctx.owner_type, ctx.owner_id, batchSize]);
+  }
 
   for (const audit of taskAudit) {
     items.push({
@@ -374,14 +399,41 @@ export function listActivity(
     });
   }
 
-  // 2. Memory entries (recent task/deliverable history)
-  const memories = db.query(`
-    SELECT memory_id, title, memory_type, category, owner_type, owner_id, created_at, updated_at
-    FROM memory_entries
-    WHERE archived_at IS NULL
-    ORDER BY updated_at DESC
-    LIMIT ?
-  `, [Math.ceil(options.limit / 3)]);
+  // 2. Memory entries (recent task/deliverable history) - FILTERED BY AUTHORIZATION
+  // Memory visibility follows checkMemoryAccess logic from operations.ts
+  // Founder: all memories; Staff/Division: only their own (plus shared access)
+  if (isFounder) {
+    var memories = db.query(`
+      SELECT memory_id, title, memory_type, category, owner_type, owner_id, created_at, updated_at
+      FROM memory_entries
+      WHERE archived_at IS NULL
+      ORDER BY updated_at DESC
+      LIMIT ?
+    `, [batchSize]);
+  } else {
+    // Non-Founder: Only show memories they have access to
+    // This includes: owned memories, division_shared (their division), cross_division (shared with their division)
+    var memories = db.query(`
+      SELECT m.memory_id, m.title, m.memory_type, m.category, m.owner_type, m.owner_id, m.created_at, m.updated_at
+      FROM memory_entries m
+      LEFT JOIN cross_division_shares cds ON m.memory_id = cds.memory_id AND cds.revoked_at IS NULL
+      WHERE m.archived_at IS NULL
+        AND (
+          m.category IN ('council_shared', 'decision_resolution', 'lesson_learned', 'business_context', 'idea_proposal', 'research_evidence', 'unresolved_question')
+          OR (m.owner_type = 'staff' AND m.owner_id = ? AND m.category = 'staff_private')
+          OR (m.owner_type = 'division' AND m.owner_id = ? AND m.category IN ('division_shared', 'division_private'))
+          OR (m.category = 'division_shared' AND cds.division_id = ?)
+          OR (m.category = 'cross_division' AND cds.division_id IS NOT NULL)
+          OR (m.category = 'task_history' AND m.task_id IN (
+            SELECT task_id FROM tasks WHERE (assigned_to_type = 'staff' AND assigned_to_id = ?)
+              OR (assigned_to_type = 'division' AND assigned_to_id = ?)
+          ))
+          OR (m.owner_type = ? AND m.owner_id = ?)
+        )
+      ORDER BY m.updated_at DESC
+      LIMIT ?
+    `, [ctx.owner_type, ctx.owner_type, ctx.owner_id, ctx.owner_id, ctx.owner_type, ctx.owner_id, batchSize]);
+  }
 
   for (const mem of memories) {
     const typeMap: Record<string, ActivityItem['type']> = {
@@ -414,14 +466,23 @@ export function listActivity(
     });
   }
 
-  // 3. Recent messages (new conversations)
-  const messages = db.query(`
-    SELECT m.id, m.sender_id, m.recipient_id, m.content, m.created_at
-    FROM messages m
-    WHERE m.sender_id = ? OR m.recipient_id = ?
-    ORDER BY m.created_at DESC
-    LIMIT ?
-  `, [ctx.owner_id, ctx.owner_id, Math.ceil(options.limit / 3)]);
+  // 3. Recent messages (new conversations) - FILTERED BY PARTICIPATION
+  if (isFounder) {
+    var messages = db.query(`
+      SELECT m.id, m.sender_id, m.recipient_id, m.content, m.created_at
+      FROM messages m
+      ORDER BY m.created_at DESC
+      LIMIT ?
+    `, [batchSize]);
+  } else {
+    var messages = db.query(`
+      SELECT m.id, m.sender_id, m.recipient_id, m.content, m.created_at
+      FROM messages m
+      WHERE m.sender_id = ? OR m.recipient_id = ?
+      ORDER BY m.created_at DESC
+      LIMIT ?
+    `, [ctx.owner_id, ctx.owner_id, batchSize]);
+  }
 
   for (const msg of messages) {
     items.push({

@@ -153,6 +153,9 @@ export interface DatabaseInstance {
     updateCrossDivisionShare: PreparedStatement;
 
     // Phase 6: Division & Staff Management
+    insertAgentFromStaff: PreparedStatement;
+    insertAgentFromDivision: PreparedStatement;
+
     insertDivision: PreparedStatement;
     getDivisionById: PreparedStatement;
     listDivisions: PreparedStatement;
@@ -1013,6 +1016,16 @@ function createDatabase(dbPath?: string): DatabaseInstance {
       INSERT INTO agents (id, agent_id, display_name, runtime, created_at, updated_at)
       VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))
     `),
+    insertAgentFromStaff: db.prepare(`
+      INSERT OR IGNORE INTO agents (id, agent_id, display_name, runtime, created_at, updated_at)
+      SELECT ?, staff_id, name, json_extract(runtime_instances, '$[0]'), datetime('now'), datetime('now')
+      FROM staff_agents WHERE staff_id = ?
+    `),
+    insertAgentFromDivision: db.prepare(`
+      INSERT OR IGNORE INTO agents (id, agent_id, display_name, runtime, created_at, updated_at)
+      SELECT ?, head_staff_id, name, 'hermes', datetime('now'), datetime('now')
+      FROM divisions WHERE division_id = ? AND head_staff_id IS NOT NULL
+    `),
     getAgentById: db.prepare('SELECT * FROM agents WHERE agent_id = ?'),
     getAgentByDisplayName: db.prepare('SELECT * FROM agents WHERE display_name = ?'),
     listAgents: db.prepare('SELECT * FROM agents ORDER BY created_at DESC'),
@@ -1039,6 +1052,12 @@ function createDatabase(dbPath?: string): DatabaseInstance {
     countMessagesByRecipient: db.prepare('SELECT COUNT(*) as count FROM messages WHERE recipient_id = ?'),
     markMessagesAsRead: db.prepare(`
       UPDATE messages SET read_at = ? WHERE recipient_id = ? AND sender_id = ? AND read_at IS NULL
+    `),
+    markMessagesAsReadByConversation: db.prepare(`
+      UPDATE messages SET read_at = ? WHERE recipient_id = ? AND sender_id = ? AND read_at IS NULL
+    `),
+    getMessagesByConversation: db.prepare(`
+      SELECT * FROM messages WHERE (sender_id = ? OR recipient_id = ?) AND read_at IS NULL ORDER BY created_at ASC
     `),
 
     // Phase 2 council statements

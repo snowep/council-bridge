@@ -14,7 +14,6 @@ import {
   Menu,
   MenuItem,
   Divider,
-  useMediaQuery,
   Tooltip,
 } from '@mui/material';
 import {
@@ -31,17 +30,52 @@ import {
   Menu as MenuIcon,
   LogoutOutlined,
   PersonOutlined,
-  SettingsOutlined,
   DarkModeOutlined,
   LightModeOutlined,
 } from '@mui/icons-material';
-import { useState, useEffect } from 'react';
+import { styled } from '@mui/material/styles';
+import { useState } from 'react';
 import { useAppAuth } from '../use-app-auth';
-import { useTheme as useMuiTheme } from '@mui/material/styles';
+import { useThemeStore } from '../../shared/theme';
 
 const LOCAL_SINGLE_USER_MODE = import.meta.env.VITE_LOCAL_SINGLE_USER_MODE === 'true' || import.meta.env.DEV;
 
 const drawerWidth = 260;
+
+// Styled NavLink with proper hover/focus/active states
+const StyledNavLink = styled(NavLink)(({ theme }) => ({
+  borderRadius: theme.shape.borderRadius * 2,
+  margin: '0.25rem 1rem',
+  display: 'flex',
+  alignItems: 'center',
+  textDecoration: 'none',
+  color: theme.palette.text.primary,
+  backgroundColor: 'transparent',
+  transition: 'background-color 150ms ease, color 150ms ease',
+  '&:hover': {
+    backgroundColor: theme.palette.action.hover,
+    color: theme.palette.text.primary,
+    textDecoration: 'none',
+  },
+  '&.active': {
+    backgroundColor: theme.palette.primary.main,
+    color: theme.palette.primary.contrastText,
+    '&:hover': {
+      backgroundColor: theme.palette.primary.dark,
+    },
+  },
+  '&:focus-visible': {
+    outline: `2px solid ${theme.palette.primary.main}`,
+    outlineOffset: '2px',
+  },
+  '& .MuiListItemIcon-root': {
+    color: 'inherit',
+    minWidth: 40,
+  },
+  '& .MuiListItemTextPrimary': {
+    color: 'inherit',
+  },
+}));
 
 const navigationItems = [
   { path: '/dashboard', label: 'Dashboard', icon: <DashboardOutlined /> },
@@ -57,17 +91,10 @@ const navigationItems = [
 ];
 
 export default function Layout() {
-  const theme = useMuiTheme();
-  useMediaQuery(theme.breakpoints.down('md'));
+  const themeStore = useThemeStore();
   const { authContext, logout } = useAppAuth();
-  const [darkMode, setDarkMode] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
-
-  useEffect(() => {
-    const saved = localStorage.getItem('theme_mode') as 'light' | 'dark' | null;
-    setDarkMode(saved === 'dark');
-  }, []);
 
   const handleDrawerToggle = () => {
     setMobileOpen(!mobileOpen);
@@ -91,10 +118,7 @@ export default function Layout() {
   };
 
   const handleThemeToggle = () => {
-    const newMode = !darkMode;
-    setDarkMode(newMode);
-    localStorage.setItem('theme_mode', newMode ? 'dark' : 'light');
-    window.location.reload();
+    themeStore.setMode(themeStore.mode === 'light' ? 'dark' : 'light');
   };
 
   const drawer = (
@@ -106,33 +130,15 @@ export default function Layout() {
       <Divider sx={{ mb: 2 }} />
       <List component="nav" aria-label="main navigation">
         {navigationItems.map((item) => (
-          <ListItem key={item.path} disablePadding sx={{ mb: 0.5 }}>
-            <NavLink
+          <ListItem key={item.path} disablePadding>
+            <StyledNavLink
               to={item.path}
-              onClick={handleDrawerClose}
-              style={({ isActive }) => ({
-                borderRadius: 2,
-                mx: 1,
-                display: 'flex',
-                alignItems: 'center',
-                textDecoration: 'none',
-                color: isActive ? 'primary.contrastText' : 'inherit',
-                backgroundColor: isActive ? 'primary.main' : 'transparent',
-                '&:hover': {
-                  backgroundColor: isActive ? 'primary.dark' : 'action.hover',
-                },
-                '& .MuiListItemIcon-root': {
-                  color: isActive ? 'primary.contrastText' : 'inherit',
-                  minWidth: 40,
-                },
-                '& .MuiListItemTextPrimary': {
-                  color: isActive ? 'primary.contrastText' : 'inherit',
-                },
-              })}
+              end
+              aria-current="page"
             >
               <ListItemIcon>{item.icon}</ListItemIcon>
               <ListItemText primary={item.label} />
-            </NavLink>
+            </StyledNavLink>
           </ListItem>
         ))}
       </List>
@@ -146,7 +152,7 @@ export default function Layout() {
         sx={{
           width: { md: `calc(100% - ${drawerWidth}px)` },
           ml: { md: `${drawerWidth}px` },
-          backgroundColor: (theme) => theme.palette.background.paper,
+          backgroundColor: (t) => t.palette.background.paper,
           borderBottom: 1,
           borderColor: 'divider',
           boxShadow: 'none',
@@ -168,9 +174,9 @@ export default function Layout() {
             Council Bridge
           </Typography>
           <Box sx={{ flexGrow: 1 }} />
-          <Tooltip title={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}>
+          <Tooltip title={themeStore.mode === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}>
             <IconButton onClick={handleThemeToggle} color="inherit">
-              {darkMode ? <LightModeOutlined /> : <DarkModeOutlined />}
+              {themeStore.mode === 'dark' ? <LightModeOutlined /> : <DarkModeOutlined />}
             </IconButton>
           </Tooltip>
           <IconButton onClick={handleMenuOpen} color="inherit" aria-label="User menu">
@@ -255,23 +261,10 @@ export default function Layout() {
           </Typography>
         </Box>
         <Divider />
-        {!LOCAL_SINGLE_USER_MODE && (
-          <>
-            <MenuItem onClick={handleMenuClose}>
-              <ListItemIcon><PersonOutlined fontSize="small" /></ListItemIcon>
-              Profile
-            </MenuItem>
-            <MenuItem onClick={handleMenuClose}>
-              <ListItemIcon><SettingsOutlined fontSize="small" /></ListItemIcon>
-              Settings
-            </MenuItem>
-            <Divider />
-            <MenuItem onClick={handleLogout}>
-              <ListItemIcon><LogoutOutlined fontSize="small" /></ListItemIcon>
-              Logout
-            </MenuItem>
-          </>
-        )}
+        <MenuItem onClick={handleLogout}>
+          <ListItemIcon><LogoutOutlined fontSize="small" /></ListItemIcon>
+          Logout
+        </MenuItem>
       </Menu>
     </Box>
   );

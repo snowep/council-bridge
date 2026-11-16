@@ -1,7 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
-import { ThemeProvider, CssBaseline } from '@mui/material';
-import { useState, useEffect, type ReactNode } from 'react';
-import { lightTheme, darkTheme } from '../shared/theme';
+import { CssBaseline, Box, Typography, Link } from '@mui/material';
+import { type ReactNode } from 'react';
 import DashboardPage from '../features/dashboard/pages/DashboardPage';
 import ChatPage from '../features/chat/pages/ChatPage';
 import CouncilPage from '../features/council/pages/CouncilPage';
@@ -17,6 +16,7 @@ import Layout from '../app/layouts/Layout';
 import { AppAuthProvider } from './auth-context';
 import { useAppAuth } from './use-app-auth';
 import { LOCAL_SINGLE_USER_MODE } from './constants';
+import { ThemeProvider } from '../shared/theme';
 
 function AppAuthProviderWithNavigate({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
@@ -32,26 +32,28 @@ function AppAuthProviderWithNavigate({ children }: { children: ReactNode }) {
   );
 }
 
-function ThemeWrapper({ children }: { children: ReactNode }) {
-  const [mode, setMode] = useState<'light' | 'dark'>('light');
-
-  useEffect(() => {
-    const saved = localStorage.getItem('theme_mode') as 'light' | 'dark' | null;
-    if (saved) setMode(saved);
-    else if (window.matchMedia('(prefers-color-scheme: dark)').matches) setMode('dark');
-  }, []);
-
-  useEffect(() => {
-    localStorage.setItem('theme_mode', mode);
-  }, [mode]);
-
-  const theme = mode === 'dark' ? darkTheme : lightTheme;
-
+// NotFoundPage component for 404 errors
+function NotFoundPage() {
   return (
-    <ThemeProvider theme={theme}>
-      <CssBaseline />
-      {children}
-    </ThemeProvider>
+    <Box
+      sx={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        py: 4,
+      }}
+    >
+      <Typography variant="h1" component="h1" sx={{ fontSize: '3rem', mb: 2 }}>
+        404
+      </Typography>
+      <Typography variant="h5" component="h2" sx={{ mb: 3, color: 'text.secondary' }}>
+        Page not found
+      </Typography>
+      <Link href="/dashboard" underline="hover" sx={{ fontSize: '1.1rem' }}>
+        Return to Dashboard
+      </Link>
+    </Box>
   );
 }
 
@@ -77,7 +79,8 @@ function ProtectedRoute({ children }: { children: ReactNode }) {
 export default function App() {
   return (
     <BrowserRouter>
-      <ThemeWrapper>
+      <ThemeProvider>
+        <CssBaseline />
         <AppAuthProviderWithNavigate>
           <Routes>
             {/* No login page in local single-user mode */}
@@ -102,9 +105,11 @@ export default function App() {
               <Route path="deliverables" element={<DeliverablesPage />} />
               <Route path="approvals" element={<ApprovalsPage />} />
             </Route>
+            {/* 404 catch-all route */}
+            <Route path="*" element={<NotFoundPage />} />
           </Routes>
         </AppAuthProviderWithNavigate>
-      </ThemeWrapper>
+      </ThemeProvider>
     </BrowserRouter>
   );
 }

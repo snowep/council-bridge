@@ -93,16 +93,37 @@ function checkAndConsumeNonce(keyId: string, operation: string, nonce: string, n
   }
 }
 
-function cleanupExpiredNonces(): void {
-  // Run probabilistically (1% of calls) to avoid DB overhead on hot path
-  if (Math.random() > 0.01) return;
-  try {
-    const db = getDb();
-    db.stmt.cleanupFounderNonces.run();
-  } catch (error) {
-    // Log but don't fail - cleanup is best effort
-    console.error('[Founder Nonce] Cleanup failed:', error);
+let cleanupInterval: NodeJS.Timeout | null = null;
+
+export function startNonceCleanupInterval(): void {
+  // Deterministic cleanup every 5 minutes
+  if (cleanupInterval) return;
+  cleanupInterval = setInterval(() => {
+    try {
+      const db = getDb();
+      db.stmt.cleanupFounderNonces.run();
+    } catch (error) {
+      // Log but don't fail - cleanup is best effort
+      console.error('[Founder Nonce] Cleanup failed:', error);
+    }
+  }, 5 * 60 * 1000);
+}
+
+export function stopNonceCleanupInterval(): void {
+  if (cleanupInterval) {
+    clearInterval(cleanupInterval);
+    cleanupInterval = null;
   }
+}
+
+/**
+ * Cleanup expired nonces - called deterministically via scheduled interval
+ * This function is no longer called on every verification (was probabilistic)
+ */
+export function cleanupExpiredNonces(): void {
+  // No-op - cleanup is now handled by startNonceCleanupInterval()
+  // This function is kept for backward compatibility
+  // The scheduled interval at 5-minute intervals is the deterministic cleanup strategy
 }
 
 export function generateFounderKeyPair(): FounderKeyPair {
@@ -377,10 +398,9 @@ export function verifyFounderOperation(
   if (!keys) return { valid: false, error: 'NO_KEYS' };
   if (keyId !== keys.key_id) return { valid: false, error: 'KEY_MISMATCH' };
 
-  // Cleanup expired nonces
-  cleanupExpiredNonces();
-
   // Validate timestamp freshness (replay protection)
+  // NOTE: Expired nonce cleanup is handled deterministically by startNonceCleanupInterval()
+  // which runs every 5 minutes, not on every verification
   const now = Date.now();
   if (Math.abs(now - timestamp) > REQUEST_TIMESTAMP_TOLERANCE_MS) {
     return { valid: false, error: 'TIMESTAMP_EXPIRED' };

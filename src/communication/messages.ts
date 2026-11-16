@@ -1,6 +1,7 @@
 import { z } from 'zod/v4';
 import { DatabaseInstance } from '../database.js';
 import { AgentService } from './agents.js';
+import { randomUUID } from 'node:crypto';
 
 export const SendMessageSchema = z.object({
   sender_id: z.string().min(1).max(255),
@@ -23,7 +24,8 @@ export const ListMessagesSchema = z.object({
   agent_id: z.string().min(1).max(255),
   limit: z.number().int().positive().max(100).default(50),
   offset: z.number().int().nonnegative().default(0),
-  unreadOnly: z.boolean().default(false),
+  conversation_id: z.string().optional(),
+  unread_only: z.boolean().default(false),
 });
 
 export type ListMessagesInput = z.infer<typeof ListMessagesSchema>;
@@ -38,13 +40,17 @@ export const ListConversationsSchema = z.object({
 export type ListConversationsInput = z.infer<typeof ListConversationsSchema>;
 
 export interface Message {
-  message_id: string;
+  id: string; // Database primary key (alias for message_id for tests)
+  message_id: string; // Alias for consistency
   sender_id: string;
   recipient_id: string;
   content: string;
-  status: 'sent' | 'delivered' | 'read' | 'failed';
+  reply_to: string | null;
+  status: 'pending' | 'sent' | 'delivered' | 'read' | 'failed' | 'replied';
   created_at: string;
   read_at: string | null;
+  delivered_at: string | null;
+  failed_at: string | null;
 }
 
 export interface Conversation {
@@ -52,6 +58,32 @@ export interface Conversation {
   participant_name: string;
   last_message: Message | null;
   unread_count: number;
+}
+
+// Helper to determine message status
+function determineMessageStatus(row: any): 'pending' | 'sent' | 'delivered' | 'read' | 'failed' | 'replied' {
+  if (row.failed_at) return 'failed';
+  if (row.read_at) return row.reply_to ? 'replied' : 'read';
+  if (row.delivered_at) return 'delivered';
+  return 'pending';
+}
+
+// Helper to normalize database row to Message type
+function normalizeMessage(row: any): Message {
+  const messageId = row.id;
+  return {
+    id: messageId,
+    message_id: messageId,
+    sender_id: row.sender_id,
+    recipient_id: row.recipient_id,
+    content: row.content,
+    reply_to: row.reply_to,
+    status: determineMessageStatus(row),
+    created_at: row.created_at,
+    read_at: row.read_at,
+    delivered_at: row.delivered_at,
+    failed_at: row.failed_at,
+  };
 }
 
 export function createMessageService(
@@ -81,23 +113,50 @@ export function createMessageService(
       dbInstance.stmt.insertMessage.run(id, input.sender_id, input.recipient_id, input.content, input.reply_to ?? null);
 
       const msg = dbInstance.stmt.getMessageById.get(id) as any;
-      return msg ? { ...msg, message_id: msg.id, status: msg.read_at ? 'read' : 'sent' } : msg;
+      return normalizeMessage(msg);
     },
 
     checkInbox(agentId: string, conversationId?: string): Message[] {
       if (!agentService.agentExists(agentId)) {
         throw new Error(`Agent '${agentId}' not found`);
       }
-      // Use listMessages to get BOTH sent and received messages
-      const rawMessages = dbInstance.stmt.listMessages.all(agentId, agentId, 50) as any[];
-      const normalized = rawMessages.map(m => ({ ...m, message_id: m.id, status: m.read_at ? 'read' : 'sent' }));
+
+      // When conversationId is provided, filter by both participant
       if (conversationId) {
-        // Get messages for a specific conversation
-        return normalized.filter((m: Message) =>
-          m.sender_id === conversationId || m.recipient_id === conversationId
-        );
+        // Messages where agent is sender or recipient, filtered to conversation
+        const rawMessages = dbInstance.query(`
+          SELECT * FROM messages
+          WHERE (sender_id = ? OR recipient_id = ?)
+          AND (sender_id = ? OR recipient_id = ?)
+          ORDER BY created_at ASC
+        `, [agentId, agentId, conversationId, conversationId]);
+
+        return (rawMessages as any[]).map(normalizeMessage);
       }
-      return normalized;
+
+      // Use listMessages to get BOTH sent and received messages for this agent
+      const rawMessages = dbInstance.stmt.listMessages.all(agentId, agentId, 500) as any[];
+      return rawMessages.map(normalizeMessage);
+    },
+
+    // Get messages for a specific conversation with pagination
+    getConversationMessages(agentId: string, partnerId: string, limit: number = 50, offset: number = 0): Message[] {
+      if (!agentService.agentExists(agentId)) {
+        throw new Error(`Agent '${agentId}' not found`);
+      }
+      if (!agentService.agentExists(partnerId)) {
+        throw new Error(`Partner agent '${partnerId}' not found`);
+      }
+
+      const rawMessages = dbInstance.query(`
+        SELECT * FROM messages
+        WHERE (sender_id = ? OR recipient_id = ?)
+        AND (sender_id = ? OR recipient_id = ?)
+        ORDER BY created_at ASC
+        LIMIT ? OFFSET ?
+      `, [agentId, partnerId, partnerId, agentId, limit, offset]);
+
+      return (rawMessages as any[]).map(normalizeMessage);
     },
 
     replyMessage(input: ReplyMessageInput): Message {
@@ -113,20 +172,45 @@ export function createMessageService(
         throw new Error('Only the intended recipient may reply to this message');
       }
 
-      return this.sendMessage({
+      const reply = this.sendMessage({
         sender_id: input.agent_id,
         recipient_id: parentMsg.sender_id,
         content: input.content,
         reply_to: input.message_id,
       });
+
+      // Mark parent as replied
+      dbInstance.query('UPDATE messages SET status = ? WHERE id = ?', ['replied', input.message_id]);
+
+      return reply;
     },
 
     listMessages(input: ListMessagesInput): Message[] {
       if (!agentService.agentExists(input.agent_id)) {
         throw new Error(`Agent '${input.agent_id}' not found`);
       }
-      const messages = dbInstance.stmt.listMessages.all(input.agent_id, input.agent_id, input.limit) as any[];
-      return messages.map(m => ({ ...m, message_id: m.id, status: m.read_at ? 'read' : 'sent' }));
+
+      // Filter by conversation if provided
+      if (input.conversation_id) {
+        return this.getConversationMessages(
+          input.agent_id,
+          input.conversation_id,
+          input.limit,
+          input.offset
+        );
+      }
+
+      // Get all messages for this agent (sent or received)
+      const rawMessages = dbInstance.stmt.listMessages.all(input.agent_id, input.agent_id, input.limit + input.offset) as any[];
+
+      // Apply unread filter if needed
+      let filtered = rawMessages.map(normalizeMessage);
+      if (input.unread_only) {
+        filtered = filtered.filter(m => m.recipient_id === input.agent_id && !m.read_at);
+      }
+
+      // Apply offset (after filtering for correct pagination)
+      return filtered.slice(input.offset, input.offset + input.limit);
     },
 
     listConversations(input: ListConversationsInput): Conversation[] {
@@ -134,9 +218,9 @@ export function createMessageService(
         throw new Error(`Agent '${input.agent_id}' not found`);
       }
 
-      // Get all messages for this agent (sent or received)
+      // Get all messages for this agent (sent or received) from database
       const rawMessages = dbInstance.stmt.listMessages.all(input.agent_id, input.agent_id, 500) as any[];
-      const allMessages = rawMessages.map(m => ({ ...m, message_id: m.id, status: m.read_at ? 'read' : 'sent' }));
+      const allMessages = rawMessages.map(normalizeMessage);
 
       // Group by conversation partner
       const conversationsMap = new Map<string, { messages: Message[]; partnerId: string }>();
@@ -187,16 +271,60 @@ export function createMessageService(
         );
       }
 
-      // Apply pagination
+      // Apply pagination in database order (after sorting)
       return filtered.slice(input.offset, input.offset + input.limit);
     },
 
-    markAsRead(agentId: string, conversationId: string): void {
+    markAsRead(agentId: string, conversationId: string): number {
       if (!agentService.agentExists(agentId)) {
         throw new Error(`Agent '${agentId}' not found`);
       }
-      // Mark all unread messages from this conversation as read
-      dbInstance.stmt.markMessagesAsRead.run(agentId, conversationId, new Date().toISOString());
+      if (!agentService.agentExists(conversationId)) {
+        throw new Error(`Conversation partner '${conversationId}' not found`);
+      }
+
+      // Mark all unread messages from this conversation as read for this recipient
+      // conversationId is the other participant, so we filter by:
+      // - recipient is the current agent
+      // - message is from the conversation partner (sender)
+      const result = dbInstance.stmt.markMessagesAsRead.run(
+        new Date().toISOString(),
+        agentId,
+        conversationId
+      ) as { changes: number };
+
+      return result.changes;
+    },
+
+    // Mark specific messages as read
+    markMessagesAsRead(agentId: string, messageIds: string[]): number {
+      if (!agentService.agentExists(agentId)) {
+        throw new Error(`Agent '${agentId}' not found`);
+      }
+
+      let totalChanges = 0;
+      for (const msgId of messageIds) {
+        const result = dbInstance.query(`
+          UPDATE messages SET read_at = datetime('now')
+          WHERE id = ? AND recipient_id = ? AND read_at IS NULL
+        `, [msgId, agentId]);
+        totalChanges += (result as any).changes || 0;
+      }
+      return totalChanges;
+    },
+
+    // Get unread count for an agent
+    getUnreadCount(agentId: string): number {
+      if (!agentService.agentExists(agentId)) {
+        throw new Error(`Agent '${agentId}' not found`);
+      }
+      const result = dbInstance.stmt.countMessagesByRecipient.all(agentId) as any[];
+      // Count only unread messages (read_at IS NULL)
+      const unreadResult = dbInstance.query(
+        'SELECT COUNT(*) as count FROM messages WHERE recipient_id = ? AND read_at IS NULL',
+        [agentId]
+      );
+      return (unreadResult[0] as any).count;
     },
   };
 }
