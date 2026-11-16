@@ -28,6 +28,15 @@ export const ListMessagesSchema = z.object({
 
 export type ListMessagesInput = z.infer<typeof ListMessagesSchema>;
 
+export const ListConversationsSchema = z.object({
+  agent_id: z.string().min(1).max(255),
+  limit: z.number().int().positive().max(100).default(50),
+  offset: z.number().int().nonnegative().default(0),
+  search: z.string().optional(),
+});
+
+export type ListConversationsInput = z.infer<typeof ListConversationsSchema>;
+
 export interface Message {
   id: string;
   sender_id: string;
@@ -35,6 +44,14 @@ export interface Message {
   content: string;
   reply_to: string | null;
   created_at: string;
+  read_at: string | null;
+}
+
+export interface Conversation {
+  participant_id: string;
+  participant_name: string;
+  last_message: Message | null;
+  unread_count: number;
 }
 
 export function createMessageService(
@@ -106,6 +123,75 @@ export function createMessageService(
         throw new Error(`Agent '${input.agent_id}' not found`);
       }
       return dbInstance.stmt.listMessages.all(input.agent_id, input.agent_id, input.limit) as Message[];
+    },
+
+    listConversations(input: ListConversationsInput): Conversation[] {
+      if (!agentService.agentExists(input.agent_id)) {
+        throw new Error(`Agent '${input.agent_id}' not found`);
+      }
+
+      // Get all messages for this agent (sent or received)
+      const allMessages = dbInstance.stmt.listMessages.all(input.agent_id, input.agent_id, 500) as Message[];
+
+      // Group by conversation partner
+      const conversationsMap = new Map<string, { messages: Message[]; partnerId: string }>();
+
+      for (const msg of allMessages) {
+        const partnerId = msg.sender_id === input.agent_id ? msg.recipient_id : msg.sender_id;
+        if (!conversationsMap.has(partnerId)) {
+          conversationsMap.set(partnerId, { messages: [], partnerId });
+        }
+        conversationsMap.get(partnerId)!.messages.push(msg);
+      }
+
+      // Build conversation list
+      const conversations: Conversation[] = [];
+      for (const [partnerId, { messages }] of conversationsMap.entries()) {
+        // Sort messages by created_at descending
+        messages.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+        const lastMessage = messages[0] || null;
+        const unreadCount = messages.filter(m => m.recipient_id === input.agent_id && !m.read_at).length;
+
+        // Get partner display name
+        const partnerAgent = agentService.getAgent(partnerId);
+        const participantName = partnerAgent?.display_name || partnerId;
+
+        conversations.push({
+          participant_id: partnerId,
+          participant_name: participantName,
+          last_message: lastMessage,
+          unread_count: unreadCount,
+        });
+      }
+
+      // Sort by last message time descending
+      conversations.sort((a, b) => {
+        const aTime = a.last_message ? new Date(a.last_message.created_at).getTime() : 0;
+        const bTime = b.last_message ? new Date(b.last_message.created_at).getTime() : 0;
+        return bTime - aTime;
+      });
+
+      // Apply search filter
+      let filtered = conversations;
+      if (input.search) {
+        const searchLower = input.search.toLowerCase();
+        filtered = conversations.filter(c =>
+          c.participant_id.toLowerCase().includes(searchLower) ||
+          c.participant_name.toLowerCase().includes(searchLower)
+        );
+      }
+
+      // Apply pagination
+      return filtered.slice(input.offset, input.offset + input.limit);
+    },
+
+    markAsRead(agentId: string, conversationId: string): void {
+      if (!agentService.agentExists(agentId)) {
+        throw new Error(`Agent '${agentId}' not found`);
+      }
+      // Mark all unread messages from this conversation as read
+      dbInstance.stmt.markMessagesAsRead.run(agentId, conversationId, new Date().toISOString());
     },
   };
 }

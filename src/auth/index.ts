@@ -2,6 +2,7 @@
 // Import config for validateAuthMode - use dynamic import to avoid circular issues
 import { getAuthConfig } from './config.js';
 import { DatabaseInstance } from '../database.js';
+import { getFounderKeyId, getFounderPublicKey } from './founder.js';
 
 export * from './config.js';
 export * from './session.js';
@@ -70,6 +71,34 @@ export function validateAuthMode(): { valid: boolean; errors: string[] } {
     }
     if (!process.env.SESSION_SECRET) {
       errors.push('SESSION_SECRET must be set in production');
+    } else if (process.env.SESSION_SECRET.length < 32) {
+      errors.push('SESSION_SECRET must be at least 32 characters in production');
+    }
+  }
+
+  return { valid: errors.length === 0, errors };
+}
+
+/**
+ * SEC-04: Validate Founder key configuration at startup
+ * Must be called before any founder-signed operations are accepted
+ * Returns { valid, errors } where valid is true when keys are properly configured
+ */
+export function validateFounderKeyConfiguration(): { valid: boolean; errors: string[] } {
+  const errors: string[] = [];
+  const config = getAuthConfig();
+
+  const keyId = getFounderKeyId();
+  const publicKey = getFounderPublicKey();
+  const hasKeyMaterial = keyId !== null && publicKey !== null;
+
+  if (config.mode === 'production') {
+    if (!hasKeyMaterial) {
+      errors.push('Founder keys must be initialized (founder-keys.json must exist with valid key material)');
+    }
+
+    if (config.local_single_user_mode) {
+      errors.push('Local single-user mode cannot be enabled in production with founder keys');
     }
   }
 

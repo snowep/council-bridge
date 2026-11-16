@@ -25,13 +25,13 @@ function getParamId(params: any, key: string): string {
 // GET /api/messages/conversations - List conversations for authenticated user
 router.get('/conversations', asyncHandler(async (req: Request, res: Response) => {
   const ctx = requireAuth(req);
-  const { limit, offset, unread_only } = ListConversationsSchema.parse(req.query);
+  const { limit, offset, search } = ListConversationsSchema.parse(req.query);
 
-  const conversations = messageService.listMessages({
+  const conversations = messageService.listConversations({
     agent_id: ctx.owner_id,
     limit,
     offset,
-    unreadOnly: unread_only,
+    search,
   });
 
   res.json({ conversations, limit, offset });
@@ -56,6 +56,9 @@ router.get('/:conversationId', asyncHandler(async (req: Request, res: Response) 
   if (!isParticipant && ctx.owner_type !== 'founder') {
     throw new NotFoundError('Conversation not found');
   }
+
+  // Mark as read
+  messageService.markAsRead(ctx.owner_id, conversationId);
 
   res.json({ messages });
 }));

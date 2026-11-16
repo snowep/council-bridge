@@ -17,6 +17,7 @@ import {
   Drawer,
   Divider,
   useMediaQuery,
+  Tooltip,
 } from '@mui/material';
 import {
   ChatOutlined,
@@ -64,7 +65,70 @@ const getParticipantType = (id: string) => {
 };
 
 const formatTime = (dateString: string) => {
-  return new Date(dateString).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  return new Date(dateString + 'Z').toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+};
+
+const ConversationList = ({
+  conversations,
+  selectedConversation,
+  onSelect,
+  onSearch,
+  searchRef,
+  fetchError,
+  onRetry,
+  variant
+}: {
+  conversations: Conversation[];
+  selectedConversation: Conversation | null;
+  onSelect: (conv: Conversation) => void;
+  onSearch: (value: string) => void;
+  searchRef: React.RefObject<HTMLInputElement>;
+  fetchError: string | null;
+  onRetry: () => void;
+  variant: 'drawer' | 'sidebar';
+}) => {
+  if (conversations.length === 0) {
+    return (
+      <Box sx={{ p: 3, textAlign: 'center' }}>
+        <ChatOutlined sx={{ fontSize: 48, color: 'text.secondary', mb: 2 }} />
+        <Typography variant="body1" color="text.secondary">
+          {fetchError ? 'Failed to load conversations' : 'No conversations yet'}
+        </Typography>
+        {fetchError && (
+          <Button variant="outlined" startIcon={<RefreshOutlined />} onClick={onRetry} sx={{ mt: 2 }}>
+            Retry
+          </Button>
+        )}
+      </Box>
+    );
+  }
+
+  return (
+    <List>
+      {conversations.map((conv) => {
+        const type = getParticipantType(conv.participant_id);
+        return (
+          <ListItem key={conv.participant_id} sx={{ borderBottom: 1, borderColor: 'divider' }}>
+            <ListItemButton
+              selected={selectedConversation?.participant_id === conv.participant_id}
+              onClick={() => onSelect(conv)}
+            >
+              <Avatar sx={{ bgcolor: PARTICIPANT_COLORS[type] + '.main' }}>
+                <ParticipantIcon type={type} size="small" />
+              </Avatar>
+              <ListItemText
+                primary={conv.participant_name}
+                secondary={conv.last_message?.content || 'No messages yet'}
+              />
+              {conv.unread_count > 0 && (
+                <Chip label={conv.unread_count} size="small" color="primary" variant="outlined" />
+              )}
+            </ListItemButton>
+          </ListItem>
+        );
+      })}
+    </List>
+  );
 };
 
 export default function ChatPage() {
@@ -81,14 +145,18 @@ export default function ChatPage() {
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
+  const [searchValue, setSearchValue] = useState('');
   const searchRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const fetchConversations = async () => {
+  const fetchConversations = async (search?: string) => {
     try {
       setFetchError(null);
-      const response = await apiClient.get<Conversation[]>('/api/messages/conversations');
-      const list = Array.isArray(response) ? response : [];
+      const params = new URLSearchParams();
+      if (search) params.set('search', search);
+      const response = await apiClient.get<{ conversations: Conversation[]; limit: number; offset: number }>(`/api/messages/conversations?${params.toString()}`);
+      const list = response?.conversations || [];
       setConversations(list);
       setFilteredConversations(list);
     } catch (err: any) {
@@ -105,8 +173,8 @@ export default function ChatPage() {
   const fetchMessages = async (conversationId: string) => {
     try {
       setFetchError(null);
-      const response = await apiClient.get<Message[]>(`/api/messages/${conversationId}`);
-      setMessages(Array.isArray(response) ? response : []);
+      const response = await apiClient.get<{ messages: Message[] }>(`/api/messages/${conversationId}`);
+      setMessages(response?.messages || []);
     } catch (err: any) {
       const msg = err?.response?.data?.error || err.message || 'Failed to fetch messages';
       setFetchError(msg);
@@ -122,18 +190,27 @@ export default function ChatPage() {
   };
 
   const handleSearch = useCallback((value: string) => {
-    const filtered = conversations.filter(conv =>
-      conv.participant_name.toLowerCase().includes(value.toLowerCase()) ||
-      conv.participant_id.toLowerCase().includes(value.toLowerCase())
-    );
-    setFilteredConversations(filtered);
-  }, [conversations]);
+    setSearchValue(value);
+    fetchConversations(value);
+  }, []);
 
   const sendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     const content = newMessage.trim();
     if (!content || !selectedConversation || sending) return;
 
+    // Optimistic update
+    const tempMessage: Message = {
+      message_id: `temp-${Date.now()}`,
+      sender_id: authContext?.owner_id || 'unknown',
+      recipient_id: selectedConversation.participant_id,
+      content,
+      status: 'sent',
+      created_at: new Date().toISOString(),
+      read_at: null,
+    };
+    setMessages(prev => [...prev, tempMessage]);
+    setNewMessage('');
     setSending(true);
     setSendError(null);
 
@@ -142,15 +219,22 @@ export default function ChatPage() {
         recipient_id: selectedConversation.participant_id,
         content,
       });
-      setMessages(prev => [...prev, response]);
-      setNewMessage('');
+      // Replace temp message with real one
+      setMessages(prev => prev.map(m => m.message_id === tempMessage.message_id ? response : m));
       // Update conversation list with new last message
       setConversations(prev => prev.map(conv =>
         conv.participant_id === selectedConversation.participant_id
-          ? { ...conv, last_message: response }
+          ? { ...conv, last_message: response, unread_count: 0 }
+          : conv
+      ));
+      setFilteredConversations(prev => prev.map(conv =>
+        conv.participant_id === selectedConversation.participant_id
+          ? { ...conv, last_message: response, unread_count: 0 }
           : conv
       ));
     } catch (err: any) {
+      // Revert optimistic update
+      setMessages(prev => prev.filter(m => m.message_id !== tempMessage.message_id));
       const msg = err?.response?.data?.error || err.message || 'Failed to send message';
       setSendError(msg);
       console.error('Failed to send message:', err);
@@ -160,8 +244,27 @@ export default function ChatPage() {
   };
 
   const retrySend = () => {
-    sendMessage(new Event('submit') as unknown as React.FormEvent);
+    if (newMessage.trim()) {
+      sendMessage(new Event('submit') as unknown as React.FormEvent);
+    }
   };
+
+  // Start polling for selected conversation
+  useEffect(() => {
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current);
+    }
+    if (selectedConversation) {
+      pollIntervalRef.current = setInterval(() => {
+        fetchMessages(selectedConversation.participant_id);
+      }, 3000);
+    }
+    return () => {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+      }
+    };
+  }, [selectedConversation]);
 
   useEffect(() => {
     fetchConversations();
@@ -170,10 +273,6 @@ export default function ChatPage() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
-
-  useEffect(() => {
-    handleSearch('');
-  }, [handleSearch]);
 
   if (loading) {
     return (
@@ -212,48 +311,20 @@ export default function ChatPage() {
         </Box>
         <Divider />
         <Box sx={{ flex: 1, overflow: 'auto' }}>
-          {filteredConversations.length === 0 ? (
-            <Box sx={{ p: 3, textAlign: 'center' }}>
-              <ChatOutlined sx={{ fontSize: 48, color: 'text.secondary', mb: 2 }} />
-              <Typography variant="body1" color="text.secondary">
-                {fetchError ? 'Failed to load conversations' : 'No conversations yet'}
-              </Typography>
-              {fetchError && (
-                <Button variant="outlined" startIcon={<RefreshOutlined />} onClick={fetchConversations} sx={{ mt: 2 }}>
-                  Retry
-                </Button>
-              )}
-            </Box>
-          ) : (
-            <List>
-              {filteredConversations.map((conv) => {
-                const type = getParticipantType(conv.participant_id);
-                return (
-                  <ListItem key={conv.participant_id} sx={{ borderBottom: 1, borderColor: 'divider' }}>
-                    <ListItemButton
-                      selected={selectedConversation?.participant_id === conv.participant_id}
-                      onClick={() => handleSelectConversation(conv)}
-                    >
-                      <Avatar sx={{ bgcolor: PARTICIPANT_COLORS[type] + '.main' }}>
-                        <ParticipantIcon type={type} size="small" />
-                      </Avatar>
-                      <ListItemText
-                        primary={conv.participant_name}
-                        secondary={conv.last_message?.content || 'No messages yet'}
-                      />
-                      {conv.unread_count > 0 && (
-                        <Chip label={conv.unread_count} size="small" color="primary" variant="outlined" />
-                      )}
-                    </ListItemButton>
-                  </ListItem>
-                );
-              })}
-            </List>
-          )}
+          <ConversationList
+            conversations={filteredConversations}
+            selectedConversation={selectedConversation}
+            onSelect={handleSelectConversation}
+            onSearch={handleSearch}
+            searchRef={searchRef}
+            fetchError={fetchError}
+            onRetry={fetchConversations}
+            variant="drawer"
+          />
         </Box>
       </Drawer>
 
-      {/* Desktop Conversation List / Mobile Toggle Button */}
+      {/* Desktop Conversation List */}
       <Box
         sx={{
           display: { xs: 'none', md: 'flex' },
@@ -277,44 +348,16 @@ export default function ChatPage() {
           />
         </Box>
         <Box sx={{ flex: 1, overflow: 'auto' }}>
-          {filteredConversations.length === 0 ? (
-            <Box sx={{ p: 3, textAlign: 'center' }}>
-              <ChatOutlined sx={{ fontSize: 48, color: 'text.secondary', mb: 2 }} />
-              <Typography variant="body1" color="text.secondary">
-                {fetchError ? 'Failed to load conversations' : 'No conversations yet'}
-              </Typography>
-              {fetchError && (
-                <Button variant="outlined" startIcon={<RefreshOutlined />} onClick={fetchConversations} sx={{ mt: 2 }}>
-                  Retry
-                </Button>
-              )}
-            </Box>
-          ) : (
-            <List>
-              {filteredConversations.map((conv) => {
-                const type = getParticipantType(conv.participant_id);
-                return (
-                  <ListItem key={conv.participant_id} sx={{ borderBottom: 1, borderColor: 'divider' }}>
-                    <ListItemButton
-                      selected={selectedConversation?.participant_id === conv.participant_id}
-                      onClick={() => handleSelectConversation(conv)}
-                    >
-                      <Avatar sx={{ bgcolor: PARTICIPANT_COLORS[type] + '.main' }}>
-                        <ParticipantIcon type={type} size="small" />
-                      </Avatar>
-                      <ListItemText
-                        primary={conv.participant_name}
-                        secondary={conv.last_message?.content || 'No messages yet'}
-                      />
-                      {conv.unread_count > 0 && (
-                        <Chip label={conv.unread_count} size="small" color="primary" variant="outlined" />
-                      )}
-                    </ListItemButton>
-                  </ListItem>
-                );
-              })}
-            </List>
-          )}
+          <ConversationList
+            conversations={filteredConversations}
+            selectedConversation={selectedConversation}
+            onSelect={handleSelectConversation}
+            onSearch={handleSearch}
+            searchRef={searchRef}
+            fetchError={fetchError}
+            onRetry={fetchConversations}
+            variant="sidebar"
+          />
         </Box>
       </Box>
 
@@ -406,24 +449,26 @@ export default function ChatPage() {
                 </Alert>
               )}
               <Box sx={{ display: 'flex', gap: 1 }}>
-                <TextField
-                  fullWidth
-                  value={newMessage}
-                  onChange={(e) => setNewMessage(e.target.value)}
-                  placeholder="Type a message..."
-                  multiline
-                  rows={1}
-                  maxRows={4}
-                  size="small"
-                  disabled={sending}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                      e.preventDefault();
-                      sendMessage(e);
-                    }
-                  }}
-                  slotProps={{ input: { 'aria-label': 'Message input' } }}
-                />
+                <Tooltip title="Enter to send, Shift+Enter for new line">
+                  <TextField
+                    fullWidth
+                    value={newMessage}
+                    onChange={(e) => setNewMessage(e.target.value)}
+                    placeholder="Type a message..."
+                    multiline
+                    rows={1}
+                    maxRows={4}
+                    size="small"
+                    disabled={sending}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        sendMessage(e);
+                      }
+                    }}
+                    slotProps={{ input: { 'aria-label': 'Message input' } }}
+                  />
+                </Tooltip>
                 <Button
                   variant="contained"
                   startIcon={<SendOutlined />}

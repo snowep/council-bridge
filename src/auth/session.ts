@@ -63,7 +63,7 @@ export function generateSessionToken(
 
   const data = `${session_id}|${timestamp}|${random}`;
   const signature = crypto
-    .createHmac('sha256', config.session_timeout_ms.toString()) // Use timeout as part of secret derivation
+    .createHmac('sha256', config.session_secret)
     .update(data)
     .digest('base64url');
 
@@ -105,7 +105,7 @@ export function validateSessionToken(
     // Verify signature with constant-time comparison
     const data = `${session_id}|${timestampStr}|${random}`;
     const expectedSignature = crypto
-      .createHmac('sha256', config.session_timeout_ms.toString())
+      .createHmac('sha256', config.session_secret)
       .update(data)
       .digest('base64url');
 

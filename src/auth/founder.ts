@@ -2,9 +2,12 @@
 // Phase 8: RSA-2048 signatures with operation binding and replay protection
 
 import crypto from 'crypto';
-import { readFileSync, writeFileSync, existsSync, mkdirSync, statSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, statSync, chmodSync } from 'fs';
 import { join } from 'path';
 import { DatabaseInstance } from '../database.js';
+
+const DIR_MODE = 0o700;
+const FILE_MODE = 0o600;
 
 export interface FounderKeyPair {
   public_key: string;
@@ -22,8 +25,16 @@ export interface FounderSignedRequest {
   key_id: string;
 }
 
-const KEYS_DIR = join(process.cwd(), '.secrets');
-const KEY_FILE = join(KEYS_DIR, 'founder-keys.json');
+export interface FounderVerificationResult {
+  valid: boolean;
+  error?: string;
+  owner_type?: 'founder' | 'staff';
+  owner_id?: string;
+  runtime?: 'claude' | 'hermes';
+}
+
+export const KEYS_DIR = join(process.cwd(), '.secrets');
+export const KEY_FILE = join(KEYS_DIR, 'founder-keys.json');
 const KEY_ID_LENGTH = 16;
 const NONCE_LENGTH = 32;
 const REQUEST_TIMESTAMP_TOLERANCE_MS = 5 * 60 * 1000; // 5 minutes
@@ -97,10 +108,35 @@ export function generateFounderKeyPair(): FounderKeyPair {
     key_id
   };
 
-  // Ensure keys directory exists
+  // Ensure keys directory exists with restrictive permissions (0o700)
   try {
-    mkdirSync(KEYS_DIR, { recursive: true });
-    writeFileSync(KEY_FILE, JSON.stringify(keyPair, null, 2), { flag: 'w', mode: 0o600 });
+    mkdirSync(KEYS_DIR, { recursive: true, mode: DIR_MODE });
+    // Verify directory permissions on supported platforms
+    if (process.platform !== 'win32') {
+      try {
+        const dirStat = statSync(KEYS_DIR);
+        const dirMode = dirStat.mode & 0o777;
+        if (dirMode !== DIR_MODE) {
+          chmodSync(KEYS_DIR, DIR_MODE);
+        }
+      } catch {
+        // Permission check failed, continue anyway
+      }
+    }
+    // Write key file with restrictive permissions (0o600)
+    writeFileSync(KEY_FILE, JSON.stringify(keyPair, null, 2), { flag: 'w', mode: FILE_MODE });
+    // Verify file permissions on supported platforms
+    if (process.platform !== 'win32') {
+      try {
+        const fileStat = statSync(KEY_FILE);
+        const fileMode = fileStat.mode & 0o777;
+        if (fileMode !== FILE_MODE) {
+          chmodSync(KEY_FILE, FILE_MODE);
+        }
+      } catch {
+        // Permission check failed, continue anyway
+      }
+    }
   } catch (error) {
     // Directory/key file may already exist
   }
@@ -146,9 +182,33 @@ export function rotateFounderKeys(): FounderKeyPair {
     // Archive old keys
     const archiveDir = join(KEYS_DIR, 'archive');
     try {
-      mkdirSync(archiveDir, { recursive: true });
+      mkdirSync(archiveDir, { recursive: true, mode: DIR_MODE });
+      // Verify archive directory permissions on supported platforms
+      if (process.platform !== 'win32') {
+        try {
+          const dirStat = statSync(archiveDir);
+          const dirMode = dirStat.mode & 0o777;
+          if (dirMode !== DIR_MODE) {
+            chmodSync(archiveDir, DIR_MODE);
+          }
+        } catch {
+          // Permission check failed, continue anyway
+        }
+      }
       const archiveFile = join(archiveDir, `founder-keys-${oldKeys.key_id}.json`);
-      writeFileSync(archiveFile, JSON.stringify(oldKeys, null, 2), { flag: 'w', mode: 0o600 });
+      writeFileSync(archiveFile, JSON.stringify(oldKeys, null, 2), { flag: 'w', mode: FILE_MODE });
+      // Verify archived file permissions on supported platforms
+      if (process.platform !== 'win32') {
+        try {
+          const fileStat = statSync(archiveFile);
+          const fileMode = fileStat.mode & 0o777;
+          if (fileMode !== FILE_MODE) {
+            chmodSync(archiveFile, FILE_MODE);
+          }
+        } catch {
+          // Permission check failed, continue anyway
+        }
+      }
     } catch (error) {
       // Archive failed but rotation continues
     }
@@ -265,9 +325,10 @@ export function verifyFounderRequestWithLoadedKeys(
 }
 
 // Verify and consume nonce atomically using SQLite
-// Returns: { valid: boolean, error?: string }
+// Returns: { valid: boolean, error?: string; owner_type?; owner_id?; runtime? }
 // - valid: true if signature valid and nonce not previously consumed
 // - error: reason if invalid (for audit logging)
+// - owner_type/owner_id/runtime: extracted from body for ownership verification
 export function verifyFounderOperation(
   operation: string,
   body: any,
@@ -275,7 +336,7 @@ export function verifyFounderOperation(
   timestamp: number,
   nonce: string,
   keyId: string
-): { valid: boolean; error?: string } {
+): { valid: boolean; error?: string; owner_type?: 'founder' | 'staff'; owner_id?: string; runtime?: 'claude' | 'hermes' } {
   const keys = loadFounderKeyPair();
   if (!keys) return { valid: false, error: 'NO_KEYS' };
   if (keyId !== keys.key_id) return { valid: false, error: 'KEY_MISMATCH' };
@@ -300,6 +361,24 @@ export function verifyFounderOperation(
     return { valid: false, error: 'NONCE_MALFORMED' };
   }
 
+  // Extract ownership fields from body for verification
+  const owner_type = body.owner_type;
+  const owner_id = body.owner_id;
+  const runtime = body.runtime;
+
+  // Validate ownership fields if present (SEC-06: ownership verification)
+  if (owner_type !== undefined) {
+    if (!['founder', 'staff'].includes(owner_type)) {
+      return { valid: false, error: 'INVALID_OWNER_TYPE' };
+    }
+  }
+  if (owner_type === 'founder' && owner_id !== 'founder') {
+    return { valid: false, error: 'FOUNDER_OWNER_MISMATCH' };
+  }
+  if (runtime !== undefined && !['claude', 'hermes'].includes(runtime)) {
+    return { valid: false, error: 'INVALID_RUNTIME' };
+  }
+
   // Canonicalize and verify signature FIRST - before consuming nonce
   try {
     const data = canonicalizeForSigning(operation, body, timestamp, nonce, keyId);
@@ -321,7 +400,7 @@ export function verifyFounderOperation(
     return { valid: false, error: 'NONCE_REPLAY' };
   }
 
-  return { valid: true };
+  return { valid: true, owner_type, owner_id, runtime };
 }
 
 export function requireFounderSignature(

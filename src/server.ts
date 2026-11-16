@@ -29,6 +29,7 @@ import {
   isDevelopmentMode,
   AuthContext,
   validateAuthMode,
+  validateFounderKeyConfiguration,
 } from './auth/index.js';
 
 import {
@@ -118,6 +119,21 @@ if (!authValidation.valid) {
     console.error('❌ Server will not start in production with invalid auth config');
     process.exit(1);
   }
+}
+
+// SEC-04: Validate Founder key configuration on startup
+const founderKeyValidation = validateFounderKeyConfiguration();
+if (!founderKeyValidation.valid) {
+  console.error('⚠️  FOUNDER KEY CONFIGURATION ERRORS:');
+  for (const error of founderKeyValidation.errors) {
+    console.error(`   - ${error}`);
+  }
+  if (PRODUCTION_MODE) {
+    console.error('❌ Server will not start in production without valid Founder keys');
+    process.exit(1);
+  }
+  console.error('❌ Server will not start without valid Founder keys');
+  process.exit(1);
 }
 
 // Validate local single-user mode configuration

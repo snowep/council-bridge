@@ -2,6 +2,8 @@
 // Phase 8: Production-ready auth with explicit mode control
 // Phase 10: Local single-user Founder mode
 
+import crypto from 'crypto';
+
 export type AuthMode = 'development' | 'production';
 
 export interface AuthConfig {
@@ -12,7 +14,16 @@ export interface AuthConfig {
   allow_hardcoded_fallback: boolean;
   local_single_user_mode: boolean;
   local_single_user_bind_address: string;
+  session_secret: string;
 }
+
+function generateDevSecret(): string {
+  // Generate a cryptographically secure secret for development
+  // This is process-local and changes on each restart
+  return crypto.randomBytes(32).toString('base64url');
+}
+
+let devSecret: string | null = null;
 
 export const DEFAULT_AUTH_CONFIG: AuthConfig = {
   mode: (process.env.AUTH_MODE as AuthMode) || 'development',
@@ -28,17 +39,42 @@ export const DEFAULT_AUTH_CONFIG: AuthConfig = {
   ],
   allow_hardcoded_fallback: true, // Only in development mode
   local_single_user_mode: process.env.LOCAL_SINGLE_USER_MODE === 'true',
-  local_single_user_bind_address: process.env.LOCAL_SINGLE_USER_BIND_ADDRESS || '127.0.0.1'
+  local_single_user_bind_address: process.env.LOCAL_SINGLE_USER_BIND_ADDRESS || '127.0.0.1',
+  session_secret: process.env.SESSION_SECRET || ''
 };
 
 export function getAuthConfig(): AuthConfig {
   const mode = (process.env.AUTH_MODE as AuthMode) || 'development';
+  const envSecret = process.env.SESSION_SECRET;
+
+  if (mode === 'production') {
+    if (!envSecret) {
+      throw new Error('SESSION_SECRET must be set in production mode');
+    }
+    if (envSecret.length < 32) {
+      throw new Error('SESSION_SECRET must be at least 32 characters in production mode');
+    }
+    return {
+      ...DEFAULT_AUTH_CONFIG,
+      mode,
+      allow_hardcoded_fallback: false,
+      local_single_user_mode: process.env.LOCAL_SINGLE_USER_MODE === 'true',
+      local_single_user_bind_address: process.env.LOCAL_SINGLE_USER_BIND_ADDRESS || '127.0.0.1',
+      session_secret: envSecret
+    };
+  }
+
+  // Development mode: use env secret or generate process-local secret (memoized)
+  if (!devSecret) {
+    devSecret = envSecret || generateDevSecret();
+  }
   return {
     ...DEFAULT_AUTH_CONFIG,
     mode,
-    allow_hardcoded_fallback: mode === 'development',
+    allow_hardcoded_fallback: true,
     local_single_user_mode: process.env.LOCAL_SINGLE_USER_MODE === 'true',
-    local_single_user_bind_address: process.env.LOCAL_SINGLE_USER_BIND_ADDRESS || '127.0.0.1'
+    local_single_user_bind_address: process.env.LOCAL_SINGLE_USER_BIND_ADDRESS || '127.0.0.1',
+    session_secret: devSecret
   };
 }
 

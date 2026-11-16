@@ -82,24 +82,42 @@ export class MigrationRegistry {
 
     // Parse dependencies from comments
     const depsMatch = content.match(/-- Prerequisites:?\s*([^\n]+)/i);
-    const dependencies = depsMatch
-      ? depsMatch[1].split(',').map(d => d.trim().replace(/^Migrations?\s+/, '').replace(/\s+complete/, '').trim())
+    let dependencies: string[] = depsMatch
+      ? depsMatch[1].split(',').map(d => d.trim())
         .filter(d => d && d !== 'None' && !d.toLowerCase().includes('phase'))
-        .map(d => d.replace(/^0*(\d+)$/, '$1').padStart(3, '0'))
       : [];
 
-    // Parse target tables from comments
-    const tablesMatch = content.match(/-- Tables affected:?\s*([^\n]+)/i) ||
-                       content.match(/-- Target tables:?\s*([^\n]+)/i);
-    const targetTables = tablesMatch
-      ? tablesMatch[1].split(',').map(t => t.trim())
-      : [];
+    // Strip leading "Migrations" word and trailing "complete" word that commenters add
+    dependencies = dependencies.map(d => d.replace(/^Migrations?\s+/, '').replace(/\s+complete/, '').trim());
 
-    // Parse description
-    const descMatch = content.match(/-- (?:Purpose|Description):?\s*([^\n]+)/i);
-    const description = descMatch ? descMatch[1].trim() : filename.replace('.sql', '');
+    // Remove any empty strings left after trimming
+    dependencies = dependencies.filter(d => d !== '');
 
-    return { type, dependencies, targetTables, description };
+    // Expand dependency ranges like "001-005" into individual migration IDs
+    // Only include IDs that are valid migration ID formats (3-digit numbers)
+    const expandedDependencies: string[] = [];
+    for (const dep of dependencies) {
+      const rangeMatch = dep.match(/^0*(\d+)-0*(\d+)$/);
+      if (rangeMatch) {
+        const start = parseInt(rangeMatch[1], 10);
+        const end = parseInt(rangeMatch[2], 10);
+        if (start <= end && start >= 1 && end <= 999) {
+          for (let i = start; i <= end; i++) {
+            const id = String(i).padStart(3, '0');
+            // Only add if this creates a valid 3-digit ID
+            if (/^\d{3}$/.test(id)) {
+              expandedDependencies.push(id);
+            }
+          }
+        } else {
+          expandedDependencies.push(dep);
+        }
+      } else {
+        const singleId = dep.replace(/^0*(\d+)$/, '$1').padStart(3, '0');
+        expandedDependencies.push(singleId);
+      }
+    }
+    return { type, dependencies: expandedDependencies, targetTables: [], description: filename.replace('.sql', '') };
   }
 
   getAll(): Migration[] {
@@ -171,7 +189,7 @@ export class MigrationRegistry {
     return result;
   }
 
-  verifyChecksums(): { migration: Migration; valid: boolean; expected: string; actual: string }[] {
+  verifyChecksums(): { migration: Migration; valid: boolean; expected: string; actual: string[] }[] {
     const results = [];
     for (const migration of this.load()) {
       const actual = computeChecksum(migration.filepath);

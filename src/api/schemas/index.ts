@@ -32,7 +32,7 @@ export type SendMessageInput = z.infer<typeof SendMessageSchema>;
 
 export const ListConversationsSchema = z.object({
   ...PaginationSchema.shape,
-  unread_only: z.coerce.boolean().default(false),
+  search: z.string().optional(),
 });
 export type ListConversationsInput = z.infer<typeof ListConversationsSchema>;
 

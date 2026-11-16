@@ -32,8 +32,18 @@ function getClientIp(req: Request): string {
 export function authMiddleware(req: Request, res: Response, next: NextFunction): Response | void {
   const authHeader = req.headers.authorization;
   const clientIp = getClientIp(req);
+  const config = getConfig();
 
-  // LOCAL SINGLE-USER MODE
+  // REJECT INVALID ENVIRONMENT COMBINATIONS
+  // Local single-user mode cannot be enabled in production mode
+  if (config.local_single_user_mode && config.mode === 'production') {
+    return res.status(401).json({
+      error: 'Local single-user mode cannot be enabled in production mode',
+      code: 'LOCAL_MODE_PROHIBITED_IN_PRODUCTION'
+    });
+  }
+
+  // LOCAL SINGLE-USER MODE (only valid in non-production)
   if (isLocal()) {
     // Reject non-loopback requests in local mode
     if (!isLoopbackAddress(clientIp)) {
@@ -65,11 +75,10 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction):
         (req as any).auth = authContext;
         return next();
       }
-
       // Invalid/expired token in local mode - fall through to auto-auth
     }
 
-    // Auto-authenticate as Founder for loopback requests
+    // Auto-authenticate as Founder for loopback requests (local mode only)
     const authContext = {
       owner_type: 'founder' as const,
       owner_id: 'founder',
@@ -87,10 +96,23 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction):
   }
 
   // NORMAL MODE (development or production)
-  // In development with hardcoded fallback enabled, allow requests without auth
+  // SECURITY: Never allow hardcoded fallback in production mode
   const currentConfig = getConfig();
-  if (!isProd() && currentConfig.allow_hardcoded_fallback && !authHeader) {
-    // Development fallback - use a default context for testing
+
+  // Reject invalid environment combinations
+  if (isProd() && currentConfig.allow_hardcoded_fallback) {
+    console.error('SECURITY VIOLATION: allow_hardcoded_fallback must be false in production mode');
+  }
+
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    // Production mode is fail-closed - always require valid token
+    if (isProd() || !currentConfig.allow_hardcoded_fallback) {
+      return res.status(401).json({
+        error: 'Authentication required',
+        code: 'AUTH_REQUIRED'
+      });
+    }
+    // Development mode without hardcoded fallback - still require auth but allow migration path
     (req as any).authContext = {
       owner_type: 'founder',
       owner_id: 'founder',
@@ -101,17 +123,6 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction):
       issued_at: Date.now(),
       founder_signed: false
     } as AuthContext;
-    return next();
-  }
-
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    if (isProd()) {
-      return res.status(401).json({
-        error: 'Authentication required',
-        code: 'AUTH_REQUIRED'
-      });
-    }
-    // Development: allow for backward compatibility
     return next();
   }
 

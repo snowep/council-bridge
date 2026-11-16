@@ -21,6 +21,7 @@ export interface DatabaseInstance {
     getMessagesBySender: PreparedStatement;
     listMessages: PreparedStatement;
     countMessagesByRecipient: PreparedStatement;
+    markMessagesAsRead: PreparedStatement;
 
     // Phase 2: Council
     getSchemaVersion: PreparedStatement;
@@ -272,6 +273,7 @@ function createDatabase(dbPath?: string): DatabaseInstance {
       content TEXT NOT NULL,
       reply_to TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      read_at TEXT,
       FOREIGN KEY (sender_id) REFERENCES agents(agent_id) ON DELETE CASCADE,
       FOREIGN KEY (recipient_id) REFERENCES agents(agent_id) ON DELETE CASCADE,
       FOREIGN KEY (reply_to) REFERENCES messages(id) ON DELETE SET NULL
@@ -1035,6 +1037,9 @@ function createDatabase(dbPath?: string): DatabaseInstance {
       SELECT * FROM messages WHERE sender_id = ? OR recipient_id = ? ORDER BY created_at DESC LIMIT ?
     `),
     countMessagesByRecipient: db.prepare('SELECT COUNT(*) as count FROM messages WHERE recipient_id = ?'),
+    markMessagesAsRead: db.prepare(`
+      UPDATE messages SET read_at = ? WHERE recipient_id = ? AND sender_id = ? AND read_at IS NULL
+    `),
 
     // Phase 2 council statements
     getSchemaVersion: db.prepare('SELECT version FROM schema_version WHERE version = ?'),

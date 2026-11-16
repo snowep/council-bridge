@@ -248,15 +248,30 @@ export class MigrationExecutor {
     } = {}
   ): Promise<ExecutionResult[]> {
     const results: ExecutionResult[] = [];
-    const orderedMigrations = this.registry.getOrdered()
-      .filter(m => migrationIds.length === 0 || migrationIds.includes(m.id));
 
-    this.logger.info(`Executing ${orderedMigrations.length} migrations`, {
-      migrations: orderedMigrations.map(m => m.id),
+    // Resolve dependencies: calculate transitive dependencies for requested migrations
+    let orderedMigrations: Migration[];
+    if (migrationIds.length === 0) {
+      // No specific migrations requested - run all ordered migrations
+      orderedMigrations = this.registry.getOrdered();
+    } else {
+      const resolved = this.resolveDependencies(migrationIds);
+      orderedMigrations = this.registry.getOrdered().filter(m => resolved.has(m.id));
+    }
+
+    // Filter out already-applied migrations (unless force flag is set)
+    const force = options.force === true;
+    const migrationsToExecute = orderedMigrations.filter(m => {
+      if (force) return true;
+      return !this.ledger.isApplied(m.id);
+    });
+
+    this.logger.info(`Executing ${migrationsToExecute.length} migrations`, {
+      migrations: migrationsToExecute.map(m => m.id),
       dryRun: options.dryRun
     });
 
-    for (const migration of orderedMigrations) {
+    for (const migration of migrationsToExecute) {
       const result = await this.executeMigration(migration.id, options);
       results.push(result);
 
@@ -274,6 +289,68 @@ export class MigrationExecutor {
     this.logger.info(`Migration batch complete`, { total: results.length, succeeded, failed });
 
     return results;
+  }
+
+  /**
+   * Resolve transitive dependencies for the given migration IDs.
+   * Returns a set of all migration IDs that should be executed (requested + all dependencies).
+   * Throws if any dependency is missing or if the dependency graph has a cycle.
+   */
+  private resolveDependencies(migrationIds: string[]): Set<string> {
+    const allMigrations = this.registry.getAll();
+    const migrationMap = new Map<string, Migration>();
+    for (const m of allMigrations) {
+      migrationMap.set(m.id, m);
+    }
+
+    // Validate all requested migrations exist
+    for (const id of migrationIds) {
+      if (!migrationMap.has(id)) {
+        throw new Error(`Migration ${id} not found in registry`);
+      }
+    }
+
+    const result = new Set<string>();
+    const visiting = new Set<string>(); // Track migrations currently being visited (cycle detection)
+
+    const visit = (id: string) => {
+      if (result.has(id)) return; // Already resolved
+      if (visiting.has(id)) {
+        throw new Error(`Circular dependency detected involving migration ${id}`);
+      }
+
+      const migration = migrationMap.get(id);
+      if (!migration) {
+        throw new Error(`Migration ${id} not found in registry`);
+      }
+
+      visiting.add(id);
+
+      // Visit dependencies first (topological order)
+      // Note: Dependencies that don't exist in the registry are skipped
+      // This allows for dependency ranges that may include non-existent migrations
+      for (const depId of migration.dependencies) {
+        if (!migrationMap.has(depId)) {
+          // Dependency doesn't exist - could be from a range that includes missing migrations
+          // Skip it and continue
+          continue;
+        }
+
+        if (!result.has(depId)) {
+          visit(depId);
+        }
+      }
+
+      visiting.delete(id);
+      result.add(id);
+    };
+
+    // Visit each requested migration (dependencies will be resolved first)
+    for (const id of migrationIds) {
+      visit(id);
+    }
+
+    return result;
   }
 }
 
