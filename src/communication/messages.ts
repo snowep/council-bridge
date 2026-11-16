@@ -40,17 +40,13 @@ export const ListConversationsSchema = z.object({
 export type ListConversationsInput = z.infer<typeof ListConversationsSchema>;
 
 export interface Message {
-  id: string; // Database primary key (alias for message_id for tests)
-  message_id: string; // Alias for consistency
+  id: string; // Database primary key
   sender_id: string;
   recipient_id: string;
   content: string;
   reply_to: string | null;
-  status: 'pending' | 'sent' | 'delivered' | 'read' | 'failed' | 'replied';
   created_at: string;
   read_at: string | null;
-  delivered_at: string | null;
-  failed_at: string | null;
 }
 
 export interface Conversation {
@@ -60,29 +56,21 @@ export interface Conversation {
   unread_count: number;
 }
 
-// Helper to determine message status
-function determineMessageStatus(row: any): 'pending' | 'sent' | 'delivered' | 'read' | 'failed' | 'replied' {
-  if (row.failed_at) return 'failed';
-  if (row.read_at) return row.reply_to ? 'replied' : 'read';
-  if (row.delivered_at) return 'delivered';
-  return 'pending';
+// Helper to determine message status based on read_at
+function determineMessageStatus(row: any): 'sent' | 'read' {
+  return row.read_at ? 'read' : 'sent';
 }
 
 // Helper to normalize database row to Message type
 function normalizeMessage(row: any): Message {
-  const messageId = row.id;
   return {
-    id: messageId,
-    message_id: messageId,
+    id: row.id,
     sender_id: row.sender_id,
     recipient_id: row.recipient_id,
     content: row.content,
     reply_to: row.reply_to,
-    status: determineMessageStatus(row),
     created_at: row.created_at,
     read_at: row.read_at,
-    delivered_at: row.delivered_at,
-    failed_at: row.failed_at,
   };
 }
 
@@ -172,17 +160,12 @@ export function createMessageService(
         throw new Error('Only the intended recipient may reply to this message');
       }
 
-      const reply = this.sendMessage({
+      return this.sendMessage({
         sender_id: input.agent_id,
         recipient_id: parentMsg.sender_id,
         content: input.content,
         reply_to: input.message_id,
       });
-
-      // Mark parent as replied
-      dbInstance.query('UPDATE messages SET status = ? WHERE id = ?', ['replied', input.message_id]);
-
-      return reply;
     },
 
     listMessages(input: ListMessagesInput): Message[] {
@@ -200,8 +183,13 @@ export function createMessageService(
         );
       }
 
-      // Get all messages for this agent (sent or received)
-      const rawMessages = dbInstance.stmt.listMessages.all(input.agent_id, input.agent_id, input.limit + input.offset) as any[];
+      // Get all messages for this agent (sent or received) - use query for flexibility
+      const rawMessages = dbInstance.query(`
+        SELECT * FROM messages
+        WHERE sender_id = ? OR recipient_id = ?
+        ORDER BY created_at DESC
+        LIMIT ? OFFSET ?
+      `, [input.agent_id, input.agent_id, input.limit, input.offset]) as any[];
 
       // Apply unread filter if needed
       let filtered = rawMessages.map(normalizeMessage);
@@ -209,8 +197,7 @@ export function createMessageService(
         filtered = filtered.filter(m => m.recipient_id === input.agent_id && !m.read_at);
       }
 
-      // Apply offset (after filtering for correct pagination)
-      return filtered.slice(input.offset, input.offset + input.limit);
+      return filtered;
     },
 
     listConversations(input: ListConversationsInput): Conversation[] {

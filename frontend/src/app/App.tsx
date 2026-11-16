@@ -1,5 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
-import { CssBaseline, Box, Typography, Link } from '@mui/material';
+import { CssBaseline } from '@mui/material';
 import { type ReactNode } from 'react';
 import DashboardPage from '../features/dashboard/pages/DashboardPage';
 import ChatPage from '../features/chat/pages/ChatPage';
@@ -12,6 +12,7 @@ import ExecutionsPage from '../features/executions/pages/ExecutionsPage';
 import DeliverablesPage from '../features/deliverables/pages/DeliverablesPage';
 import ApprovalsPage from '../features/approvals/pages/ApprovalsPage';
 import LoginPage from '../features/auth/pages/LoginPage';
+import NotFoundPage from '../features/not-found/pages/NotFoundPage';
 import Layout from '../app/layouts/Layout';
 import { AppAuthProvider } from './auth-context';
 import { useAppAuth } from './use-app-auth';
@@ -29,31 +30,6 @@ function AppAuthProviderWithNavigate({ children }: { children: ReactNode }) {
     <AppAuthProvider navigateAfterLogin={navigateAfterLogin}>
       {children}
     </AppAuthProvider>
-  );
-}
-
-// NotFoundPage component for 404 errors
-function NotFoundPage() {
-  return (
-    <Box
-      sx={{
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        py: 4,
-      }}
-    >
-      <Typography variant="h1" component="h1" sx={{ fontSize: '3rem', mb: 2 }}>
-        404
-      </Typography>
-      <Typography variant="h5" component="h2" sx={{ mb: 3, color: 'text.secondary' }}>
-        Page not found
-      </Typography>
-      <Link href="/dashboard" underline="hover" sx={{ fontSize: '1.1rem' }}>
-        Return to Dashboard
-      </Link>
-    </Box>
   );
 }
 

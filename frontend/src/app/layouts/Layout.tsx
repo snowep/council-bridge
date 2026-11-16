@@ -44,7 +44,7 @@ const drawerWidth = 260;
 
 // Styled NavLink with proper hover/focus/active states
 const StyledNavLink = styled(NavLink)(({ theme }) => ({
-  borderRadius: theme.shape.borderRadius * 2,
+  borderRadius: (theme.shape.borderRadius as number) * 2,
   margin: '0.25rem 1rem',
   display: 'flex',
   alignItems: 'center',
