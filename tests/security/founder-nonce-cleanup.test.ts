@@ -5,7 +5,8 @@
 import { describe, it, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import Database from 'better-sqlite3';
-import { createDatabase, setDatabaseInstance, DatabaseInstance } from '../../src/database.js';
+import { createDatabase, DatabaseInstance } from '../../src/database.js';
+import { setDatabaseInstance } from '../../src/auth/founder.js';
 import {
   generateFounderKeyPair,
   clearFounderKeyCache,
@@ -13,6 +14,7 @@ import {
   startNonceCleanupInterval,
   stopNonceCleanupInterval,
   checkAndConsumeNonce,
+  verifyFounderOperation,
   verifyFounderRequestWithLoadedKeys,
   FounderKeyPair,
   signFounderRequest
@@ -36,9 +38,9 @@ describe('SEC-06: Founder Nonce Cleanup', () => {
   });
 
   beforeEach(() => {
-    // Clear nonces before each test
+    // Clear ALL nonces before each test (cleanup only removes expired ones)
     try {
-      db.stmt.cleanupFounderNonces.run();
+      db.runPreparedStatement('deleteAllFounderNonces', []);
     } catch {
       // Table may not exist yet in some tests
     }
@@ -138,8 +140,9 @@ describe('SEC-06: Founder Nonce Cleanup', () => {
       assert.strictEqual(nonce.length, 1, 'Nonce should be recorded');
 
       const nonceRecord = nonce[0];
-      const expectedExpiry = new Date(now + 6 * 60 * 1000).getTime();
-      const actualExpiry = new Date(nonceRecord.expires_at).getTime();
+      // SQLite datetime() returns UTC strings; parse as UTC to compare with epoch millis
+      const expectedExpiry = now + 6 * 60 * 1000;
+      const actualExpiry = new Date(nonceRecord.expires_at + 'Z').getTime();
 
       // Allow 1 second tolerance for test execution time
       const diff = Math.abs(actualExpiry - expectedExpiry);
@@ -214,12 +217,26 @@ describe('SEC-06: Founder Nonce Cleanup', () => {
       const payload = { owner_type: 'founder', owner_id: 'founder', runtime: 'claude' };
       const signed = signFounderRequest(operation, payload, keyPair.private_key_pem, keyPair.key_id);
 
-      // First verification should succeed
-      const firstResult = verifyFounderRequestWithLoadedKeys(signed);
+      // First verification should succeed (uses verifyFounderOperation which consumes nonce)
+      const firstResult = verifyFounderOperation(
+        operation,
+        payload,
+        signed.signature,
+        signed.timestamp,
+        signed.nonce,
+        signed.key_id
+      );
       assert.strictEqual(firstResult.valid, true, 'First verification should succeed');
 
       // Second verification with same nonce should fail
-      const secondResult = verifyFounderRequestWithLoadedKeys(signed);
+      const secondResult = verifyFounderOperation(
+        operation,
+        payload,
+        signed.signature,
+        signed.timestamp,
+        signed.nonce,
+        signed.key_id
+      );
       assert.strictEqual(secondResult.valid, false, 'Second verification should fail');
       assert.strictEqual(secondResult.error, 'NONCE_REPLAY', 'Should return NONCE_REPLAY error');
     });
@@ -231,8 +248,22 @@ describe('SEC-06: Founder Nonce Cleanup', () => {
       const signed1 = signFounderRequest('op1', payload1, keyPair.private_key_pem, keyPair.key_id);
       const signed2 = signFounderRequest('op2', payload2, keyPair.private_key_pem, keyPair.key_id);
 
-      const result1 = verifyFounderRequestWithLoadedKeys(signed1);
-      const result2 = verifyFounderRequestWithLoadedKeys(signed2);
+      const result1 = verifyFounderOperation(
+        'op1',
+        payload1,
+        signed1.signature,
+        signed1.timestamp,
+        signed1.nonce,
+        signed1.key_id
+      );
+      const result2 = verifyFounderOperation(
+        'op2',
+        payload2,
+        signed2.signature,
+        signed2.timestamp,
+        signed2.nonce,
+        signed2.key_id
+      );
 
       assert.strictEqual(result1.valid, true, 'First request should succeed');
       assert.strictEqual(result2.valid, true, 'Second request with different nonce should succeed');

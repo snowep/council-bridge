@@ -77,7 +77,7 @@ function getDb(): DatabaseInstance {
   return dbInstance;
 }
 
-function checkAndConsumeNonce(keyId: string, operation: string, nonce: string, now: number): boolean {
+export function checkAndConsumeNonce(keyId: string, operation: string, nonce: string, now: number): boolean {
   const db = getDb();
   const expiresAt = now + NONCE_EXPIRY_MS;
 
@@ -97,7 +97,7 @@ let cleanupInterval: NodeJS.Timeout | null = null;
 
 export function startNonceCleanupInterval(): void {
   // Deterministic cleanup every 5 minutes
-  if (cleanupInterval) return;
+  if (cleanupInterval !== null) return;
   cleanupInterval = setInterval(() => {
     try {
       const db = getDb();
@@ -110,7 +110,7 @@ export function startNonceCleanupInterval(): void {
 }
 
 export function stopNonceCleanupInterval(): void {
-  if (cleanupInterval) {
+  if (cleanupInterval !== null) {
     clearInterval(cleanupInterval);
     cleanupInterval = null;
   }

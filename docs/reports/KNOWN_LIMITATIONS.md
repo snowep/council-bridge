@@ -58,6 +58,24 @@ error TS2801: This condition will always return true since this 'Promise<void>' 
 error TS2345: Argument of type 'Database' is not assignable to parameter of type 'string'
 ```
 
+### frontend/src/shared/theme/use-theme-store.tsx
+
+**Fixed Issue:** Subscription cleanup bug on line 63-64. The original code:
+```typescript
+state.listeners.delete(() => forceUpdate(n => n + 1));
+```
+This creates a new function reference each time, preventing proper cleanup. **Fixed** to use a named listener variable.
+
+## Browser Console Issues
+
+### Identified at Runtime
+- None confirmed (Playwright MCP unavailable for live inspection)
+
+### Potential Console Warnings (Static Analysis)
+- MUI theme provider subscription now properly cleaned up
+- Axios timeout set to 30000ms - appropriate for network requests
+- localStorage access wrapped in try/catch - handles private browsing mode
+
 ## E2E Test Limitations
 
 All E2E scenarios requiring actual agent runtimes are blocked:

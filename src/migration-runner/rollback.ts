@@ -21,6 +21,7 @@ export interface RollbackOptions {
   dryRun?: boolean;
   force?: boolean;
   method?: 'backup' | 'reapply';
+  targetDbPath?: string; // Override target database path for restore
 }
 
 export class RollbackEngine {
@@ -29,17 +30,30 @@ export class RollbackEngine {
   private backupManager: BackupManager;
   private registry: MigrationRegistry;
   private cleanupTimer: NodeJS.Timeout | null = null;
+  private targetDbPath: string;
 
   constructor(
     db: Database.Database,
     ledger: MigrationLedger,
     backupManager: BackupManager,
-    registry: MigrationRegistry
+    registry: MigrationRegistry,
+    targetDbPath?: string
   ) {
     this.db = db;
     this.ledger = ledger;
     this.backupManager = backupManager;
     this.registry = registry;
+    this.targetDbPath = targetDbPath ?? this.getDefaultDbPath(db);
+  }
+
+  private getDefaultDbPath(db: Database.Database): string {
+    // Try to get path from database object; fall back to standard path
+    // better-sqlite3 Database has a .name property containing the path
+    const dbName = (db as any).name;
+    if (dbName && typeof dbName === 'string' && dbName !== ':memory:') {
+      return dbName;
+    }
+    return 'data/council.db';
   }
 
   /**
@@ -122,7 +136,7 @@ export class RollbackEngine {
 
         if (method === 'backup' && ledgerEntry.backup_path) {
           // Restore from backup (throws on failure)
-          await this.backupManager.restoreBackup(ledgerEntry.backup_path, 'data/council.db');
+          await this.backupManager.restoreBackup(ledgerEntry.backup_path, this.targetDbPath);
           success = true;
         } else {
           // Fallback: record rollback attempt without actual restoration
@@ -304,11 +318,12 @@ export function createRollbackEngine(
     ledger?: MigrationLedger;
     registry?: MigrationRegistry;
     backupDir?: string;
+    targetDbPath?: string;
   }
 ): RollbackEngine {
   const actualLedger = options?.ledger ?? new MigrationLedger(db);
   const actualRegistry = options?.registry ?? new MigrationRegistry();
   const backupManager = new BackupManager(options?.backupDir ?? 'data/backups');
 
-  return new RollbackEngine(db, actualLedger, backupManager, actualRegistry);
+  return new RollbackEngine(db, actualLedger, backupManager, actualRegistry, options?.targetDbPath);
 }

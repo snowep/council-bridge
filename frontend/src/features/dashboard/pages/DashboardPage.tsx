@@ -56,9 +56,17 @@ const ACTIVITY_TYPE_CONFIG: Record<ActivityItem['type'], { icon: React.ReactNode
   message: { icon: <ChatOutlined fontSize="small" color="primary" />, label: 'Message', color: 'primary' },
 };
 
-const QUICK_ACTIONS = [
-  { label: 'Create Division', icon: <Business fontSize="small" />, href: '/organization', color: 'primary' },
-  { label: 'Invite Staff', icon: <People fontSize="small" />, href: '/organization?tab=staff', color: 'secondary' },
+interface QuickAction {
+  label: string;
+  icon: React.ReactNode;
+  color: 'primary' | 'secondary' | 'warning' | 'error' | 'info' | 'success';
+  comingSoon?: boolean;
+  href?: string;
+}
+
+const QUICK_ACTIONS: QuickAction[] = [
+  { label: 'Create Division', icon: <Business fontSize="small" />, comingSoon: true, color: 'primary' },
+  { label: 'Invite Staff', icon: <People fontSize="small" />, comingSoon: true, color: 'secondary' },
   { label: 'Review Approvals', icon: <Gavel fontSize="small" />, href: '/approvals', color: 'warning' },
   { label: 'New Task', icon: <Add fontSize="small" />, href: '/tasks?create', color: 'info' },
 ];
@@ -147,8 +155,14 @@ export default function DashboardPage() {
     'activity': 'activity',
   };
 
-  const handleQuickAction = (href: string) => {
-    navigate(href);
+  const handleQuickActionClick = (action: QuickAction) => {
+    if (action.comingSoon) {
+      // Do nothing for coming soon items - they're disabled
+      return;
+    }
+    if (action.href) {
+      navigate(action.href);
+    }
   };
 
   useEffect(() => {
@@ -350,28 +364,34 @@ export default function DashboardPage() {
             <Divider sx={{ mb: 2 }} />
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, flex: 1 }}>
               {QUICK_ACTIONS.map((action, idx) => (
-                <Button
-                  key={idx}
-                  variant="outlined"
-                  startIcon={action.icon}
-                  onClick={() => handleQuickAction(action.href)}
-                  fullWidth
-                  size="large"
-                  sx={{
-                    justifyContent: 'flex-start',
-                    px: 2,
-                    py: 1.5,
-                    borderColor: `${action.color}.main`,
-                    color: `${action.color}.main`,
-                    '&:hover': {
-                      bgcolor: `${action.color}.50`,
-                      borderColor: `${action.color}.dark`,
-                    },
-                    transition: 'all 0.2s ease',
-                  }}
-                >
-                  {action.label}
-                </Button>
+                <Tooltip key={idx} title={action.comingSoon ? 'Coming Soon' : ''}>
+                  <Button
+                    variant="outlined"
+                    startIcon={action.icon}
+                    onClick={() => handleQuickActionClick(action)}
+                    fullWidth
+                    size="large"
+                    disabled={action.comingSoon}
+                    sx={{
+                      justifyContent: 'flex-start',
+                      px: 2,
+                      py: 1.5,
+                      borderColor: `${action.color}.main`,
+                      color: action.comingSoon ? 'text.disabled' : `${action.color}.main`,
+                      '&:hover': action.comingSoon ? {
+                        bgcolor: 'action.disabled',
+                        borderColor: 'divider',
+                        cursor: 'not-allowed',
+                      } : {
+                        bgcolor: `${action.color}.50`,
+                        borderColor: `${action.color}.dark`,
+                      },
+                      transition: 'all 0.2s ease',
+                    }}
+                  >
+                    {action.label}
+                  </Button>
+                </Tooltip>
               ))}
             </Box>
             <Divider sx={{ my: 2 }} />

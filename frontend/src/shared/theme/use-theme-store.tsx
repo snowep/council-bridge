@@ -56,12 +56,13 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const state = getThemeState();
+    const listener = () => forceUpdate(n => n + 1);
     // Subscribe to changes
-    state.listeners.add(() => forceUpdate(n => n + 1));
+    state.listeners.add(listener);
 
     // Cleanup on unmount
     return () => {
-      state.listeners.delete(() => forceUpdate(n => n + 1));
+      state.listeners.delete(listener);
     };
   }, []);
 

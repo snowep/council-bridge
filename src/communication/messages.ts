@@ -111,13 +111,14 @@ export function createMessageService(
 
       // When conversationId is provided, filter by both participant
       if (conversationId) {
-        // Messages where agent is sender or recipient, filtered to conversation
+        // Messages where agent is sender/recipient AND the other party is the conversation partner
+        // (sender=agent AND recipient=partner) OR (sender=partner AND recipient=agent)
         const rawMessages = dbInstance.query(`
           SELECT * FROM messages
-          WHERE (sender_id = ? OR recipient_id = ?)
-          AND (sender_id = ? OR recipient_id = ?)
+          WHERE (sender_id = ? AND recipient_id = ?)
+             OR (sender_id = ? AND recipient_id = ?)
           ORDER BY created_at ASC
-        `, [agentId, agentId, conversationId, conversationId]);
+        `, [agentId, conversationId, conversationId, agentId]);
 
         return (rawMessages as any[]).map(normalizeMessage);
       }
@@ -138,8 +139,8 @@ export function createMessageService(
 
       const rawMessages = dbInstance.query(`
         SELECT * FROM messages
-        WHERE (sender_id = ? OR recipient_id = ?)
-        AND (sender_id = ? OR recipient_id = ?)
+        WHERE (sender_id = ? AND recipient_id = ?)
+           OR (sender_id = ? AND recipient_id = ?)
         ORDER BY created_at ASC
         LIMIT ? OFFSET ?
       `, [agentId, partnerId, partnerId, agentId, limit, offset]);
@@ -173,31 +174,36 @@ export function createMessageService(
         throw new Error(`Agent '${input.agent_id}' not found`);
       }
 
+      const limit = input.limit ?? 50;
+      const offset = input.offset ?? 0;
+
       // Filter by conversation if provided
       if (input.conversation_id) {
         return this.getConversationMessages(
           input.agent_id,
           input.conversation_id,
-          input.limit,
-          input.offset
+          limit,
+          offset
         );
       }
 
-      // Get all messages for this agent (sent or received) - use query for flexibility
-      const rawMessages = dbInstance.query(`
-        SELECT * FROM messages
-        WHERE sender_id = ? OR recipient_id = ?
-        ORDER BY created_at DESC
-        LIMIT ? OFFSET ?
-      `, [input.agent_id, input.agent_id, input.limit, input.offset]) as any[];
+      // Get all messages for this agent (sent or received)
+      // TODO: Implement true database-level pagination with separate count query
+      const rawMessages = dbInstance.stmt.listMessages.all(
+        input.agent_id,
+        input.agent_id,
+        limit
+      ) as any[];
+      const messages = rawMessages.map(normalizeMessage);
 
       // Apply unread filter if needed
-      let filtered = rawMessages.map(normalizeMessage);
+      let filtered = messages;
       if (input.unread_only) {
         filtered = filtered.filter(m => m.recipient_id === input.agent_id && !m.read_at);
       }
 
-      return filtered;
+      // Apply offset (after filtering for correct pagination)
+      return filtered.slice(offset, offset + limit);
     },
 
     listConversations(input: ListConversationsInput): Conversation[] {
@@ -291,11 +297,12 @@ export function createMessageService(
 
       let totalChanges = 0;
       for (const msgId of messageIds) {
-        const result = dbInstance.query(`
+        const stmt = dbInstance.db.prepare(`
           UPDATE messages SET read_at = datetime('now')
           WHERE id = ? AND recipient_id = ? AND read_at IS NULL
-        `, [msgId, agentId]);
-        totalChanges += (result as any).changes || 0;
+        `);
+        const result = stmt.run(msgId, agentId);
+        totalChanges += result.changes || 0;
       }
       return totalChanges;
     },
@@ -305,13 +312,11 @@ export function createMessageService(
       if (!agentService.agentExists(agentId)) {
         throw new Error(`Agent '${agentId}' not found`);
       }
-      const result = dbInstance.stmt.countMessagesByRecipient.all(agentId) as any[];
       // Count only unread messages (read_at IS NULL)
-      const unreadResult = dbInstance.query(
-        'SELECT COUNT(*) as count FROM messages WHERE recipient_id = ? AND read_at IS NULL',
-        [agentId]
-      );
-      return (unreadResult[0] as any).count;
+      const result = dbInstance.db.prepare(
+        'SELECT COUNT(*) as count FROM messages WHERE recipient_id = ? AND read_at IS NULL'
+      ).get(agentId) as { count: number };
+      return result.count;
     },
   };
 }

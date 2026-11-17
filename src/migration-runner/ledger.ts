@@ -104,7 +104,7 @@ export class MigrationLedger {
     notes: Record<string, unknown> = {}
   ): void {
     this.db.prepare(`
-      INSERT INTO ${this.config.table}
+      INSERT OR REPLACE INTO ${this.config.table}
       (migration_id, filename, checksum, applied_at, applied_by, duration_ms, status, backup_path, notes)
       VALUES (?, ?, ?, datetime('now'), ?, 0, 'rolled_back', ?, ?)
     `).run(migrationId, filename, checksum, appliedBy, backupPath, JSON.stringify(notes));

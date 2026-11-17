@@ -166,13 +166,15 @@ export interface MemorySearchParams {
 
 // Message types
 export interface Message {
-  message_id: string;
+  id: string; // Backend uses "id" as the primary key field
+  message_id?: string; // Alias for id, used by frontend for stable keys
   sender_id: string;
   recipient_id: string;
   content: string;
-  status: 'sent' | 'delivered' | 'read' | 'failed';
+  status?: 'pending' | 'sent' | 'delivered' | 'read' | 'failed' | 'replied'; // Frontend status: pending for optimistic messages, replied for received replies
   created_at: string;
   read_at: string | null;
+  reply_to?: string | null;
 }
 
 export interface Conversation {

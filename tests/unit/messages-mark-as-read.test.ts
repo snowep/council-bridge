@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { createDatabase, DatabaseInstance } from '../src/database.js';
-import { createAgentService, AgentService } from '../src/communication/agents.js';
-import { createMessageService, MessageService } from '../src/communication/messages.js';
+import { createDatabase, DatabaseInstance } from '../../src/database.js';
+import { createAgentService, AgentService } from '../../src/communication/agents.js';
+import { createMessageService, MessageService } from '../../src/communication/messages.js';
 
 let testDbInstance: DatabaseInstance;
 let agentService: AgentService;

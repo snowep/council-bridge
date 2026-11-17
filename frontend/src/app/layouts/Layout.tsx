@@ -15,6 +15,7 @@ import {
   MenuItem,
   Divider,
   Tooltip,
+  Chip,
 } from '@mui/material';
 import {
   DashboardOutlined,
@@ -80,8 +81,8 @@ const StyledNavLink = styled(NavLink)(({ theme }) => ({
 const navigationItems = [
   { path: '/dashboard', label: 'Dashboard', icon: <DashboardOutlined /> },
   { path: '/chat', label: 'Chat', icon: <ChatOutlined /> },
-  { path: '/council', label: 'Council', icon: <AccountBalanceOutlined /> },
-  { path: '/meetings', label: 'Meetings', icon: <EventOutlined /> },
+  { path: '/council', label: 'Council', icon: <AccountBalanceOutlined />, comingSoon: true },
+  { path: '/meetings', label: 'Meetings', icon: <EventOutlined />, comingSoon: true },
   { path: '/memory', label: 'Memory', icon: <LibraryBooksOutlined /> },
   { path: '/organization', label: 'Organization', icon: <BusinessOutlined /> },
   { path: '/tasks', label: 'Tasks & Delegation', icon: <EngineeringOutlined /> },
@@ -135,9 +136,18 @@ export default function Layout() {
               to={item.path}
               end
               aria-current="page"
+              onClick={(e) => {
+                if (item.comingSoon) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }
+              }}
             >
               <ListItemIcon>{item.icon}</ListItemIcon>
               <ListItemText primary={item.label} />
+              {item.comingSoon && (
+                <Chip label="Coming Soon" size="small" color="warning" variant="outlined" />
+              )}
             </StyledNavLink>
           </ListItem>
         ))}

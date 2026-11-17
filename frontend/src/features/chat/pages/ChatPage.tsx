@@ -33,10 +33,44 @@ import {
   AddOutlined,
 } from '@mui/icons-material';
 import { apiClient } from '@shared/api/client';
-import type { Message, Conversation } from '@shared/types/api';
+import type { Message as ApiMessage, Conversation } from '@shared/types/api';
 import { useAppAuth } from '@app/use-app-auth';
 import { useTheme } from '@mui/material/styles';
 import { AgentSelectionDialog } from '../components/AgentSelectionDialog';
+
+// Frontend Message type with message_id and status derived from read_at
+interface Message {
+  message_id: string;
+  sender_id: string;
+  recipient_id: string;
+  content: string;
+  status: 'pending' | 'sent' | 'delivered' | 'read' | 'failed' | 'replied';
+  created_at: string;
+  read_at: string | null;
+  reply_to?: string | null;
+}
+
+// Helper to derive status from read_at
+const getMessageStatus = (msg: ApiMessage, isOutgoing: boolean): Message['status'] => {
+  if (isOutgoing) {
+    if (!msg.read_at) return 'sent';
+    return 'delivered';
+  }
+  if (!msg.read_at) return 'replied';
+  return 'read';
+};
+
+// Transform API message to frontend Message type
+const transformMessage = (apiMsg: ApiMessage, currentOwnerId: string): Message => ({
+  message_id: apiMsg.id,
+  sender_id: apiMsg.sender_id,
+  recipient_id: apiMsg.recipient_id,
+  content: apiMsg.content,
+  status: getMessageStatus(apiMsg, apiMsg.sender_id === currentOwnerId),
+  created_at: apiMsg.created_at,
+  read_at: apiMsg.read_at,
+  reply_to: apiMsg.reply_to || null,
+});
 
 const ParticipantIcon = ({ type, size = 'small' }: { type: string; size?: 'small' | 'medium' | 'large' }) => {
   switch (type) {
@@ -170,13 +204,26 @@ export default function ChatPage() {
   const fetchMessages = async (conversationId: string, offset: number = 0) => {
     try {
       setFetchError(null);
-      const response = await apiClient.get<{ messages: Message[]; limit: number; offset: number }>(`/api/messages/${conversationId}?limit=50&offset=${offset}`);
-      const newMessages = Array.isArray(response?.messages) ? response.messages : [];
+      const response = await apiClient.get<{ messages: ApiMessage[]; limit: number; offset: number }>(`/api/messages/${conversationId}?limit=50&offset=${offset}`);
+      const apiMessages = Array.isArray(response?.messages) ? response.messages : [];
+
+      // Transform API messages to frontend Message type
+      const currentOwnerId = authContext?.owner_id || 'founder';
+      const transformedMessages = apiMessages.map(m => transformMessage(m, currentOwnerId));
+
       if (offset === 0) {
-        setMessages(newMessages);
+        // Initial load: replace all messages
+        // Backend returns ASC order (oldest first), which matches our display order
+        // Oldest at top, newest at bottom
+        setMessages(transformedMessages);
+        // Scroll to bottom to show the latest/newest messages
+        setTimeout(() => {
+          messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+        }, 100);
       } else {
-        // Prepend older messages (for infinite scroll)
-        setMessages(prev => [...newMessages, ...prev]);
+        // Pagination: loading more messages from the API
+        // Backend returns ASC order, so we append new messages to the existing ones
+        setMessages(prev => [...prev, ...transformedMessages]);
       }
     } catch (err: any) {
       const msg = err?.response?.data?.error || err.message || 'Failed to fetch messages';
@@ -219,15 +266,17 @@ export default function ChatPage() {
     const content = newMessage.trim();
     if (!content || !selectedConversation || sending) return;
 
-    // Optimistic update
+    // Optimistic update - use temp- prefixed ID that won't conflict with UUIDs
+    const tempId = `temp-${crypto.randomUUID().slice(0, 8)}`;
     const tempMessage: Message = {
-      message_id: `temp-${Date.now()}`,
-      sender_id: authContext?.owner_id || 'unknown',
+      message_id: tempId,
+      sender_id: authContext?.owner_id || 'founder',
       recipient_id: selectedConversation.participant_id,
       content,
-      status: 'sent',
+      status: 'pending',
       created_at: new Date().toISOString(),
       read_at: null,
+      reply_to: null,
     };
     setMessages(prev => [...prev, tempMessage]);
     setNewMessage('');
@@ -235,21 +284,24 @@ export default function ChatPage() {
     setSendError(null);
 
     try {
-      const response = await apiClient.post<Message>('/api/messages', {
+      const response = await apiClient.post<ApiMessage>('/api/messages', {
         recipient_id: selectedConversation.participant_id,
         content,
       });
-      // Replace temp message with real one
-      setMessages(prev => prev.map(m => m.message_id === tempMessage.message_id ? response : m));
+      // Transform response and replace temp message
+      const realMessage = transformMessage(response, authContext?.owner_id || 'founder');
+      setMessages(prev => prev.map(m => m.message_id === tempId ? realMessage : m));
       // Update conversation list with new last message
+      // Use the API message for last_message since Conversation type expects it
       setFilteredConversations(prev => prev.map(conv =>
         conv.participant_id === selectedConversation.participant_id
           ? { ...conv, last_message: response, unread_count: 0 }
           : conv
       ));
+      setPendingFailedMessage(null);
     } catch (err: any) {
       // Revert optimistic update and store message for retry
-      setMessages(prev => prev.filter(m => m.message_id !== tempMessage.message_id));
+      setMessages(prev => prev.filter(m => m.message_id !== tempId));
       const msg = err?.response?.data?.error || err.message || 'Failed to send message';
       setSendError(msg);
       setPendingFailedMessage(content);
@@ -263,55 +315,27 @@ export default function ChatPage() {
   const [pendingFailedMessage, setPendingFailedMessage] = useState<string | null>(null);
 
   const retrySend = async () => {
-    if (pendingFailedMessage) {
-      setSendError(null);
-      try {
-        await apiClient.post<Message>('/api/messages', {
-          recipient_id: selectedConversation?.participant_id,
-          content: pendingFailedMessage,
-        });
-        setMessages(prev => prev.filter(m => !m.message_id.startsWith('temp-')));
-        setSendError(null);
-        setPendingFailedMessage(null);
-      } catch (err: any) {
-        const msg = err?.response?.data?.error || err.message || 'Retry failed';
-        setSendError(msg);
-      }
-    } else if (newMessage.trim()) {
-      // Fallback for simple retry
-      const tempId = `temp-${Date.now()}`;
-      const tempMessage: Message = {
-        message_id: tempId,
-        sender_id: authContext?.owner_id || 'unknown',
-        recipient_id: selectedConversation?.participant_id || '',
-        content: newMessage.trim(),
-        status: 'sent',
-        created_at: new Date().toISOString(),
-        read_at: null,
-      };
-      setMessages(prev => [...prev, tempMessage]);
-      setNewMessage('');
-      setSending(true);
-      setSendError(null);
-      try {
-        const response = await apiClient.post<Message>('/api/messages', {
-          recipient_id: selectedConversation?.participant_id,
-          content: newMessage.trim(),
-        });
-        setMessages(prev => prev.map(m => m.message_id === tempId ? response : m));
-        setFilteredConversations(prev => prev.map(conv =>
-          conv.participant_id === selectedConversation?.participant_id
-            ? { ...conv, last_message: response, unread_count: 0 }
-            : conv
-        ));
-      } catch (err: any) {
-        setMessages(prev => prev.filter(m => m.message_id !== tempId));
-        const msg = err?.response?.data?.error || err.message || 'Failed to send message';
-        setSendError(msg);
-        setPendingFailedMessage(newMessage.trim());
-      } finally {
-        setSending(false);
-      }
+    if (!pendingFailedMessage || !selectedConversation) return;
+
+    setSendError(null);
+    try {
+      const response = await apiClient.post<ApiMessage>('/api/messages', {
+        recipient_id: selectedConversation.participant_id,
+        content: pendingFailedMessage,
+      });
+      // Transform response and replace temp messages
+      const realMessage = transformMessage(response, authContext?.owner_id || 'founder');
+      setMessages(prev => prev.map(m => m.message_id.startsWith('temp-') ? realMessage : m));
+      // Update conversation list with new last message
+      setFilteredConversations(prev => prev.map(conv =>
+        conv.participant_id === selectedConversation.participant_id
+          ? { ...conv, last_message: response, unread_count: 0 }
+          : conv
+      ));
+      setPendingFailedMessage(null);
+    } catch (err: any) {
+      const msg = err?.response?.data?.error || err.message || 'Retry failed';
+      setSendError(msg);
     }
   };
 
@@ -332,7 +356,7 @@ export default function ChatPage() {
     };
   }, [selectedConversation]);
 
-  // Conversation list polling (every 5 seconds for unread counts)
+  // Conversation list polling (every 3 seconds for unread counts - B2-T6)
   useEffect(() => {
     if (conversationListPollRef.current) {
       clearInterval(conversationListPollRef.current);
@@ -341,7 +365,7 @@ export default function ChatPage() {
       if (!loading) {
         fetchConversations();
       }
-    }, 5000);
+    }, 3000);
 
     return () => {
       if (conversationListPollRef.current) {
@@ -505,12 +529,35 @@ export default function ChatPage() {
                         bgcolor: msg.sender_id === authContext?.owner_id ? 'primary.main' : 'background.paper',
                         color: msg.sender_id === authContext?.owner_id ? 'primary.contrastText' : 'text.primary',
                         boxShadow: 1,
+                        position: 'relative',
                       }}
                     >
                       <Typography variant="body2">{msg.content}</Typography>
                       <Typography variant="caption" sx={{ opacity: 0.7, display: 'block', mt: 0.5, textAlign: 'right' }}>
                         {formatTime(msg.created_at)}
                       </Typography>
+                      {/* Status indicator */}
+                      {msg.status === 'failed' && (
+                        <Chip
+                          label="Failed"
+                          size="small"
+                          color="error"
+                          sx={{ position: 'absolute', top: 4, right: 4 }}
+                        />
+                      )}
+                      {msg.status === 'pending' && (
+                        <Chip
+                          label="Pending"
+                          size="small"
+                          color="warning"
+                          sx={{ position: 'absolute', top: 4, right: 4 }}
+                        />
+                      )}
+                      {msg.status === 'read' && (
+                        <Typography variant="caption" sx={{ position: 'absolute', top: 4, right: 4, color: 'success.main', opacity: 0.6 }}>
+                          Read
+                        </Typography>
+                      )}
                     </Paper>
                   </Box>
                 ))

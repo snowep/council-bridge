@@ -59,6 +59,17 @@ export class MigrationExecutor {
   private backupManager: BackupManager;
   private validator: Validator;
   private logger: Logger;
+  private dbPath: string;
+
+  private getDefaultDbPath(db: Database.Database): string {
+    // Try to get path from database object; fall back to standard path
+    // better-sqlite3 Database has a .name property containing the path
+    const dbName = (db as any).name;
+    if (dbName && typeof dbName === 'string' && dbName !== ':memory:') {
+      return dbName;
+    }
+    return 'data/council.db';
+  }
 
   constructor(
     db: Database.Database,
@@ -74,6 +85,7 @@ export class MigrationExecutor {
     this.backupManager = backupManager;
     this.validator = validator;
     this.logger = logger || new ConsoleLogger();
+    this.dbPath = this.getDefaultDbPath(db);
   }
 
   async executeMigration(
@@ -135,7 +147,7 @@ export class MigrationExecutor {
     // Create backup
     if (options.createBackup !== false) {
       backupResult = await this.backupManager.createBackup(
-        'data/council.db',
+        this.dbPath,
         { method: 'binary', verify: true },
         `council_pre_${migrationId}`
       );
@@ -359,6 +371,17 @@ export class RollbackEngine {
   private backupManager: BackupManager;
   private ledger: MigrationLedger;
   private logger: Logger;
+  private dbPath: string;
+
+  private getDefaultDbPath(db: Database.Database): string {
+    // Try to get path from database object; fall back to standard path
+    // better-sqlite3 Database has a .name property containing the path
+    const dbName = (db as any).name;
+    if (dbName && typeof dbName === 'string' && dbName !== ':memory:') {
+      return dbName;
+    }
+    return 'data/council.db';
+  }
 
   constructor(
     db: Database.Database,
@@ -370,6 +393,7 @@ export class RollbackEngine {
     this.backupManager = backupManager;
     this.ledger = ledger;
     this.logger = logger || new ConsoleLogger();
+    this.dbPath = this.getDefaultDbPath(db);
   }
 
   async rollback(migrationId: string, method: 'backup' | 'reapply' = 'backup', force: boolean = false): Promise<boolean> {
@@ -383,7 +407,7 @@ export class RollbackEngine {
 
     try {
       if (method === 'backup' && entry.backup_path) {
-        this.backupManager.restoreBackup(entry.backup_path, 'data/council.db');
+        this.backupManager.restoreBackup(entry.backup_path, this.dbPath);
       }
       // reapply method would need Phase 4 schema recreation - not implemented
 

@@ -1384,6 +1384,9 @@ function createDatabase(dbPath?: string): DatabaseInstance {
     cleanupFounderNonces: db.prepare(`
       DELETE FROM founder_nonces WHERE expires_at < datetime('now')
     `) as PreparedStatement,
+    deleteAllFounderNonces: db.prepare(`
+      DELETE FROM founder_nonces
+    `) as PreparedStatement,
   };
 
   // Stamp the schema version so migrations can detect the current schema.
@@ -1407,7 +1410,14 @@ function createDatabase(dbPath?: string): DatabaseInstance {
     stmt,
     generateId,
     close,
-    query: (sql: string, params?: any[]) => db.prepare(sql).all(...(params || [])),
+    query: (sql: string, params?: any[]) => {
+      const statement = db.prepare(sql);
+      const results = statement.all(...(params || []));
+      const arr = [...results];
+      arr.get = () => arr[0];
+      arr.all = () => arr;
+      return arr;
+    },
     runPreparedStatement: (name: string, params?: any[]) => {
       const statement = (stmt as any)[name];
       if (!statement) throw new Error(`Prepared statement not found: ${name}`);
@@ -1419,7 +1429,50 @@ function createDatabase(dbPath?: string): DatabaseInstance {
 const DATA_DIR = path.join(process.cwd(), 'data');
 const DB_PATH = path.join(DATA_DIR, 'council.db');
 
-export const databaseInstance = createDatabase(DB_PATH);
-export const { db, stmt, generateId, close: closeDatabase } = databaseInstance;
+// Lazy initialization to avoid loading existing database with outdated schema
+let _databaseInstance: ReturnType<typeof createDatabase> | null = null;
 
-export { createDatabase, databaseInstance as getDatabase };
+function getInstance(): ReturnType<typeof createDatabase> {
+  if (!_databaseInstance) {
+    _databaseInstance = createDatabase(DB_PATH);
+  }
+  return _databaseInstance;
+}
+
+// Export a proxy that provides lazy access to the full DatabaseInstance object
+export const databaseInstance = new Proxy({} as ReturnType<typeof createDatabase>, {
+  get(target, prop) {
+    return (getInstance() as any)[prop];
+  }
+});
+
+// Re-export the full DatabaseInstance object for compatibility
+export const db = new Proxy({} as ReturnType<typeof createDatabase>, {
+  get(target, prop) {
+    return (getInstance() as any)[prop];
+  }
+});
+
+export const stmt = new Proxy({} as any, {
+  get(target, prop) {
+    return (getInstance().stmt as any)[prop];
+  }
+});
+
+// For generateId, we need to make it callable and also have properties
+const _generateId = new Proxy(function() { return getInstance().generateId(); }, {
+  get(target, prop) {
+    return (getInstance().generateId as any)[prop];
+  }
+}) as typeof generateId & (() => string);
+
+export const generateId = _generateId;
+
+export function closeDatabase() {
+  if (_databaseInstance) {
+    _databaseInstance.close();
+    _databaseInstance = null;
+  }
+}
+
+export { createDatabase, getInstance as getDatabaseInstance, getInstance as getDatabase };
