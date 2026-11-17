@@ -35,32 +35,7 @@ import {
 } from '@mui/icons-material';
 import { apiClient } from '@shared/api/client';
 import type { Meeting, MeetingPhase } from '@shared/types/api';
-
-interface TabPanelProps {
-  children?: React.ReactNode;
-  index: number;
-  value: number;
-}
-
-function TabPanel(props: TabPanelProps) {
-  const { children, value, index, ...other } = props;
-
-  return (
-    <div
-      role="tabpanel"
-      hidden={value !== index}
-      id={`meetings-tabpanel-${index}`}
-      aria-labelledby={`meetings-tab-${index}`}
-      {...other}
-    >
-      {value === index && (
-        <Box sx={{ p: 3 }}>
-          {children}
-        </Box>
-      )}
-    </div>
-  );
-}
+import { TabPanel } from '@shared/components/TabPanel';
 
 const MeetingsPage: React.FC = () => {
   const [value, setValue] = useState(0);

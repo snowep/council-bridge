@@ -52,32 +52,7 @@ import {
 } from '@mui/icons-material';
 import { apiClient } from '@shared/api/client';
 import type { Task, TaskStatus, TaskAssignedToType } from '@shared/types/api';
-
-interface TabPanelProps {
-  children?: React.ReactNode;
-  index: number;
-  value: number;
-}
-
-function TabPanel(props: TabPanelProps) {
-  const { children, value, index, ...other } = props;
-
-  return (
-    <Box
-      role="tabpanel"
-      hidden={value !== index}
-      id={`simple-tabpanel-${index}`}
-      aria-labelledby={`simple-tab-${index}`}
-      {...other}
-    >
-      {value === index && (
-        <Box sx={{ p: 3 }}>
-          {children}
-        </Box>
-      )}
-    </Box>
-  );
-}
+import { TabPanel } from '@shared/components/TabPanel';
 
 interface TaskFormData {
   title: string;
@@ -375,7 +350,18 @@ const TasksPage: React.FC = () => {
               </TableHead>
               <TableBody>
                 {tasks.map(task => (
-                  <TableRow key={task.task_id} hover onClick={() => fetchTaskDetail(task.task_id)}>
+                  <TableRow
+                    key={task.task_id}
+                    hover
+                    onClick={() => fetchTaskDetail(task.task_id)}
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        fetchTaskDetail(task.task_id);
+                      }
+                    }}
+                  >
                     <TableCell>
                       <Typography variant="body2" sx={{ fontWeight: 500 }}>{task.title}</Typography>
                     </TableCell>
@@ -413,17 +399,17 @@ const TasksPage: React.FC = () => {
                     </TableCell>
                     <TableCell>
                       <Tooltip title="View Detail">
-                        <IconButton size="small" onClick={(e) => { e.stopPropagation(); fetchTaskDetail(task.task_id); }}>
+                        <IconButton size="small" aria-label="View task detail" onClick={(e) => { e.stopPropagation(); fetchTaskDetail(task.task_id); }}>
                           <Visibility fontSize="small" />
                         </IconButton>
                       </Tooltip>
                       <Tooltip title="Assign">
-                        <IconButton size="small" onClick={(e) => { e.stopPropagation(); openAssignDialog(task); }}>
+                        <IconButton size="small" aria-label="Assign task" onClick={(e) => { e.stopPropagation(); openAssignDialog(task); }}>
                           <Person fontSize="small" />
                         </IconButton>
                       </Tooltip>
                       <Tooltip title="Update Status">
-                        <IconButton size="small" onClick={(e) => { e.stopPropagation(); openStatusDialog(task); }}>
+                        <IconButton size="small" aria-label="Update task status" onClick={(e) => { e.stopPropagation(); openStatusDialog(task); }}>
                           <Refresh fontSize="small" />
                         </IconButton>
                       </Tooltip>

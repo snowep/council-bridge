@@ -50,3 +50,5 @@ PRAGMA foreign_keys = ON;
 -- SELECT * FROM staff_agents;  -- should show same row count
 -- INSERT INTO staff_agents (staff_id, name, role, division_id) VALUES ('test', 'Test', 'role', 'div-dev');
 -- SELECT status FROM staff_agents WHERE staff_id = 'test';  -- should be 'inactive'
+-- MODIFIED
+-- MODIFIED

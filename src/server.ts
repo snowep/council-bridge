@@ -22,7 +22,8 @@ import {
   getFounderPublicKey,
   setDatabaseInstance,
   startNonceCleanupInterval,
-  stopNonceCleanupInterval
+  stopNonceCleanupInterval,
+  initializeFounderKeys
 } from './auth/founder.js';
 
 import {
@@ -128,6 +129,7 @@ if (!authValidation.valid) {
 }
 
 // SEC-04: Validate Founder key configuration on startup
+// Auto-initialize founder keys in development mode if missing
 const founderKeyValidation = validateFounderKeyConfiguration();
 if (!founderKeyValidation.valid) {
   console.error('⚠️  FOUNDER KEY CONFIGURATION ERRORS:');
@@ -138,8 +140,9 @@ if (!founderKeyValidation.valid) {
     console.error('❌ Server will not start in production without valid Founder keys');
     process.exit(1);
   }
-  console.error('❌ Server will not start without valid Founder keys');
-  process.exit(1);
+  // Auto-initialize founder keys in non-production mode
+  const keys = initializeFounderKeys();
+  console.log(`🔐 Founder keys auto-initialized (key_id: ${keys.key_id})`);
 }
 
 // Validate local single-user mode configuration

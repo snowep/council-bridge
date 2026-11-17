@@ -15,27 +15,7 @@ import {
 import RefreshOutlined from '@mui/icons-material/RefreshOutlined';
 import { apiClient } from '@shared/api/client';
 import type { Division, StaffAgent, DivisionMember } from '@shared/types/api';
-
-interface TabPanelProps {
-  children?: React.ReactNode;
-  index: number;
-  value: number;
-}
-
-function TabPanel(props: TabPanelProps) {
-  const { children, value, index, ...other } = props;
-  return (
-    <div
-      role="tabpanel"
-      hidden={value !== index}
-      id={`organization-tabpanel-${index}`}
-      aria-labelledby={`organization-tab-${index}`}
-      {...other}
-    >
-      {value === index && <Box sx={{ p: 3 }}>{children}</Box>}
-    </div>
-  );
-}
+import { TabPanel } from '@shared/components/TabPanel';
 
 export default function OrganizationPage() {
   const [divisions, setDivisions] = useState<Division[]>([]);

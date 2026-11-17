@@ -37,6 +37,7 @@ import {
   Accordion,
   AccordionSummary,
   AccordionDetails,
+  Snackbar,
 } from '@mui/material';
 import {
   PlayArrowOutlined,
@@ -62,27 +63,7 @@ import type {
   ExecutionHistory,
   ApprovalRequest,
 } from '@shared/types/api';
-
-interface TabPanelProps {
-  children?: React.ReactNode;
-  index: number;
-  value: number;
-}
-
-function TabPanel(props: TabPanelProps) {
-  const { children, value, index, ...other } = props;
-  return (
-    <div
-      role="tabpanel"
-      hidden={value !== index}
-      id={`executions-tabpanel-${index}`}
-      aria-labelledby={`executions-tab-${index}`}
-      {...other}
-    >
-      {value === index && <Box sx={{ pt: 3 }}>{children}</Box>}
-    </div>
-  );
-}
+import { TabPanel } from '@shared/components/TabPanel';
 
 const statusColors: Record<ExecutionStatus, 'success' | 'warning' | 'error' | 'info' | 'default'> = {
   completed: 'success',
@@ -128,6 +109,9 @@ export default function ExecutionsPage() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [snackbarOpen, setSnackbarOpen] = useState(false);
+  const [snackbarMessage, setSnackbarMessage] = useState('');
+  const [snackbarSeverity, setSnackbarSeverity] = useState<'success' | 'error'>('success');
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [newExecution, setNewExecution] = useState({
     task_id: '',
@@ -136,6 +120,12 @@ export default function ExecutionsPage() {
     action_payload: {} as Record<string, any>,
   });
   const [tasks, setTasks] = useState<any[]>([]);
+
+  const showSnackbar = (message: string, severity: 'success' | 'error' = 'success') => {
+    setSnackbarMessage(message);
+    setSnackbarSeverity(severity);
+    setSnackbarOpen(true);
+  };
 
   const handleChange = (_event: React.SyntheticEvent, newValue: number) => {
     setTabValue(newValue);
@@ -206,9 +196,10 @@ export default function ExecutionsPage() {
       setShowCreateDialog(false);
       setNewExecution({ task_id: '', autonomy_level: 1, action_description: '', action_payload: {} });
       fetchExecutions();
+      showSnackbar('Execution request created successfully');
     } catch (err: any) {
       console.error('Failed to create execution:', err);
-      alert('Failed to create execution: ' + (err?.response?.data?.error || err.message));
+      showSnackbar('Failed to create execution: ' + (err?.response?.data?.error || err.message), 'error');
     } finally {
       setCreating(false);
     }
@@ -219,9 +210,10 @@ export default function ExecutionsPage() {
       await apiClient.post(`/api/executions/${executionId}/execute`);
       fetchExecutions();
       if (selectedExecution?.execution_id === executionId) fetchExecutionDetail(executionId);
+      showSnackbar('Execution started');
     } catch (err: any) {
       console.error('Failed to execute:', err);
-      alert('Failed to execute: ' + (err?.response?.data?.error || err.message));
+      showSnackbar('Failed to execute: ' + (err?.response?.data?.error || err.message), 'error');
     }
   };
 
@@ -230,9 +222,10 @@ export default function ExecutionsPage() {
       await apiClient.post(`/api/executions/${executionId}/cancel`);
       fetchExecutions();
       if (selectedExecution?.execution_id === executionId) fetchExecutionDetail(executionId);
+      showSnackbar('Execution cancelled');
     } catch (err: any) {
       console.error('Failed to cancel:', err);
-      alert('Failed to cancel: ' + (err?.response?.data?.error || err.message));
+      showSnackbar('Failed to cancel: ' + (err?.response?.data?.error || err.message), 'error');
     }
   };
 
@@ -241,7 +234,7 @@ export default function ExecutionsPage() {
       // Find the approval request for this execution
       const approval = approvalRequests.find(a => a.execution_id === executionId && a.status === 'pending');
       if (!approval) {
-        alert('No pending approval request found for this execution');
+        showSnackbar('No pending approval request found for this execution', 'error');
         return;
       }
       await apiClient.post('/api/executions/approve', {
@@ -251,9 +244,10 @@ export default function ExecutionsPage() {
       fetchExecutions();
       fetchApprovalRequests();
       if (selectedExecution?.execution_id === executionId) fetchExecutionDetail(executionId);
+      showSnackbar('Execution approved');
     } catch (err: any) {
       console.error('Failed to approve:', err);
-      alert('Failed to approve: ' + (err?.response?.data?.error || err.message));
+      showSnackbar('Failed to approve: ' + (err?.response?.data?.error || err.message), 'error');
     }
   };
 
@@ -267,9 +261,10 @@ export default function ExecutionsPage() {
       });
       fetchExecutions();
       fetchApprovalRequests();
+      showSnackbar('Execution request rejected');
     } catch (err: any) {
       console.error('Failed to reject:', err);
-      alert('Failed to reject: ' + (err?.response?.data?.error || err.message));
+      showSnackbar('Failed to reject: ' + (err?.response?.data?.error || err.message), 'error');
     }
   };
 
@@ -359,7 +354,18 @@ export default function ExecutionsPage() {
               </TableHead>
               <TableBody>
                 {executions.map((execution) => (
-                  <TableRow key={execution.execution_id} hover onClick={() => handleSelectExecution(execution)}>
+                  <TableRow
+                    key={execution.execution_id}
+                    hover
+                    onClick={() => handleSelectExecution(execution)}
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        handleSelectExecution(execution);
+                      }
+                    }}
+                  >
                     <TableCell sx={{ fontFamily: 'monospace', fontSize: 'small' }}>#{execution.execution_id.slice(0, 8)}</TableCell>
                     <TableCell sx={{ fontFamily: 'monospace', fontSize: 'small' }}>#{execution.task_id.slice(0, 8)}</TableCell>
                     <TableCell>
@@ -384,27 +390,27 @@ export default function ExecutionsPage() {
                     <TableCell sx={{ fontSize: 'small', color: 'text.secondary' }}>{execution.completed_at ? new Date(execution.completed_at).toLocaleDateString() : '—'}</TableCell>
                     <TableCell align="right">
                       <Tooltip title="View Details">
-                        <IconButton color="primary" size="small" onClick={(e) => { e.stopPropagation(); handleSelectExecution(execution); }}>
+                        <IconButton color="primary" size="small" aria-label="View execution details" onClick={(e) => { e.stopPropagation(); handleSelectExecution(execution); }}>
                           <VisibilityOutlined fontSize="small" />
                         </IconButton>
                       </Tooltip>
                       {execution.status === 'approval_required' && (
                         <Tooltip title="Approve">
-                          <IconButton color="success" size="small" onClick={(e) => { e.stopPropagation(); handleApprove(execution.execution_id); }}>
+                          <IconButton color="success" size="small" aria-label="Approve execution" onClick={(e) => { e.stopPropagation(); handleApprove(execution.execution_id); }}>
                             <CheckCircleOutlined fontSize="small" />
                           </IconButton>
                         </Tooltip>
                       )}
                       {['proposed', 'permission_check', 'approval_required', 'approved', 'queued'].includes(execution.status) && (
                         <Tooltip title="Execute">
-                          <IconButton color="primary" size="small" onClick={(e) => { e.stopPropagation(); handleExecute(execution.execution_id); }}>
+                          <IconButton color="primary" size="small" aria-label="Execute now" onClick={(e) => { e.stopPropagation(); handleExecute(execution.execution_id); }}>
                             <PlayArrowOutlined fontSize="small" />
                           </IconButton>
                         </Tooltip>
                       )}
                       {['proposed', 'permission_check', 'approval_required', 'approved', 'queued', 'running'].includes(execution.status) && (
                         <Tooltip title="Cancel">
-                          <IconButton color="error" size="small" onClick={(e) => { e.stopPropagation(); handleCancel(execution.execution_id); }}>
+                          <IconButton color="error" size="small" aria-label="Cancel execution" onClick={(e) => { e.stopPropagation(); handleCancel(execution.execution_id); }}>
                             <CancelOutlined fontSize="small" />
                           </IconButton>
                         </Tooltip>
@@ -921,6 +927,13 @@ export default function ExecutionsPage() {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Snackbar for notifications */}
+      <Snackbar open={snackbarOpen} autoHideDuration={6000} onClose={() => setSnackbarOpen(false)}>
+        <Alert severity={snackbarSeverity} sx={{ width: '100%' }} onClose={() => setSnackbarOpen(false)}>
+          {snackbarMessage}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 }

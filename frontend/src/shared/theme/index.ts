@@ -115,5 +115,4 @@ export const darkTheme = createTheme({
   },
 });
 
-// Re-export theme utilities (ThemeProvider and useThemeStore)
-export { ThemeProvider, useThemeStore } from './use-theme-store';
+export { useThemeStore, ThemeProvider } from './use-theme-store';

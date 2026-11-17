@@ -339,8 +339,20 @@ export default function ChatPage() {
     }
   };
 
+  // Cleanup all intervals on unmount
   useEffect(() => {
-    // Selected conversation polling
+    return () => {
+      if (conversationPollRef.current) {
+        clearInterval(conversationPollRef.current);
+      }
+      if (conversationListPollRef.current) {
+        clearInterval(conversationListPollRef.current);
+      }
+    };
+  }, []);
+
+  // Selected conversation polling
+  useEffect(() => {
     if (conversationPollRef.current) {
       clearInterval(conversationPollRef.current);
     }
@@ -614,7 +626,7 @@ export default function ChatPage() {
       </Box>
 
       {/* Floating Action Button for new conversation */}
-      <Box sx={{ position: 'fixed', bottom: 24, right: 24, zIndex: 1100 }}>
+      <Box sx={{ position: 'fixed', bottom: { xs: 16, sm: 24 }, right: 16, zIndex: 1100 }}>
         <Fab
           color="primary"
           size="medium"

@@ -225,7 +225,19 @@ export default function MemoryPage() {
                 </TableHead>
                 <TableBody>
                   {entries.map((entry) => (
-                    <TableRow key={entry.memory_id} hover onClick={() => openDetail(entry)} sx={{ cursor: 'pointer' }}>
+                    <TableRow
+                      key={entry.memory_id}
+                      hover
+                      onClick={() => openDetail(entry)}
+                      tabIndex={0}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          openDetail(entry);
+                        }
+                      }}
+                      sx={{ cursor: 'pointer' }}
+                    >
                       <TableCell>
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                           <DescriptionOutlined sx={{ fontSize: 18, color: 'text.secondary' }} />
@@ -246,7 +258,7 @@ export default function MemoryPage() {
                       <TableCell sx={{ whiteSpace: 'nowrap' }}>{formatDate(entry.updated_at)}</TableCell>
                       <TableCell>
                         <Tooltip title="View details">
-                          <IconButton size="small" onClick={(e) => { e.stopPropagation(); openDetail(entry); }}>
+                          <IconButton size="small" aria-label="View memory details" onClick={(e) => { e.stopPropagation(); openDetail(entry); }}>
                             <DescriptionOutlined fontSize="small" />
                           </IconButton>
                         </Tooltip>

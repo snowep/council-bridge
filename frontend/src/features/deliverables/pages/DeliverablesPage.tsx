@@ -37,6 +37,7 @@ import {
   AccordionSummary,
   AccordionDetails,
   Rating,
+  Snackbar,
 } from '@mui/material';
 import {
   AssignmentOutlined,
@@ -62,27 +63,7 @@ import type {
   ReviewerType,
   QualityThreshold,
 } from '@shared/types/api';
-
-interface TabPanelProps {
-  children?: React.ReactNode;
-  index: number;
-  value: number;
-}
-
-function TabPanel(props: TabPanelProps) {
-  const { children, value, index, ...other } = props;
-  return (
-    <div
-      role="tabpanel"
-      hidden={value !== index}
-      id={`deliverables-tabpanel-${index}`}
-      aria-labelledby={`deliverables-tab-${index}`}
-      {...other}
-    >
-      {value === index && <Box sx={{ pt: 3 }}>{children}</Box>}
-    </div>
-  );
-}
+import { TabPanel } from '@shared/components/TabPanel';
 
 const statusColors: Record<DeliverableStatus, 'success' | 'warning' | 'error' | 'info' | 'default'> = {
   accepted: 'success',
@@ -130,6 +111,9 @@ export default function DeliverablesPage() {
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [showReviewDialog, setShowReviewDialog] = useState(false);
   const [showRevisionDialog, setShowRevisionDialog] = useState(false);
+  const [snackbarOpen, setSnackbarOpen] = useState(false);
+  const [snackbarMessage, setSnackbarMessage] = useState('');
+  const [snackbarSeverity, setSnackbarSeverity] = useState<'success' | 'error'>('success');
   const [newDeliverable, setNewDeliverable] = useState({
     task_id: '',
     content: '',
@@ -143,6 +127,12 @@ export default function DeliverablesPage() {
     revision_notes: '',
   });
   const [tasks, setTasks] = useState<any[]>([]);
+
+  const showSnackbar = (message: string, severity: 'success' | 'error' = 'success') => {
+    setSnackbarMessage(message);
+    setSnackbarSeverity(severity);
+    setSnackbarOpen(true);
+  };
 
   const handleChange = (_event: React.SyntheticEvent, newValue: number) => {
     setTabValue(newValue);
@@ -204,9 +194,10 @@ export default function DeliverablesPage() {
       setShowCreateDialog(false);
       setNewDeliverable({ task_id: '', content: '', version: 1 });
       fetchDeliverables();
+      showSnackbar('Deliverable created successfully');
     } catch (err: any) {
       console.error('Failed to create deliverable:', err);
-      alert('Failed to create deliverable: ' + (err?.response?.data?.error || err.message));
+      showSnackbar('Failed to create deliverable: ' + (err?.response?.data?.error || err.message), 'error');
     } finally {
       setCreating(false);
     }
@@ -217,9 +208,10 @@ export default function DeliverablesPage() {
       await apiClient.put(`/api/deliverables/${deliverableId}/submit`);
       fetchDeliverables();
       if (selectedDeliverable?.deliverable_id === deliverableId) fetchDeliverableDetail(deliverableId);
+      showSnackbar('Submitted for review');
     } catch (err: any) {
       console.error('Failed to submit:', err);
-      alert('Failed to submit: ' + (err?.response?.data?.error || err.message));
+      showSnackbar('Failed to submit: ' + (err?.response?.data?.error || err.message), 'error');
     }
   };
 
@@ -235,9 +227,10 @@ export default function DeliverablesPage() {
       setShowReviewDialog(false);
       fetchDeliverables();
       if (selectedDeliverable?.deliverable_id === deliverableId) fetchDeliverableDetail(deliverableId);
+      showSnackbar('Review submitted successfully');
     } catch (err: any) {
       console.error('Failed to review:', err);
-      alert('Failed to review: ' + (err?.response?.data?.error || err.message));
+      showSnackbar('Failed to review: ' + (err?.response?.data?.error || err.message), 'error');
     }
   };
 
@@ -249,9 +242,10 @@ export default function DeliverablesPage() {
       setShowRevisionDialog(false);
       fetchDeliverables();
       if (selectedDeliverable?.deliverable_id === deliverableId) fetchDeliverableDetail(deliverableId);
+      showSnackbar('Revision requested successfully');
     } catch (err: any) {
       console.error('Failed to request revision:', err);
-      alert('Failed to request revision: ' + (err?.response?.data?.error || err.message));
+      showSnackbar('Failed to request revision: ' + (err?.response?.data?.error || err.message), 'error');
     }
   };
 
@@ -264,9 +258,10 @@ export default function DeliverablesPage() {
       });
       fetchDeliverables();
       fetchDeliverableDetail(selectedDeliverable.deliverable_id);
+      showSnackbar('Reviewer assigned successfully');
     } catch (err: any) {
       console.error('Failed to assign reviewer:', err);
-      alert('Failed to assign reviewer: ' + (err?.response?.data?.error || err.message));
+      showSnackbar('Failed to assign reviewer: ' + (err?.response?.data?.error || err.message), 'error');
     }
   };
 
@@ -355,7 +350,18 @@ export default function DeliverablesPage() {
               </TableHead>
               <TableBody>
                 {deliverables.map((deliverable) => (
-                  <TableRow key={deliverable.deliverable_id} hover onClick={() => handleSelectDeliverable(deliverable)}>
+                  <TableRow
+                    key={deliverable.deliverable_id}
+                    hover
+                    onClick={() => handleSelectDeliverable(deliverable)}
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        handleSelectDeliverable(deliverable);
+                      }
+                    }}
+                  >
                     <TableCell sx={{ fontFamily: 'monospace', fontSize: 'small' }}>#{deliverable.deliverable_id.slice(0, 8)}</TableCell>
                     <TableCell sx={{ fontFamily: 'monospace', fontSize: 'small' }}>#{deliverable.task_id.slice(0, 8)}</TableCell>
                     <TableCell>
@@ -393,27 +399,27 @@ export default function DeliverablesPage() {
                     <TableCell sx={{ fontSize: 'small', color: 'text.secondary' }}>{new Date(deliverable.created_at).toLocaleDateString()}</TableCell>
                     <TableCell align="right">
                       <Tooltip title="View Details">
-                        <IconButton color="primary" size="small" onClick={(e) => { e.stopPropagation(); handleSelectDeliverable(deliverable); }}>
+                        <IconButton color="primary" size="small" aria-label="View deliverable details" onClick={(e) => { e.stopPropagation(); handleSelectDeliverable(deliverable); }}>
                           <VisibilityOutlined fontSize="small" />
                         </IconButton>
                       </Tooltip>
                       {deliverable.status === 'draft' && (
                         <Tooltip title="Submit for Review">
-                          <IconButton color="primary" size="small" onClick={(e) => { e.stopPropagation(); handleSubmit(deliverable.deliverable_id); }}>
+                          <IconButton color="primary" size="small" aria-label="Submit deliverable for review" onClick={(e) => { e.stopPropagation(); handleSubmit(deliverable.deliverable_id); }}>
                             <ArrowForwardOutlined fontSize="small" />
                           </IconButton>
                         </Tooltip>
                       )}
                       {deliverable.status === 'submitted' && (
                         <Tooltip title="Review">
-                          <IconButton color="success" size="small" onClick={(e) => { e.stopPropagation(); setReviewData({ status: 'accepted', quality_score: 80, reviewer_type: 'founder', reviewer_id: '', revision_notes: '' }); setShowReviewDialog(true); }}>
+                          <IconButton color="success" size="small" aria-label="Review deliverable" onClick={(e) => { e.stopPropagation(); setReviewData({ status: 'accepted', quality_score: 80, reviewer_type: 'founder', reviewer_id: '', revision_notes: '' }); setShowReviewDialog(true); }}>
                             <GavelOutlined fontSize="small" />
                           </IconButton>
                         </Tooltip>
                       )}
                       {deliverable.status === 'revision_requested' && (
                         <Tooltip title="Resubmit">
-                          <IconButton color="primary" size="small" onClick={(e) => { e.stopPropagation(); handleSubmit(deliverable.deliverable_id); }}>
+                          <IconButton color="primary" size="small" aria-label="Resubmit deliverable" onClick={(e) => { e.stopPropagation(); handleSubmit(deliverable.deliverable_id); }}>
                             <ContentCopyOutlined fontSize="small" />
                           </IconButton>
                         </Tooltip>
@@ -809,7 +815,16 @@ export default function DeliverablesPage() {
               </TableHead>
               <TableBody>
                 {qualityThresholds.map((threshold) => (
-                  <TableRow key={threshold.threshold_id} hover>
+                  <TableRow
+                    key={threshold.threshold_id}
+                    hover
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                      }
+                    }}
+                  >
                     <TableCell sx={{ fontFamily: 'monospace', fontSize: 'small' }}>#{threshold.threshold_id.slice(0, 8)}</TableCell>
                     <TableCell>{threshold.division_id || 'Global'}</TableCell>
                     <TableCell>{threshold.task_type || 'All Types'}</TableCell>
@@ -994,6 +1009,13 @@ export default function DeliverablesPage() {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Snackbar for notifications */}
+      <Snackbar open={snackbarOpen} autoHideDuration={6000} onClose={() => setSnackbarOpen(false)}>
+        <Alert severity={snackbarSeverity} sx={{ width: '100%' }} onClose={() => setSnackbarOpen(false)}>
+          {snackbarMessage}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 }
