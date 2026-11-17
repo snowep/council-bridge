@@ -49,6 +49,7 @@ describe('MCP Authentication - Phase 9 Task 2', () => {
     it('should reject unauthenticated request with 401 in production mode', async () => {
       // Force production mode for this test
       process.env.AUTH_MODE = 'production';
+      process.env.SESSION_SECRET = 'test-secret-32-characters-minimum-length';
 
       const response = await request(app)
         .post('/mcp')
@@ -61,6 +62,7 @@ describe('MCP Authentication - Phase 9 Task 2', () => {
 
     it('should reject unauthenticated request with 401 when no token provided', async () => {
       process.env.AUTH_MODE = 'production';
+      process.env.SESSION_SECRET = 'test-secret-32-characters-minimum-length';
 
       const response = await request(app)
         .post('/mcp')
@@ -72,6 +74,7 @@ describe('MCP Authentication - Phase 9 Task 2', () => {
 
     it('should reject invalid token with 401', async () => {
       process.env.AUTH_MODE = 'production';
+      process.env.SESSION_SECRET = 'test-secret-32-characters-minimum-length';
 
       const response = await request(app)
         .post('/mcp')
@@ -84,6 +87,7 @@ describe('MCP Authentication - Phase 9 Task 2', () => {
 
     it('should reject tampered token with 401', async () => {
       process.env.AUTH_MODE = 'production';
+      process.env.SESSION_SECRET = 'test-secret-32-characters-minimum-length';
 
       // Generate a valid token then tamper with it
       const validToken = generateSessionToken({
@@ -109,6 +113,7 @@ describe('MCP Authentication - Phase 9 Task 2', () => {
   describe('Authenticated MCP Request', () => {
     it('should accept request with valid staff session token', async () => {
       process.env.AUTH_MODE = 'production';
+      process.env.SESSION_SECRET = 'test-secret-32-characters-minimum-length';
 
       const token = generateSessionToken({
         owner_type: 'staff',
@@ -130,6 +135,7 @@ describe('MCP Authentication - Phase 9 Task 2', () => {
 
     it('should accept request with valid division session token', async () => {
       process.env.AUTH_MODE = 'production';
+      process.env.SESSION_SECRET = 'test-secret-32-characters-minimum-length';
 
       const token = generateSessionToken({
         owner_type: 'division',
@@ -150,6 +156,7 @@ describe('MCP Authentication - Phase 9 Task 2', () => {
 
     it('should accept request with valid founder session token', async () => {
       process.env.AUTH_MODE = 'production';
+      process.env.SESSION_SECRET = 'test-secret-32-characters-minimum-length';
 
       const token = generateSessionToken({
         owner_type: 'founder',
@@ -170,6 +177,7 @@ describe('MCP Authentication - Phase 9 Task 2', () => {
 
     it('should bind auth context to request and prevent caller override', async () => {
       process.env.AUTH_MODE = 'production';
+      process.env.SESSION_SECRET = 'test-secret-32-characters-minimum-length';
 
       const token = generateSessionToken({
         owner_type: 'staff',
@@ -200,6 +208,7 @@ describe('MCP Authentication - Phase 9 Task 2', () => {
 
     it('should validate session identity against actual database records', async () => {
       process.env.AUTH_MODE = 'production';
+      process.env.SESSION_SECRET = 'test-secret-32-characters-minimum-length';
 
       const token = generateSessionToken({
         owner_type: 'staff',
@@ -221,6 +230,7 @@ describe('MCP Authentication - Phase 9 Task 2', () => {
 
     it('should validate runtime identity (claude/hermes)', async () => {
       process.env.AUTH_MODE = 'production';
+      process.env.SESSION_SECRET = 'test-secret-32-characters-minimum-length';
 
       const claudeToken = generateSessionToken({
         owner_type: 'staff',
@@ -239,6 +249,7 @@ describe('MCP Authentication - Phase 9 Task 2', () => {
 
     it('should accept requests for MCP initialization', async () => {
       process.env.AUTH_MODE = 'production';
+      process.env.SESSION_SECRET = 'test-secret-32-characters-minimum-length';
 
       const token = generateSessionToken({
         owner_type: 'staff',
@@ -288,6 +299,7 @@ describe('MCP Authentication - Phase 9 Task 2', () => {
 
     it('should accept requests for MCP tool calls', async () => {
       process.env.AUTH_MODE = 'production';
+      process.env.SESSION_SECRET = 'test-secret-32-characters-minimum-length';
 
       const token = generateSessionToken({
         owner_type: 'staff',
@@ -316,6 +328,7 @@ describe('MCP Authentication - Phase 9 Task 2', () => {
   describe('Founder Signature for Privileged Operations', () => {
     it('should require founder signature for privileged operations via MCP', async () => {
       process.env.AUTH_MODE = 'production';
+      process.env.SESSION_SECRET = 'test-secret-32-characters-minimum-length';
 
       // Staff token should not be sufficient for founder operations
       const staffToken = generateSessionToken({
@@ -348,6 +361,7 @@ describe('MCP Authentication - Phase 9 Task 2', () => {
 
     it('should accept founder with valid session for privileged operations', async () => {
       process.env.AUTH_MODE = 'production';
+      process.env.SESSION_SECRET = 'test-secret-32-characters-minimum-length';
 
       const founderToken = generateSessionToken({
         owner_type: 'founder',
@@ -378,6 +392,7 @@ describe('MCP Authentication - Phase 9 Task 2', () => {
   describe('Production Fail-Closed Behavior', () => {
     it('should fail closed in production with no fallback', async () => {
       process.env.AUTH_MODE = 'production';
+      process.env.SESSION_SECRET = 'test-secret-32-characters-minimum-length';
 
       // No auth header at all
       const response = await request(app)
@@ -391,6 +406,7 @@ describe('MCP Authentication - Phase 9 Task 2', () => {
 
     it('should not allow hardcoded identity fallback in production', async () => {
       process.env.AUTH_MODE = 'production';
+      process.env.SESSION_SECRET = 'test-secret-32-characters-minimum-length';
 
       const config = getAuthConfig();
       assert.strictEqual(config.allow_hardcoded_fallback, false);
@@ -408,6 +424,7 @@ describe('MCP Authentication - Phase 9 Task 2', () => {
   describe('Streamable HTTP Compatibility', () => {
     it('should preserve Streamable HTTP behavior for valid requests', async () => {
       process.env.AUTH_MODE = 'production';
+      process.env.SESSION_SECRET = 'test-secret-32-characters-minimum-length';
 
       const token = generateSessionToken({
         owner_type: 'staff',
@@ -436,6 +453,7 @@ describe('MCP Authentication - Phase 9 Task 2', () => {
 
     it('should handle MCP batch requests with auth', async () => {
       process.env.AUTH_MODE = 'production';
+      process.env.SESSION_SECRET = 'test-secret-32-characters-minimum-length';
 
       const token = generateSessionToken({
         owner_type: 'division',

@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 import Database from 'better-sqlite3';
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import { MigrationLedger } from '../../src/migration-runner/ledger.js';
 import { BackupManager } from '../../src/migration-runner/backup.js';
 import { RollbackEngine, createRollbackEngine } from '../../src/migration-runner/rollback.js';
@@ -128,11 +129,8 @@ describe('Migration Rollback Integration Tests', () => {
   let backupDir: string;
 
   beforeEach(() => {
-    // Create temp backup directory (once per test)
-    backupDir = path.join(process.cwd(), 'test-rollbacks-' + Date.now().toString());
-    if (!fs.existsSync(backupDir)) {
-      fs.mkdirSync(backupDir, { recursive: true });
-    }
+    // Create temp backup directory in OS temp dir (isolated)
+    backupDir = fs.mkdtempSync(path.join(os.tmpdir(), 'council-test-rollbacks-'));
   });
 
   afterEach(() => {

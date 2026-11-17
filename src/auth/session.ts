@@ -25,9 +25,11 @@ export interface SessionTokenPayload {
   signature: string;
 }
 
-const config = getAuthConfig();
-const SESSION_TIMEOUT = config.session_timeout_ms;
-const MAX_SESSIONS = config.max_sessions;
+// Use functions to get fresh config on each call (tests change env vars at runtime)
+function getConfig() { return getAuthConfig(); }
+function getSessionTimeout() { return getConfig().session_timeout_ms; }
+function getMaxSessions() { return getConfig().max_sessions; }
+function getSessionSecret() { return getConfig().session_secret; }
 
 // In-memory session store (production should use Redis or database)
 const sessionStore = new Map<string, SessionContext>();
@@ -50,9 +52,9 @@ export function generateSessionToken(
 ): string {
   const config = getAuthConfig();
 
-  if (sessionStore.size >= config.max_sessions) {
+  if (sessionStore.size >= getMaxSessions()) {
     cleanupExpiredSessions();
-    if (sessionStore.size >= config.max_sessions) {
+    if (sessionStore.size >= getMaxSessions()) {
       throw new Error('Session limit reached');
     }
   }
@@ -63,7 +65,7 @@ export function generateSessionToken(
 
   const data = `${session_id}|${timestamp}|${random}`;
   const signature = crypto
-    .createHmac('sha256', config.session_secret)
+    .createHmac('sha256', getSessionSecret())
     .update(data)
     .digest('base64url');
 
@@ -97,7 +99,7 @@ export function validateSessionToken(
     if (isNaN(timestamp) || timestamp <= 0) return null;
 
     // Check token age (replay protection)
-    if (Date.now() - timestamp > config.session_timeout_ms) {
+    if (Date.now() - timestamp > getSessionTimeout()) {
       sessionStore.delete(session_id);
       return null;
     }
@@ -105,7 +107,7 @@ export function validateSessionToken(
     // Verify signature with constant-time comparison
     const data = `${session_id}|${timestampStr}|${random}`;
     const expectedSignature = crypto
-      .createHmac('sha256', config.session_secret)
+      .createHmac('sha256', getSessionSecret())
       .update(data)
       .digest('base64url');
 

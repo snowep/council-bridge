@@ -1,1356 +1,1077 @@
-# COUNCIL BRIDGE — UNIFIED CRITICAL REMEDIATION & COMMAND CENTER MILESTONE
+# Council Bridge — M2/M3 Final Verification, Critical Remediation & Repository Hardening
 
-**Repository:** `https://github.com/snowep/council-bridge`  
-**Local project:** `C:\Projects\council-bridge`  
-**Branch:** `refactor/repository-structure`  
-**MCP port:** `3334`  
-**Claude Code agents:** `C:\Users\L\.claude\agents`
+## 1. Role
 
-**Mission:** Complete M2/M3 remediation, resolve database and identity inconsistencies, eliminate critical security and data-integrity defects, and deliver a polished, functional Material UI command center.
+Act as the Principal Software Architect, Senior Backend Engineer, Security Engineer, Database Engineer, Frontend Architect, and QA Lead for Council Bridge.
 
-This is an implementation assignment. Do not return another planning-only document.
+Your task is to complete the outstanding M2/M3 remediation, resolve the newly identified repository issues, verify the implementation, and prepare a final Founder review report.
 
----
+This is an implementation and verification task, not merely an audit.
 
-# 1. EXECUTION AUTHORITY AND OBJECTIVES
+Work directly in the existing repository. Preserve established architecture, existing user data, security invariants, and accepted phases.
 
-Implement all requirements in this prompt in one coordinated milestone.
+## 2. Repository Context
 
-The work must include:
+Repository: `snowep/council-bridge`
 
-1. Resolve database integrity and organization-count inconsistencies.
-2. Correct agent, Council, division, Division Head, and specialist identity relationships.
-3. Complete M2 Chat integration and message lifecycle.
-4. Fix message ordering and conversation navigation.
-5. Complete M3 Dashboard functionality.
-6. Correct theme architecture and frontend navigation.
-7. Fix all confirmed critical backend and frontend defects.
-8. Improve the UI using vanilla MUI and Google's Material Design system.
-9. Run mandatory backend and frontend audits.
-10. Inspect browser console, runtime errors, network failures, and frontend behavior.
-11. Complete regression, security, and integration testing.
-12. Use dedicated Claude Code agents for implementation and Git management.
-13. Produce a complete final audit and implementation report.
+Current branch: `refactor/repository-structure`
 
-Do not introduce unrelated features.
-
-Do not redesign functioning architecture unnecessarily.
-
-Prioritize data integrity, security, operational correctness, usability, and maintainability.
-
-# 2. MANDATORY CLAUDE CODE AGENT ORCHESTRATION
-
-You MUST use the agent definitions located at:
-
-`C:\Users\L\.claude\agents`
-
-Do not implement the entire milestone in one agent.
-
-## 2.1 Agent discovery
-
-Before implementation:
-
-1. Inspect all available agent definitions.
-2. Identify agents suitable for backend, frontend, database, testing, auditing, and Git operations.
-3. Read their actual instructions.
-4. Assign responsibilities based on their documented capabilities.
-5. Report which agents were selected.
-
-If a suitable agent does not exist, report the limitation. Do not pretend it was used.
-
-## 2.2 Maximum parallelism
-
-**Maximum five agents running in parallel.**
-
-The main Claude Code session is the coordinator and final integration owner.
-
-Required assignments:
-
-| Agent | Responsibility |
-|---|---|
-| Agent 1 | Database reconciliation, identity integrity, migrations |
-| Agent 2 | Backend communication, MCP, messaging, authorization, security |
-| Agent 3 | Frontend architecture, MUI command center, theme, navigation |
-| Agent 4 | Chat frontend, dashboard workflows, browser and E2E testing |
-| Agent 5 | Dedicated Git branch and commit management |
-
-The main coordinator owns cross-module integration, shared contracts, final verification, and conflict resolution.
-
-If the available agent definitions suggest a better division, adapt the allocation while preserving all responsibilities.
-
-## 2.3 Git agent — mandatory
-
-A dedicated agent from `C:\Users\L\.claude\agents` MUST manage Git operations.
-
-Its responsibilities:
-
-- Inspect current branch and remote state.
-- Track implementation branches if needed.
-- Check for conflicts and unexpected modifications.
-- Review commit scope.
-- Propose clear, conventional commit messages.
-- Maintain commit organization.
-- Report commit SHAs and push status.
-- Coordinate with the main agent before any Git operation that could affect shared work.
-
-The Git agent must not independently authorize destructive operations.
-
-Do not force-push, rewrite history, merge, deploy, or delete branches without explicit Founder approval.
-
-Do not commit or push until explicitly authorized.
-
-## 2.4 File ownership
-
-Before parallel implementation, establish an explicit file ownership matrix.
-
-Rules:
-
-- Every modified file has exactly one active owner.
-- Two agents must NEVER edit the same file simultaneously.
-- Agents may inspect other agents' files but cannot modify them.
-- Shared types, API contracts, application routing, and integration files have one designated owner.
-- If shared changes are necessary, coordinate and perform them sequentially.
-- Pause dependent work before changing a shared contract.
-- Do not solve merge conflicts by discarding another agent's changes.
-
-## 2.5 Execution waves
-
-**Wave 0 — Repository and environment audit**
-
-- Inspect latest branch SHA.
-- Inspect working tree and uncommitted changes.
-- Inspect all project instructions.
-- Inspect available agents.
-- Inspect existing database files and migration state without modifying production data.
-- Establish test baselines.
-- Establish exclusive file ownership.
-
-**Wave 1 — Independent implementation**
-
-Start no more than five agents in parallel.
-
-**Wave 2 — Controlled integration**
-
-Integrate changes, resolve shared contracts, fix type errors, and run regression tests.
-
-**Wave 3 — Design and runtime verification**
-
-Run frontend audits, browser tests, console inspection, and backend audits.
-
-**Wave 4 — Independent final audit**
-
-Have independent agents review the completed implementation. Fix all critical and high-priority findings.
-
-# 3. REPOSITORY SAFETY RULES
+Latest reported commit: `02d8150`
 
 Before changing anything:
 
-1. Inspect `git status`.
-2. Confirm current branch and latest commit.
-3. Identify uncommitted user changes.
-4. Preserve all user changes.
-5. Inspect the actual current database schema.
-6. Identify the production database path.
-7. Identify migration history and applied migrations.
-8. Establish a verified backup strategy.
-9. Record baseline test results.
-
-Never:
-
-- Reset or clean the working tree destructively.
-- Discard uncommitted changes.
-- Delete records merely because they resemble test data.
-- Modify production data without explicit authorization.
-- Run experimental migrations against production.
-- Rewrite Git history.
-- Force-push.
-- Merge.
-- Deploy.
-- Remove authentication or authorization checks.
-- Expose Founder private keys.
-- Add Redis without demonstrated necessity.
-
-**Important:** Database analysis and remediation planning are authorized. Production database mutation is not automatically authorized.
-
-Implement migration and cleanup logic in code and verify it against isolated database copies. Stop before applying destructive or irreversible changes to the production database.
-
-# 4. DATABASE RECONCILIATION — HIGHEST PRIORITY
-
-The previous committed database audit identified major inconsistencies.
-
-These are historical snapshot values and MUST be revalidated against the actual current database before any remediation.
-
-## 4.1 Canonical organization model
-
-The canonical organization is:
-
-| Entity | Expected count |
-|---|---:|
-| Council seats | 11 |
-| Permanent Council seats | 4 |
-| Vacant Council seats | 7 |
-| Founding Council personas | 4 |
-| Council runtime mappings | 8 |
-| Divisions | 6 |
-| Division Heads | 6 |
-| Specialists | 45 |
-| Total staff identities | 51 |
-| Division memberships | 51 |
-| Staff runtime mappings | 102 |
-| Canonical organizational identities | 62 |
-
-The six divisions are:
-
-1. Developer
-2. Marketing
-3. Finance
-4. Creative
-5. Research & Intelligence
-6. Business Operations
-
-The four permanent founding Council personas are:
-
-- Steve Jobs
-- Virgil Abloh
-- Shawn Stüssy
-- G-Dragon
-
-The Founder is a separate human authority, not an additional Council voting seat.
-
-Division Heads and specialists are not Council voting members.
-
-Preserve the distinction between:
-- Human Founder.
-- Council seats.
-- Council personas.
-- Runtime instances.
-- Division Heads.
-- Specialists.
-- Communication identities.
-
-## 4.2 Previously identified database contamination
-
-The historical database audit reported:
-
-| Table | Historical total | Canonical expected |
-|---|---:|---:|
-| divisions | 5,427 | 6 |
-| staff_agents | 6,925 | 51 |
-| division_members | 5,529 | 51 |
-| staff_runtime_personas | 938 | 102 |
-| agents | 160 | Approximately 11 |
-| council_seats | 11 | 11 |
-| personas | 4 | 4 |
-| runtime_personas | 8 | 8 |
-| quality_thresholds | 155 | 1 canonical global configuration |
-
-The previous audit also identified:
-
-- 4,367 invalid `division_members.role` values containing timestamps.
-- 70 unresolved division-head references.
-- 3 task assignments using `founder` as a staff identity.
-- 154 noncanonical quality-threshold records.
-- Potential test-generated records persisted in core organization tables.
-
-Do not blindly enforce the expected counts by deleting everything beyond them.
-
-First establish which records are:
-- Canonical.
-- Legitimate operational records.
-- Historical records.
-- Test fixtures.
-- Orphaned records.
-- Duplicate identities.
-- Invalid relationships.
-
-## 4.3 Required database audit
-
-Produce a fresh, read-only database integrity report.
-
-Inspect at minimum:
-
-- `agents`
-- `council_seats`
-- `personas`
-- `runtime_personas`
-- `divisions`
-- `staff_agents`
-- `division_members`
-- `staff_runtime_personas`
-- `tasks`
-- `task_audit`
-- `messages`
-- `conversations`, if present
-- `quality_thresholds`
-- `task_autonomy_levels`
-- `deliverables`
-- `deliverable_versions`
-- `migration_ledger`
-- `founder_nonces`
-
-For each table, report:
-
-- Actual row count.
-- Expected canonical count where applicable.
-- Duplicate primary or logical identities.
-- Invalid references.
-- Orphan records.
-- Invalid enum/role values.
-- Test-like records.
-- Missing relationships.
-- Runtime mappings.
-- Status distribution.
-
-Verify all declared foreign keys using SQLite integrity checks.
-
-Also verify logical relationships that are not protected by foreign keys.
-
-## 4.4 Canonical identity invariants
-
-Enforce these invariants in application logic and database constraints where appropriate:
-
-1. Exactly six canonical divisions.
-2. Exactly six active Division Heads.
-3. Exactly 45 canonical specialists.
-4. Exactly 51 canonical staff identities.
-5. Exactly 51 canonical division memberships.
-6. Each staff identity belongs to the correct division.
-7. Every Division Head reference resolves to the correct active staff member.
-8. No specialist is accidentally classified as a Council voting member.
-9. No Division Head is accidentally classified as a Council voting member.
-10. Every canonical staff identity has one Claude and one Hermes runtime mapping.
-11. Council seats and personas are not duplicated by runtime instance.
-12. Founder remains separate from Council voting seats.
-13. Communication identities resolve to the correct canonical organization identities.
-
-Do not use display names as primary identity keys.
-
-Use stable IDs and explicit mapping relationships.
-
-## 4.5 Repair invalid references
-
-Investigate and resolve:
-
-- Invalid division membership roles.
-- Unresolved division-head references.
-- Invalid task staff assignees.
-- Duplicate identities.
-- Orphaned runtime mappings.
-- Communication identities not synchronized with staff and divisions.
-
-Do not replace invalid values with arbitrary defaults without understanding their original meaning.
-
-Where a record cannot be safely mapped, quarantine it or produce a proposed repair requiring Founder approval.
-
-## 4.6 Cleanup and preservation
-
-Implement a safe reconciliation strategy.
-
-Requirements:
-
-- Preserve existing legitimate tasks, messages, deliverables, memory, audit logs, and operational records.
-- Never delete canonical records.
-- Do not delete historical records without evidence and explicit approval.
-- Use backups and transactional migrations.
-- Produce before/after count reports.
-- Produce a rollback plan.
-- Maintain migration checksums.
-- Record all applied changes.
-- Verify referential integrity after every migration.
-
-If safe automated cleanup cannot be proven, leave the records untouched and provide a precise cleanup manifest for approval.
-
-# 5. COMMUNICATION IDENTITY REGISTRY
-
-**Priority: P0**
-
-Previous audit found that the communication `agents` registry and organization tables are not reliably synchronized.
-
-The Chat UI can show staff or divisions that the messaging service cannot resolve.
-
-Fix this properly.
-
-Requirements:
-
-1. Define the authoritative identity registry.
-2. Establish deterministic mappings between organization identities and communication identities.
-3. Register Founder through the established bootstrap process.
-4. Register Claude and Hermes runtime identities.
-5. Support Council persona runtime mappings.
-6. Support Division Head and specialist runtime identities.
-7. Ensure registration is idempotent.
-8. Prevent duplicate identities.
-9. Preserve stable IDs.
-10. Never grant permissions merely because an identity was synchronized.
-11. Enforce authenticated identity ownership.
-12. Verify synchronization on application startup and relevant organization changes.
-13. Handle failed synchronization visibly.
-14. Do not silently swallow identity registration errors.
-
-Add tests for:
-- Fresh database initialization.
-- Application restart.
-- Duplicate registration.
-- Staff registration.
-- Division registration.
-- Runtime mapping.
-- Missing identities.
-- Unknown recipients.
-- Unauthorized senders.
-- Identity consistency.
-
-The communication registry must not become a second, conflicting source of truth.
-
-# 6. M2 — CHAT AND MCP REMEDIATION
-
-## 6.1 Correct conversation participant SQL
-
-**Priority: P0**
-
-The previous audit found incorrect conversation participant filtering in `src/communication/messages.ts`.
-
-The current logical predicate can exclude messages in one direction.
-
-Implement correct two-direction participant-pair filtering.
-
-For a conversation between A and B, retrieve:
-
-- A → B
-- B → A
-
-Do not return unrelated messages.
-
-Apply the same logic consistently to:
-- REST conversation retrieval.
-- MCP history retrieval.
-- Inbox retrieval.
-- Unread counts.
-- Read-state updates.
-
-Add regression tests for both message directions.
-
-## 6.2 Message identity contract
-
-**Priority: P1**
-
-The backend uses `id`, while the frontend expects `message_id`.
-
-Establish one canonical API contract.
-
-Requirements:
-- Consistent identifier naming.
-- Consistent REST and MCP response structures.
-- Stable React keys.
-- Correct optimistic message replacement.
-- No duplicate messages after polling.
-- No frontend/backend type mismatch.
-
-Update shared types and tests.
-
-## 6.3 Message ordering — explicit Founder requirement
-
-**Priority: P0**
-
-The Founder reported that Chat messages appear backwards.
-
-Correct the message timeline.
-
-Required behavior:
-
-1. Oldest message appears at the top.
-2. Newest message appears at the bottom.
-3. New outgoing messages append at the bottom.
-4. Incoming messages appear in correct chronological position.
-5. Refresh preserves chronological order.
-6. Pagination loads older messages without reversing the timeline.
-7. Optimistic messages appear in the correct position.
-8. Failed messages remain in their correct chronological position.
-9. Retry does not duplicate or reorder messages.
-10. Scroll behavior is correct.
-
-When opening a conversation:
-- Load the latest messages.
-- Position the viewport at the bottom.
-- Preserve chronological order.
-
-When older messages are loaded:
-- Preserve the user's viewport position.
-- Do not jump to the bottom unexpectedly.
-
-When a new message arrives:
-- Scroll to the bottom only if the user was already near the bottom.
-- Otherwise show a new-message indicator.
-
-Use appropriate flexbox, MUI layout, and scroll behavior.
-
-Do not reverse the backend array simply to hide a database ordering problem.
-
-Verify the actual browser DOM order and rendered behavior.
-
-## 6.4 Conversation sidebar ordering
-
-New conversations should appear at the top of the conversation sidebar.
-
-Requirements:
-- Most recently active conversation first.
-- Preview reflects the latest message.
-- Last activity timestamp is correct.
-- Empty new conversations behave predictably.
-- Message polling updates the correct conversation.
-- No arbitrary global 500-message cap determines conversation ordering.
-
-The conversation sidebar and the message timeline have different ordering rules. Implement them separately.
-
-## 6.5 Database-level pagination
-
-Previous audit found pagination occurring after message retrieval.
-
-Fix this.
-
-Requirements:
-- Conversation filtering in SQL.
-- Stable chronological ordering.
-- Database-level pagination.
-- Consistent limit and cursor/offset semantics.
-- Accurate pagination metadata.
-- Unread filters applied before pagination.
-- No cross-conversation contamination.
-- No arbitrary global cap that hides older conversations.
-
-Add tests with several conversations and more messages than the page size.
-
-## 6.6 Mark-as-read
-
-Fix the previously identified SQL parameter-order mismatch.
-
-Requirements:
-- Only intended recipient messages are marked read.
-- Only the intended conversation is affected.
-- Correct unread counts.
-- Idempotent updates.
-- REST and MCP behavior consistent.
-
-## 6.7 checkInbox
-
-Define predictable behavior for optional `conversationId`.
-
-- Supplied ID: strictly filter to that conversation.
-- Omitted ID: return the documented inbox scope.
-- MCP and REST must agree.
-- Add tests for both behaviors.
-
-## 6.8 Failed-send and retry lifecycle
-
-Fix the failed-send implementation.
-
-Requirements:
-- Preserve text until server confirmation.
-- Display pending state.
-- Display failed state.
-- Allow retry.
-- Preserve the original conversation.
-- Prevent duplicate submissions.
-- Update message history after successful retry.
-- Update conversation preview and timestamp.
-- Remove failed state only after successful persistence.
-- Handle network failure without data loss.
-
-## 6.9 Delivery and read states
-
-Distinguish actual states:
-
-- Pending: persisted but not retrieved by the target agent.
-- Retrieved: target agent retrieved it.
-- Replied: response persisted.
-- Failed: a known failure occurred.
-
-Read status is separate.
-
-Do not claim that retrieval proves the agent processed the message.
-
-## 6.10 Claude and Hermes runtime
-
-Verify actual authenticated MCP connectivity.
-
-Test independently:
-
-- Claude Code.
-- Hermes Agent.
-
-Required workflow:
-
-Founder sends → database persists → target agent retrieves → agent processes → agent replies → reply persists → Founder receives reply → history survives refresh.
-
-Also test offline behavior and reconnect.
-
-If a runtime is unavailable:
-- Mark its E2E test BLOCKED.
-- Document the missing dependency.
-- Provide manual verification instructions.
-- Do not report mocked tests as real runtime success.
-
-# 7. BACKEND SECURITY AND RELIABILITY
-
-## 7.1 Cross-division memory authorization
-
-**Priority: P0**
-
-Previous audit found a query that includes cross-division activity without filtering against the authenticated user's authorized division.
-
-Fix the authorization boundary in `src/council/memory.ts`.
-
-Requirements:
-
-1. Inspect the actual permission model.
-2. Resolve authenticated owner type and owner ID.
-3. Restrict cross-division activity to explicitly authorized shares.
-4. Verify ownership and access scope.
-5. Prevent unrelated divisions from seeing activity.
-6. Preserve Founder access according to existing rules.
-7. Add multi-user and multi-division security tests.
-8. Verify no unauthorized metadata leaks through pagination or counts.
-
-Do not invent new access rules.
-
-## 7.2 Activity feed correctness
-
-Fix:
-- Incomplete source merging.
-- Pagination errors.
-- Incorrect global ordering.
-- Authorization inconsistency.
-- Silent backend errors.
-
-The frontend must distinguish:
-- Loading.
-- Successful empty result.
-- Successful populated result.
-- Failed request.
-
-Add retry.
-
-Do not convert errors into empty success states.
-
-## 7.3 Founder nonce cleanup
-
-Replace probabilistic cleanup with deterministic scheduling.
-
-Requirements:
-- One cleanup scheduler.
-- No duplicate timers.
-- Correct startup/shutdown lifecycle.
-- Test cleanup and expiration.
-- Preserve replay protection.
-- Do not weaken authentication.
-
-## 7.4 Migration rollback
-
-**Priority: P0 — Data integrity**
-
-The previous audit found hardcoded production database restoration behavior in `src/migration-runner/rollback.ts`.
-
-Correct it.
-
-Requirements:
-
-1. Rollback must target the database instance supplied to the migration runner.
-2. Never hardcode `data/council.db` as the destination.
-3. Isolate production and test database paths.
-4. Verify backup identity and target identity.
-5. Preserve checksums and migration ledger.
-6. Handle failure safely.
-7. Do not claim file restoration is transactionally protected by SQLite transactions.
-8. Implement a verified recovery strategy.
-9. Add isolated integration tests.
-
-Test:
-- Apply migration.
-- Verify schema.
-- Insert test data.
-- Roll back.
-- Verify schema restoration.
-- Verify data integrity.
-- Verify ledger state.
-- Simulate failed rollback.
-- Verify recovery.
-
-Never run rollback tests against production.
-
-## 7.5 Authentication and security regression
-
-Preserve all accepted Phase 8 security rules:
-
-- Production authentication fails closed.
-- No hardcoded identity fallback.
-- Founder key ownership and signature verification.
-- Nonce replay protection.
-- Local single-user mode restricted to loopback.
-- No forwarded-IP spoofing.
-- No browser exposure of private keys.
-- Explicit cross-division permissions.
-- Authorization on all relevant message, task, and memory routes.
-
-Do not weaken security to make the application work.
-
-# 8. M3 — DASHBOARD FUNCTIONALITY
-
-## 8.1 Dashboard quick actions
-
-Implement real workflows.
-
-**New Task**
-- Opens actual task creation.
-- Supports validation.
-- Persists through the backend.
-- Shows success/error feedback.
-
-**Create Division**
-- Opens actual division creation.
-- Uses existing permissions.
-- Persists through the backend.
-- Does not create duplicate divisions.
-
-**Invite Staff**
-- Opens the supported staff registration/onboarding workflow.
-- Registers the identity correctly.
-- Synchronizes communication identity.
-- Shows validation and error states.
-
-No silently inert buttons.
-
-If a feature cannot be implemented safely, disable it and mark it Coming Soon.
-
-## 8.2 Activity page
-
-Implement and register `/activity`.
-
-Requirements:
-- Correct authorization.
-- Correct pagination.
-- Loading, empty, and error states.
-- Retry.
-- Working Dashboard navigation.
-- Correct ordering.
-
-## 8.3 Dashboard statistics
-
-Use real backend values.
-
-Display accurate counts for:
-- Total staff agents.
-- Division Heads.
-- Specialists.
-- Divisions.
-- Council seats.
-- Permanent Council members.
-- Vacant Council seats.
-- Runtime agents.
-- Online/offline agents, where supported by actual presence signals.
-
-Avoid double-counting runtime instances as logical staff identities.
-
-Clearly distinguish:
-- Logical identities.
-- Runtime instances.
-- Council seats.
-- Communication agents.
-
-All statistics must agree with the canonical database and API responses.
-
-## 8.4 Agent and organization management
-
-Review the Organization page and relevant dashboard views.
-
-The UI must accurately represent:
-- 11 Council seats.
-- 4 permanent founding personas.
-- 7 vacant seats.
-- 6 divisions.
-- 6 Division Heads.
-- 45 specialists.
-- 51 staff identities.
-- 102 staff runtime mappings.
-
-Do not show inflated counts from test records as legitimate organizational totals.
-
-Where noncanonical records remain, distinguish them from canonical operational records.
-
-# 9. FRONTEND DESIGN — STRICT DESIGN DIRECTION
-
-**This section is mandatory.**
-
-The application must use vanilla MUI components and Google's Material Design system.
-
-## 9.1 Design reference
-
-Inspect and use the installed:
-
-`design-taste-frontend` skill.
-
-Read its complete instructions and relevant reference files before redesigning or polishing the interface.
-
-Also use the official MUI components and APIs already installed in the project.
-
-## 9.2 Design philosophy
-
-The UI must feel like a professional command center / control panel.
-
-Visual direction:
-- Clean.
-- Structured.
-- Information-dense but readable.
-- Functional.
-- Calm.
-- Precise.
-- Consistent.
-- Operational.
-
-Avoid:
-- Generic AI dashboard design.
-- Excessive gradients.
-- Glowing borders.
-- Glassmorphism used decoratively.
-- Oversized hero sections.
-- Decorative blobs.
-- Excessive rounded cards.
-- Random colorful accents.
-- Unnecessary animations.
-- Decorative charts without operational meaning.
-- Large empty spaces.
-- Unnecessary visual effects.
-- Generic AI-generated design patterns.
-
-Do not make the UI look like a marketing landing page.
-
-## 9.3 Vanilla MUI requirement
-
-Prefer official MUI components:
-
-- AppBar.
-- Drawer.
-- Toolbar.
-- Box.
-- Stack.
-- Grid.
-- Paper.
-- Card.
-- CardContent.
-- Typography.
-- Button.
-- IconButton.
-- Chip.
-- Badge.
-- Avatar.
-- List.
-- ListItem.
-- Tabs.
-- Table.
-- Dialog.
-- Menu.
-- Tooltip.
-- Snackbar.
-- Alert.
-- LinearProgress.
-- CircularProgress.
-- Divider.
-- Skeleton.
-
-Use existing MUI theme tokens and component APIs.
-
-Do not introduce a parallel styling system.
-
-**Extra CSS is allowed only when genuinely necessary.**
-
-Before writing custom CSS, determine whether MUI `sx`, theme overrides, or existing components can achieve the result.
-
-Do not install additional UI libraries without demonstrating a real need.
-
-## 9.4 Command center structure
-
-Review the existing application shell and organize information around operational tasks.
-
-Suggested hierarchy:
-
-**Primary navigation**
-- Dashboard.
-- Chat.
-- Organization.
-- Tasks.
-- Deliverables.
-- Activity.
-
-**Deferred navigation**
-- Council — Coming Soon if still incomplete.
-- Meetings — Coming Soon if still incomplete.
-
-**Dashboard**
-- Organization overview.
-- Agent/runtime status.
-- Active tasks.
-- Pending approvals.
-- Recent activity.
-- Operational alerts.
-- Quick actions.
-
-Do not create redundant dashboard widgets.
-
-Use compact layouts and consistent spacing.
-
-## 9.5 Theme architecture
-
-Create one authoritative theme store.
-
-Preferred:
-- Existing Zustand, if installed and appropriate.
-- Otherwise React Context.
-
-Requirements:
-- One source of truth.
-- Shared by App and Layout.
-- One localStorage owner.
-- No full page reload.
-- Immediate theme update.
-- Light and dark themes.
-- Preserve MUI design tokens.
-- Correct initialization.
-- Correct subscription cleanup.
-
-Remove duplicate state and direct localStorage logic from components.
-
-## 9.6 Navigation and accessibility
-
-Fix:
-- Invalid nested CSS in inline styles.
-- Hover states.
-- Keyboard focus.
-- Active route.
-- Light/dark contrast.
-- Responsive drawer behavior.
-
-Use MUI `sx` or `styled()` correctly.
-
-## 9.7 404 and placeholder pages
-
-Add a real 404 page with a Dashboard link.
-
-Settings/Profile:
-- Implement if supported.
-- Otherwise remove or disable with Coming Soon.
-
-Council/Meetings:
-- Clearly show Coming Soon.
-- Do not present incomplete pages as finished.
-
-# 10. FRONTEND RUNTIME AND CONSOLE AUDIT
-
-This is mandatory.
-
-Do not rely exclusively on TypeScript compilation or production builds.
-
-Run the application in a browser using the available development/test environment.
-
-Inspect:
-
-1. Browser console errors.
-2. Browser console warnings.
-3. React warnings.
-4. React key warnings.
-5. MUI warnings.
-6. Failed network requests.
-7. HTTP 4xx/5xx responses.
-8. Failed asset loads.
-9. Unhandled promise rejections.
-10. Runtime exceptions.
-11. Infinite or excessive re-rendering.
-12. Broken route transitions.
-13. Theme initialization errors.
-14. Scroll and layout errors.
-15. Dialog and form interaction failures.
-
-Fix errors caused by the application.
-
-Do not suppress errors simply to produce a clean console.
-
-Distinguish:
-- Actual application errors.
-- Expected development warnings.
-- External runtime failures.
-- Browser/tooling limitations.
-
-## Browser workflow verification
-
-Test at minimum:
-
-- Dashboard loading.
-- Chat open and conversation selection.
-- Message send.
-- Message retry.
-- Chronological message ordering.
-- Scroll-to-bottom behavior.
-- Loading older messages.
-- Conversation sidebar ordering.
-- Theme toggle without reload.
-- Organization page.
-- Create Division.
-- Invite Staff.
-- New Task.
-- Activity page.
-- 404 route.
-- Council/Meetings placeholders.
-- Light and dark mode.
-- Responsive layout.
-
-Capture console errors and failed requests in the final report.
-
-# 11. MANDATORY AUDIT TOOLS
-
-Run both audits. These are required deliverables, not optional suggestions.
-
-## 11.1 Ponytail — Backend
-
-Use the available Ponytail skill/tool.
-
-Run a full backend audit covering:
-
-- Architecture.
-- Security.
-- Authentication.
-- Authorization.
-- Database integrity.
-- Query correctness.
-- Transactions.
-- Migration safety.
-- Error handling.
-- API contracts.
-- MCP implementation.
-- Performance.
-- Reliability.
-- Test coverage.
-- TypeScript quality.
-- Dependency risks.
-
-Fix all critical and high findings.
-
-Do not suppress findings without documenting why.
-
-Produce:
-
-`docs/audits/remediation/PONYTAIL_BACKEND_AUDIT.md`
-
-## 11.2 Impeccable — Frontend
-
-Use the available Impeccable skill/tool.
-
-Run a full frontend audit covering:
-
-- Design consistency.
-- Material Design compliance.
-- MUI usage.
-- Visual hierarchy.
-- Layout.
-- Typography.
-- Spacing.
-- Color.
-- Accessibility.
-- Responsive behavior.
-- Interaction states.
-- Empty/loading/error states.
-- Forms.
-- Navigation.
-- Component consistency.
-- CSS quality.
-- Console errors.
-- Runtime behavior.
-
-Fix all critical and high findings.
-
-Produce:
-
-`docs/audits/remediation/IMPECCABLE_FRONTEND_AUDIT.md`
-
-If either audit tool is unavailable, report the exact limitation. Do not substitute a self-written checklist and claim the official audit ran.
-
-# 12. TESTING REQUIREMENTS
-
-Run the complete available test suites.
-
-## Backend
-
-- Full existing backend suite.
-- Communication identity tests.
-- Message participant filtering tests.
-- Conversation history tests.
-- Pagination tests.
-- Read-state tests.
-- Inbox filtering tests.
-- MCP authentication tests.
-- Claude/Hermes identity tests.
-- Cross-division authorization tests.
-- Activity authorization tests.
-- Nonce cleanup tests.
-- Migration rollback tests.
-- Database reconciliation tests.
-- API contract tests.
-
-## Frontend
-
-- TypeScript typecheck.
-- Full frontend unit/component suite.
-- Production build.
-- Theme tests.
-- Navigation tests.
-- Chat timeline tests.
-- Optimistic send tests.
-- Retry tests.
-- Conversation ordering tests.
-- Activity tests.
-- Quick action tests.
-- Organization statistics tests.
-- Error/empty/loading state tests.
-- Accessibility checks.
-
-## E2E
-
-Use the existing Playwright setup if available. Otherwise assess whether adding it is justified.
-
-Required real workflows:
-
-### A. Founder → Claude
-Send, retrieve through authenticated MCP, reply, persist, display, refresh.
-
-### B. Founder → Hermes
-Repeat independently.
-
-### C. Offline agent
-Send while offline, reconnect, retrieve, reply, verify no data loss.
-
-### D. Chat ordering
-Send multiple messages in both directions, refresh, load older messages, and verify correct chronological order and scroll position.
-
-### E. Database identity
-Verify all canonical counts and identity mappings against the actual database.
-
-### F. Authorization
-Use separate owners and divisions. Verify no unauthorized messages, tasks, or memory activity leak.
-
-### G. Dashboard
-Exercise all quick actions and activity navigation.
-
-### H. Theme and navigation
-Verify no reload, correct focus/hover/active states, and 404 behavior.
-
-### I. Browser console
-Verify no unexplained application runtime errors or failed requests.
-
-Never count mocked tests as real runtime E2E.
-
-If external runtimes are unavailable, mark the relevant test BLOCKED.
-
-# 13. REGRESSION AND COMPLETION REQUIREMENTS
-
-The following must be true before submitting the milestone:
-
-- [ ] Current repository and database state inspected.
-- [ ] Agent orchestration completed.
-- [ ] Maximum five agents in parallel.
-- [ ] Dedicated Git agent used.
-- [ ] No concurrent file edits.
-- [ ] Canonical organization counts verified.
-- [ ] Database integrity verified.
-- [ ] Invalid references identified and safely addressed.
-- [ ] Communication identity registry synchronized.
-- [ ] Founder identity correctly separated from Council seats.
-- [ ] Chat conversation SQL fixed.
-- [ ] Message ID contract consistent.
-- [ ] Newest message appears at bottom.
-- [ ] Conversation sidebar newest-first.
-- [ ] Scroll behavior verified.
-- [ ] Database-level message pagination works.
-- [ ] Read receipts work.
-- [ ] Inbox filtering works.
-- [ ] Failed-send retry works.
-- [ ] Delivery states are truthful.
-- [ ] Claude runtime tested or explicitly blocked.
-- [ ] Hermes runtime tested or explicitly blocked.
-- [ ] Cross-division authorization fixed.
-- [ ] Activity pagination and ordering correct.
-- [ ] Dashboard quick actions functional.
-- [ ] Activity page functional.
-- [ ] Dashboard counts correct.
-- [ ] Migration rollback target corrected.
-- [ ] Rollback integration tests pass.
-- [ ] Founder nonce cleanup deterministic.
-- [ ] MUI theme has one source of truth.
-- [ ] No page reload for theme changes.
-- [ ] Navigation states accessible.
-- [ ] 404 works.
-- [ ] No silently inert controls.
-- [ ] Council/Meetings correctly labeled.
-- [ ] Vanilla MUI design direction followed.
-- [ ] `design-taste-frontend` consulted.
-- [ ] Ponytail backend audit completed.
-- [ ] Impeccable frontend audit completed.
-- [ ] Browser console inspected.
-- [ ] Runtime/network errors inspected.
-- [ ] Backend tests pass.
-- [ ] Frontend tests pass.
-- [ ] TypeScript passes.
-- [ ] Production build passes.
-- [ ] E2E results documented.
-- [ ] Security regression passes.
-- [ ] Documentation updated.
-- [ ] Independent final audit completed.
-
-# 14. REQUIRED DOCUMENTATION
-
-Use the existing documentation structure. Do not create duplicate reports if canonical equivalents already exist.
-
-Create or update:
-
-1. `UNIFIED_REMEDIATION_REPORT.md`
-2. `DATABASE_RECONCILIATION_REPORT.md`
-3. `IDENTITY_REGISTRY_REPORT.md`
-4. `M2_CHAT_REMEDIATION_REPORT.md`
-5. `M3_COMMAND_CENTER_REPORT.md`
-6. `PONYTAIL_BACKEND_AUDIT.md`
-7. `IMPECCABLE_FRONTEND_AUDIT.md`
-8. `BROWSER_CONSOLE_AUDIT.md`
-9. `MIGRATION_ROLLBACK_VERIFICATION.md`
-10. `E2E_VERIFICATION_REPORT.md`
-11. `KNOWN_LIMITATIONS.md`
-
-For each finding, record:
-- Finding ID.
-- Original issue.
-- Severity.
-- Root cause.
-- Files changed.
-- Fix.
-- Tests.
-- Verification evidence.
-- Remaining risks.
-
-Update previous M2/M3 reports so their status reflects the actual latest implementation.
-
-# 15. FINAL REPORT
-
-Submit the final report in this exact structure.
-
-## A. Executive Summary
-- Overall result.
-- Critical issues resolved.
-- M2 status.
-- M3 status.
-- Database status.
-- Security status.
-- UI status.
-
-## B. Agent Execution
-- Agent names.
-- Agent definitions used.
-- Responsibilities.
-- Files owned.
-- Parallel execution waves.
-- Git management agent activity.
-
-## C. Database Reconciliation
-- Before counts.
-- Canonical counts.
-- After counts.
-- Invalid records.
-- Repaired relationships.
-- Preserved records.
-- Records awaiting Founder approval.
-
-## D. Communication and Chat
-- Identity synchronization.
-- MCP connectivity.
-- Message persistence.
-- Conversation filtering.
-- Pagination.
-- Read state.
-- Retry.
-- Delivery states.
-- Message ordering and scroll verification.
-
-## E. Frontend and Design
-- MUI implementation.
-- Material Design compliance.
-- Command center layout.
-- Theme architecture.
-- Navigation.
-- Dashboard.
-- Organization management.
-- Accessibility.
-- Responsive verification.
-
-## F. Audit Results
-- Ponytail findings and closure.
-- Impeccable findings and closure.
-- Console errors.
-- Runtime errors.
-- Network errors.
-
-## G. Testing
-Provide exact numbers:
-- Backend tests passed/failed.
-- Frontend tests passed/failed.
-- E2E passed/failed/blocked.
-- Security tests.
-- Database tests.
-- Migration rollback tests.
-- TypeScript.
-- Production build.
-
-## H. Remaining Issues
-List all blocked, deferred, or unresolved issues.
-
-## I. Git Report
-- Branch.
-- Latest SHA.
-- Commits.
-- Working tree.
-- Push status.
-- Git agent actions.
-
-## J. Founder Acceptance
-
-End with:
-
-**Unified remediation milestone submitted for Founder review.**
-
-Do not mark M2/M3 or the unified remediation milestone formally accepted. Only the Founder can accept it.
+1. Verify the current branch and HEAD commit.
+2. Confirm the working tree state.
+3. Inspect commits since the previous verified baseline.
+4. Read the existing project documentation and current M2/M3 reports.
+5. Inspect the actual source code rather than trusting historical reports.
+6. Identify whether the working tree contains user changes or generated artifacts.
+7. Do not overwrite or discard existing changes.
+
+### What this repository does
+
+Council Bridge is an MCP server and REST API for structured multi-agent collaboration.
+
+It provides:
+- Message bus and agent communication.
+- Council meetings and governance.
+- Task delegation and execution.
+- Approval workflows.
+- Memory and knowledge management.
+- Founder-signed authorization for privileged operations.
+
+### Backend
+
+- Express 5.
+- MCP SDK 1.32.
+- SQLite using `better-sqlite3`.
+- SQLite WAL mode.
+- Session-based authentication with JWT-style tokens.
+- Founder Ed25519 signature verification for privileged operations.
+- Local single-user Founder mode restricted to loopback connections.
+
+### Frontend
+
+- React 19.
+- Vite.
+- MUI 9.
+- Separate `frontend/` package.
+
+### Operating assumptions
+
+- Default mode: single-user local development.
+- Default bind address: `127.0.0.1`.
+- Production requires an explicit persistent database path and Founder keys.
+- Production authentication must remain fail-closed.
+
+Do not introduce Redis, additional infrastructure, or unnecessary dependencies.
 
 ---
 
-# FINAL EXECUTION DIRECTIVE
+# 3. Non-Negotiable Rules
 
-Execute every requirement in this prompt.
+## Security
 
-Do not stop after producing a plan.
+- Never weaken production authentication to make tests pass.
+- Never introduce hardcoded Founder identity fallbacks.
+- Never expose Founder private keys to the browser or repository.
+- Never bypass Founder Ed25519 signature verification.
+- Never allow forwarded-IP spoofing to bypass loopback restrictions.
+- Never trust client-provided identity without server-side validation.
+- Never weaken authorization to make MCP tests pass.
+- Keep local single-user mode isolated from production mode.
+- Preserve nonce replay protection and Founder key ownership validation.
 
-Do not skip the database reconciliation.
+## Database
 
-Do not skip Ponytail.
+- Never delete production records to force canonical counts.
+- Never run database cleanup or bootstrap operations without explicit Founder authorization.
+- Never modify the production database as part of this task.
+- Never execute unapproved migrations against production.
+- Preserve existing data.
+- Use isolated temporary databases for tests.
+- Maintain migration checksums and dependency validation.
+- Preserve migration backups and recovery guarantees.
 
-Do not skip Impeccable.
+## Git
 
-Do not skip browser console inspection.
+- Do not commit.
+- Do not push.
+- Do not merge.
+- Do not deploy.
+- Do not force-push.
+- Do not rewrite shared Git history.
+- Do not reset or discard user changes.
 
-Do not substitute mock tests for actual runtime verification.
+Prepare commit recommendations only. Wait for explicit authorization.
 
-Do not introduce a new visual design system. Use vanilla MUI and Google's Material Design system.
+## Project governance
 
-Do not use more than five parallel agents.
+- Phases 1–8 are formally accepted.
+- Phase 9 implementation is reported complete but formal acceptance remains pending.
+- Phase 10 is formally accepted.
+- M2/M3 implementation is reported complete but formal acceptance remains pending.
+- Do not mark M2/M3 accepted.
+- Do not change the formal acceptance status of any phase.
 
-Use a dedicated Git-management agent from `C:\Users\L\.claude\agents`.
+---
 
-Do not allow agents to modify the same files concurrently.
+# 4. Execution Strategy
 
-Preserve user data and existing functionality.
+Use the available Claude Code agents.
 
-Fix critical issues before polishing low-priority details.
+Maximum parallel agents: 5.
 
-If an action requires production database mutation, destructive Git operations, or deployment, stop and request explicit Founder authorization.
+Use strict file ownership. Two agents must never edit the same file simultaneously.
 
-Begin with Wave 0. Continue through implementation, integration, testing, audits, and final reporting.
+Before starting parallel work:
+
+1. Read agent definitions in `C:\Users\L\.claude\agents`.
+2. Select agents based on their actual capabilities.
+3. Assign explicit file and directory ownership.
+4. Define integration dependencies.
+5. Establish a shared findings and handoff format.
+6. Use a dedicated Git agent from that directory for branch inspection and commit-message recommendations only. It must not commit or push.
+
+Suggested workstreams:
+
+| Agent | Responsibility |
+|---|---|
+| Backend Architect | Database TypeScript errors, initialization, query API |
+| MCP/Auth Engineer | MCP test suite, HTTP auth integration tests |
+| Database Engineer | Message pagination, migration registry, rollback safety |
+| Frontend Architect | M2/M3 frontend and interaction verification |
+| QA/Security Engineer | Regression tests, integration tests, security audit |
+
+The primary agent owns integration, conflict resolution, final verification, and reporting.
+
+If parallel work creates overlapping changes, stop and resolve ownership before proceeding.
+
+---
+
+# 5. Wave 0 — Baseline and Repository Inspection
+
+Inspect the entire relevant implementation.
+
+At minimum inspect:
+
+- `src/infrastructure/database/database.ts`
+- `src/communication/messages.ts`
+- `src/auth/`
+- `src/mcp/`
+- `src/mcp/tools.ts`
+- `src/api/`
+- `src/api/routes/`
+- `src/migration-runner/`
+- `tests/unit/mcp-tools.test.ts`
+- Authentication tests.
+- Migration tests.
+- Message tests.
+- Frontend chat implementation.
+- Frontend theme implementation.
+- Dashboard and activity implementation.
+- Navigation and routing.
+- Docker and CI configuration.
+- `.gitignore`.
+- Existing M2/M3 reports and migration documentation.
+
+Run baseline checks and record their actual output.
+
+Establish:
+
+- Current TypeScript errors.
+- Current test failures.
+- Current frontend build status.
+- Current lint status.
+- Existing test artifact directories.
+- Existing uncommitted changes.
+- Existing migration state without applying migrations.
+- Current database configuration and initialization behavior.
+
+Do not assume any reported failure is pre-existing until its origin is established.
+
+---
+
+# 6. Wave 1 — Critical Backend Fixes
+
+## 6.1 TypeScript compilation errors
+
+File:
+
+`src/infrastructure/database/database.ts`
+
+Reported problems:
+
+- `query()` returns an array with additional `get` and `all` methods.
+- TypeScript sees the return value as `unknown[]`.
+- Array augmentation is not represented by the declared return type.
+- `generateId` proxy has implicit `any` types.
+
+Required work:
+
+1. Inspect all callers of `query()`.
+2. Determine the intended public API.
+3. Define explicit TypeScript interfaces/types for the query result.
+4. Type the augmented array and its helper methods correctly.
+5. Avoid unsafe casts where a proper type can be defined.
+6. Add explicit proxy and handler types for `generateId`.
+7. Preserve existing runtime behavior unless a behavior change is necessary.
+8. Update affected callers if the corrected type exposes existing mistakes.
+9. Add focused tests for the query helpers.
+10. Run the complete backend typecheck.
+
+Acceptance criteria:
+
+- `npm run typecheck` passes.
+- No new implicit `any` types.
+- No unnecessary `any` or broad `unknown` escapes.
+- Existing query callers remain functional.
+- Tests verify `get`, `all`, and ordinary array behavior.
+
+## 6.2 MCP tools test suite hangs and returns 401
+
+File:
+
+`tests/unit/mcp-tools.test.ts`
+
+Reported problem:
+
+- More than 40 tests are cancelled or time out.
+- Initial request receives 401 Unauthorized where the test expects success.
+- Server/test authentication configuration is inconsistent.
+
+Required work:
+
+1. Trace the complete test setup.
+2. Inspect MCP server initialization.
+3. Inspect authentication middleware and mode selection.
+4. Determine why the test request receives 401.
+5. Identify whether the test expects local, development, or production behavior.
+6. Correct the test environment or mock boundary without weakening real authentication.
+7. Ensure every test creates and closes its server, MCP transport, database, and timers.
+8. Ensure failures produce useful error messages rather than hanging.
+9. Add explicit timeouts only where justified; do not conceal hanging tests with excessive timeout values.
+10. Run the MCP suite independently and as part of the complete suite.
+
+Important:
+
+Do not automatically set `AUTH_MODE=development` and `allow_hardcoded_fallback=true` simply to make tests pass.
+
+First establish the intended security contract.
+
+If a test requires development authentication, configure that explicitly in the isolated test environment and test the real production mode separately.
+
+If mocking is appropriate, mock only the intended external boundary. Do not mock the middleware behavior that the test is supposed to verify.
+
+Acceptance criteria:
+
+- All MCP tools tests complete.
+- No unexplained 401 responses.
+- No hanging tests.
+- Production authentication tests remain fail-closed.
+- Test setup and teardown reliably release resources.
+
+## 6.3 Lazy database initialization race condition
+
+File:
+
+`src/infrastructure/database/database.ts`
+
+Reported problem:
+
+`_databaseInstance` is initialized lazily through `getInstance()`.
+
+Multiple callers could potentially create more than one connection.
+
+Required work:
+
+1. Inspect the actual initialization path.
+2. Determine whether initialization is synchronous or asynchronous.
+3. Determine whether concurrent calls can actually overlap.
+4. If initialization is synchronous, document why JavaScript execution prevents the alleged race.
+5. If initialization can overlap, implement a safe single-initialization guard.
+6. Avoid unnecessary asynchronous complexity.
+7. Ensure initialization failures do not leave the singleton permanently corrupted.
+8. Ensure all proxy exports reference the same database instance.
+9. Add tests that exercise concurrent initialization where relevant.
+
+Do not implement a promise-based guard automatically if the underlying initialization is synchronous and cannot race. Use the simplest correct solution.
+
+Acceptance criteria:
+
+- Exactly one active database connection per configured instance.
+- Initialization failures can be recovered safely.
+- No accidental connection leaks.
+- Tests demonstrate the actual initialization contract.
+
+---
+
+# 7. Wave 2 — Database and Message Bus Improvements
+
+## 7.1 SQL-level message pagination
+
+File:
+
+`src/communication/messages.ts`
+
+Reported problem:
+
+When `conversation_id` is absent, `listMessages()` retrieves up to 500 messages, sorts them in JavaScript, and slices the result in memory.
+
+Required work:
+
+1. Inspect every `listMessages()` query path.
+2. Preserve bidirectional participant filtering.
+3. Move ordering and pagination into SQL.
+4. Add a separate count query where total counts are required.
+5. Ensure filtering occurs before pagination.
+6. Preserve deterministic ordering.
+7. Handle equal timestamps with a stable secondary sort key.
+8. Avoid fetching records that are not required by the requested page.
+9. Validate limit and offset inputs.
+10. Add indexes if query plans demonstrate a need.
+11. Test both conversation-specific and general message retrieval.
+
+Acceptance criteria:
+
+- Pagination is performed by SQLite.
+- No arbitrary 500-message fetch followed by JavaScript slicing.
+- Correct total counts.
+- Correct bidirectional results.
+- Stable ordering across pages.
+- No duplicate or missing messages between pages.
+
+## 7.2 Batch mark-as-read updates
+
+File:
+
+`src/communication/messages.ts`
+
+Reported problem:
+
+`markMessagesAsRead()` updates individual messages inside a loop.
+
+Required work:
+
+- Replace N+1 updates with a parameterized batch update where appropriate.
+- Use a safe parameterized `IN` clause or another efficient SQLite-supported approach.
+- Handle empty ID arrays.
+- Respect recipient ownership and existing authorization conditions.
+- Avoid marking another agent's messages as read.
+- Preserve idempotency.
+- Add tests for large batches and unauthorized IDs.
+
+Do not construct SQL by interpolating untrusted message IDs.
+
+## 7.3 Migration dependency parsing
+
+File:
+
+`src/migration-runner/registry.ts`
+
+Reported problem:
+
+Dependencies are parsed from comments using regex, including ranges such as `001-005`.
+
+Required work:
+
+1. Inspect current migration conventions.
+2. Preserve compatibility with existing migration files.
+3. Validate all declared dependencies against the discovered registry.
+4. Reject missing dependencies.
+5. Detect circular dependencies.
+6. Detect self-dependencies.
+7. Detect duplicate dependency declarations.
+8. Ensure range expansion is deterministic and correctly handles boundaries.
+9. Produce clear errors identifying the migration and invalid dependency.
+10. Add tests for malformed declarations and dependency graph failures.
+
+Do not migrate every SQL file to JSON front matter unless the benefits justify a repository-wide format change.
+
+Prefer a backward-compatible structured parser with strict validation.
+
+Acceptance criteria:
+
+- Missing dependencies fail at registry load.
+- Cycles are detected.
+- Valid existing migrations continue to load.
+- Dependency ordering is deterministic.
+- No silent dependency omission.
+
+## 7.4 Cross-division shares CHECK constraint
+
+Inspect:
+
+- Migration 005.
+- Migration 016.
+- Current schema in `database.ts`.
+- Current Phase 6 authorization decisions.
+- Current cross-division share implementation.
+
+Reported discrepancy:
+
+A comment suggests `granted_by_type` supports `founder` and `division`, while the CHECK constraint only permits `founder`.
+
+Determine the intended authorization model from accepted project decisions and implementation.
+
+If Founder-only is intentional:
+
+- Keep the constraint.
+- Correct misleading comments.
+- Document why division grants are excluded.
+
+If division grants are explicitly authorized by the established design:
+
+- Propose the necessary schema and authorization changes.
+- Do not apply production migrations.
+- Do not silently broaden privileges.
+
+Acceptance criteria:
+
+- Documentation, schema, and authorization behavior agree.
+- No accidental permission expansion.
+
+## 7.5 Test artifacts and temporary directories
+
+Reported issue:
+
+Test runs create directories such as:
+
+- `test-corrupt-*`
+- `test-recovery-*`
+- `test-rollbacks-*`
+
+in the repository root.
+
+Required work:
+
+1. Find every test creating these directories.
+2. Identify which tests own them.
+3. Move generated test data to `os.tmpdir()` or a dedicated ignored test-data location.
+4. Ensure each test uses unique isolated paths.
+5. Add cleanup in reliable teardown/finally blocks.
+6. Add appropriate `.gitignore` patterns.
+7. Preserve any legitimate tracked fixtures.
+8. Do not delete user-created directories.
+9. Remove only artifacts proven to be generated and safe to remove.
+
+Acceptance criteria:
+
+- Test runs do not pollute the repository root.
+- Temporary databases are isolated.
+- Cleanup works after both success and failure.
+- Git status remains free of generated artifacts after tests.
+
+---
+
+# 8. Wave 3 — Authentication and Security Integration Testing
+
+## 8.1 Real HTTP middleware integration tests
+
+Current reported gap:
+
+Existing Phase 8 authentication tests do not fully exercise the actual Express middleware chain with real HTTP requests.
+
+Required work:
+
+Use Supertest or the existing established HTTP testing approach.
+
+Test the real server instance and actual middleware chain.
+
+Cover at least:
+
+### Local mode
+
+- Loopback requests.
+- Non-loopback requests.
+- IPv4 loopback.
+- IPv6 loopback where supported.
+- Forwarded-IP spoofing attempts.
+- Missing identity.
+- Invalid identity.
+- Correct local Founder identity behavior.
+
+### Development mode
+
+- Explicit development configuration.
+- Invalid session.
+- Valid session.
+- Missing token.
+- Expired token.
+- Invalid signature.
+- Configuration with fallback disabled.
+- Configuration with fallback enabled, if that option remains supported.
+
+### Production mode
+
+- Missing Founder keys.
+- Missing persistent database path.
+- Missing session secret.
+- Invalid session.
+- Expired session.
+- Invalid Founder signature.
+- Valid Founder signature.
+- Replay attempts.
+- Unauthorized privileged operation.
+- Valid authorized privileged operation.
+
+### Middleware behavior
+
+- Correct HTTP status codes.
+- Consistent error response format.
+- No identity fallback.
+- No accidental bypass through route ordering.
+- No accidental authorization differences between REST and MCP.
+- Correct resource cleanup after each test.
+
+Use isolated databases, temporary keys, and test-only configuration.
+
+Never use production credentials or real private keys in test fixtures.
+
+Acceptance criteria:
+
+- Tests exercise real HTTP requests.
+- Tests cover actual middleware behavior.
+- Production fail-closed behavior is verified.
+- Local mode remains loopback restricted.
+- Founder signature and replay protections remain intact.
+
+## 8.2 Founder token parsing
+
+Reported issue:
+
+Token format:
+
+`session_id|owner_type|owner_id|signature`
+
+A pipe character in a field could break parsing.
+
+Required work:
+
+1. Inspect the current token contract.
+2. Determine whether each field is restricted to a character set that already excludes `|`.
+3. Determine whether compatibility with existing sessions is required.
+4. If parsing is genuinely ambiguous, implement a versioned structured format using JSON plus base64url or another unambiguous encoding.
+5. Validate all fields and reject malformed tokens.
+6. Preserve signature verification and canonical signed payload behavior.
+7. Add tests for delimiters, malformed encoding, Unicode, empty fields, invalid signatures, and legacy compatibility where required.
+8. Do not silently invalidate existing valid sessions.
+
+Do not change cryptographic semantics without reviewing the Founder signature contract.
+
+Acceptance criteria:
+
+- Token parsing is unambiguous.
+- Signature verification remains correct.
+- Malformed tokens fail safely.
+- Compatibility behavior is documented.
+
+## 8.3 Nonce cleanup function
+
+File:
+
+`src/auth/founder.ts`
+
+Reported issue:
+
+`cleanupExpiredNonces()` is an exported no-op, while actual cleanup is performed through `startNonceCleanupInterval()`.
+
+Required work:
+
+1. Search all callers.
+2. Determine whether external compatibility requires retaining the export.
+3. If retained, add an explicit `@deprecated` JSDoc comment and explain the actual cleanup mechanism.
+4. If removed, update every caller and test.
+5. Do not accidentally stop scheduled cleanup.
+6. Ensure the interval is started and stopped safely.
+7. Ensure tests do not leak timers.
+
+Acceptance criteria:
+
+- No misleading undocumented no-op API.
+- Nonce cleanup remains operational.
+- No timer leaks.
+
+---
+
+# 9. Wave 4 — Database Export and Proxy Simplification
+
+File:
+
+`src/infrastructure/database/database.ts`
+
+Reported issue:
+
+Four exports appear to provide overlapping proxy access:
+
+- `databaseInstance`
+- `db`
+- `stmt`
+- `generateId`
+
+Required work:
+
+1. Inspect all imports and callers.
+2. Establish the canonical database access API.
+3. Determine whether `db` and `databaseInstance` are actually identical.
+4. Preserve compatibility where callers depend on existing exports.
+5. Remove redundant proxies only when safe.
+6. Avoid unnecessary public API changes.
+7. Ensure every retained export resolves to the same intended instance.
+8. Add tests for proxy behavior and initialization.
+9. Update documentation and imports as necessary.
+
+Do not refactor the entire database layer merely to reduce a few lines.
+
+Acceptance criteria:
+
+- One clear canonical access pattern.
+- No duplicate initialization paths.
+- Existing callers continue to work.
+- No new circular dependencies.
+- TypeScript passes.
+
+---
+
+# 10. Wave 5 — M2/M3 Remediation Verification
+
+The previous remediation report listed commit `02d8150`.
+
+Verify the actual implementation at the current HEAD.
+
+## 10.1 Chat and message bus
+
+Verify:
+
+- Bidirectional conversation SQL.
+- Correct sender/recipient filtering.
+- Stable message IDs across backend and frontend.
+- Optimistic message replacement.
+- Failed-send retry behavior.
+- Successful retry updates conversation state and preview.
+- Pending, failed, sent, and read indicators.
+- Oldest message at top.
+- Newest message at bottom.
+- Scroll-to-bottom when opening a conversation.
+- No forced scrolling when the user is reading older messages.
+- Viewport preservation when loading older pages.
+- New-message indicator when appropriate.
+- Correct unread counts.
+- Correct mark-as-read behavior.
+- SQL-level pagination.
+- No arbitrary in-memory pagination cap.
+- Correct message retrieval for both agents.
+
+Verify actual browser behavior. Do not rely only on source-code inspection.
+
+## 10.2 Agent identity registry
+
+Verify:
+
+- Canonical logical identities are distinct from runtime instances.
+- Communication registry and organization registry remain synchronized.
+- Startup synchronization is deterministic and idempotent.
+- Organization changes update the registry correctly.
+- Stable IDs are preserved.
+- No permission expansion occurs during synchronization.
+- Invalid sender/recipient identities produce clear errors.
+- Runtime identity mappings are correct.
+
+## 10.3 Claude and Hermes delivery
+
+Distinguish message persistence from actual runtime delivery.
+
+Verify the complete workflow independently for both runtimes:
+
+1. Founder sends a message.
+2. Message is persisted.
+3. Target agent retrieves the message.
+4. Target agent replies.
+5. Reply is persisted.
+6. Founder retrieves the reply.
+7. Message status is updated correctly.
+
+If an agent runtime is unavailable:
+
+- Record the exact connection failure.
+- Identify whether the MCP server is listening.
+- Identify the expected connection endpoint.
+- Record the missing dependency.
+- Do not claim end-to-end delivery works.
+
+## 10.4 Theme system
+
+Verify:
+
+- One authoritative theme state.
+- No duplicate theme state in App and Layout.
+- MUI ThemeProvider consumes the same state.
+- Theme switching does not reload the page.
+- Preference persistence works.
+- System theme behavior is correct if supported.
+- Subscription cleanup works.
+- No listener leaks.
+- Both light and dark modes are readable.
+
+## 10.5 Dashboard and activity
+
+Verify:
+
+- Dashboard counts are correct and distinguish logical identities from runtime instances.
+- Create Division action actually opens the creation workflow.
+- Invite Staff action actually opens the invitation workflow.
+- New Task action actually opens the task creation workflow.
+- View All Activity points to a valid route.
+- Activity page exists and handles loading, empty, and error states separately.
+- Activity pagination does not omit records during source merging.
+- Authorization filters prevent cross-division information leakage.
+- Coming Soon labels are present where features are not implemented.
+- No inert buttons or misleading interactions remain.
+
+## 10.6 Navigation and design
+
+Verify:
+
+- 404 page.
+- All registered routes.
+- No broken navigation links.
+- Responsive layout.
+- MUI 9 usage.
+- Accessible interaction states.
+- Readable light and dark themes.
+- No invalid inline CSS objects.
+- No unnecessary custom styling.
+- No decorative controls without functionality.
+
+Design direction:
+
+Use a clean, functional command center/control panel.
+
+Prioritize:
+- Clear hierarchy.
+- Operational status visibility.
+- Useful information density.
+- Consistent spacing.
+- Readability.
+- Predictable navigation.
+- Functional controls.
+
+Use official MUI components wherever possible. Additional CSS is permitted only when MUI cannot reasonably provide the required behavior or presentation.
+
+Avoid generic AI-dashboard aesthetics, unnecessary gradients, decorative cards, excessive animation, and visual clutter.
+
+---
+
+# 11. Wave 6 — Additional Repository Audits
+
+## 11.1 Ponytail backend audit
+
+Run the available Ponytail backend audit against the final implementation.
+
+Inspect:
+
+- Correctness.
+- Security.
+- Type safety.
+- Error handling.
+- Resource lifecycle.
+- Database access.
+- SQL correctness.
+- API contracts.
+- Test quality.
+- Maintainability.
+- Dead code.
+- Unnecessary abstractions.
+
+Fix critical and high-priority findings.
+
+Do not blindly follow automated suggestions that conflict with the established security or architecture invariants.
+
+## 11.2 Impeccable frontend audit
+
+Run the available Impeccable frontend audit.
+
+Inspect:
+
+- Component structure.
+- State management.
+- Theme implementation.
+- MUI usage.
+- Accessibility.
+- Navigation.
+- Responsive behavior.
+- Loading and error states.
+- Performance.
+- Unnecessary CSS.
+- Dead components.
+- Inert controls.
+
+Fix critical and high-priority findings.
+
+## 11.3 Design skill
+
+Read and apply the `design-taste-frontend` skill before making frontend design changes.
+
+Use it to improve practical interface quality, not to justify unnecessary redesign.
+
+---
+
+# 12. Wave 7 — Database Bootstrap Review
+
+There is an outstanding request to bootstrap canonical organizational identities.
+
+Reported target counts:
+
+- 6 divisions.
+- 51 staff identities.
+- 11 Council seats.
+- 4 permanent founding personas.
+- 7 replaceable Council seats.
+
+Before proposing any bootstrap operation:
+
+1. Inspect the current database without modifying it.
+2. Determine the actual current counts.
+3. Identify duplicates, test records, orphaned references, and legitimate records.
+4. Inspect existing IDs and relationships.
+5. Compare the database with the canonical organizational specification.
+6. Identify missing records.
+7. Identify invalid relationships.
+8. Identify records that must be preserved.
+9. Inspect foreign keys and uniqueness constraints.
+10. Produce a safe, idempotent bootstrap plan.
+
+Important:
+
+The historical database snapshot is not authoritative for the current database.
+
+Do not assume current counts match historical reports.
+
+Do not insert the 62 canonical identities simply because an earlier report proposed doing so. First establish which records already exist and which are genuinely missing.
+
+Do not delete records to achieve target counts.
+
+Do not execute the bootstrap.
+
+Produce:
+
+- Current database inventory.
+- Canonical-versus-actual reconciliation.
+- Proposed inserts and relationship repairs.
+- Duplicate/orphan classification.
+- Backup requirements.
+- Migration or bootstrap script proposal.
+- Rollback strategy.
+- Explicit authorization checklist.
+
+The Founder must approve database writes separately.
+
+---
+
+# 13. Wave 8 — Testing and Verification
+
+Run tests in increasing scope.
+
+### Backend
+
+- TypeScript typecheck.
+- Database unit tests.
+- Message tests.
+- MCP tool tests.
+- Authentication tests.
+- Nonce tests.
+- Migration registry tests.
+- Migration runner tests.
+- Rollback isolation tests.
+- API integration tests.
+- Full backend test suite.
+
+### Frontend
+
+- TypeScript typecheck.
+- Lint.
+- Production build.
+- Component tests.
+- Chat tests.
+- Theme tests.
+- Dashboard tests.
+- Navigation tests.
+- Activity tests.
+- Responsive browser tests.
+
+### End-to-end
+
+Test:
+
+- Founder login.
+- Dashboard.
+- Navigation.
+- Division creation.
+- Staff invitation.
+- Task creation.
+- Message sending.
+- Message retrieval.
+- Message retry.
+- Unread/read status.
+- Activity.
+- Theme persistence.
+- Authorization boundaries.
+
+### Runtime integration
+
+Test Claude and Hermes independently when their runtimes are available.
+
+Do not replace missing runtime verification with mocked tests and then claim live integration passed.
+
+### Regression
+
+Run all relevant Phase 8 and Phase 9 security and reliability tests.
+
+Report any known pre-existing failure only after establishing that it existed before the current changes.
+
+For every failing test, report:
+
+- Test name.
+- Failure message.
+- Whether it is a regression.
+- Root cause.
+- Whether it blocks acceptance.
+- Proposed resolution.
+
+Never hide failures by skipping tests, loosening assertions, or increasing timeouts without justification.
+
+---
+
+# 14. Wave 9 — Documentation and Reports
+
+Update the documentation to reflect the actual implementation.
+
+Required reports:
+
+1. `M2_M3_FINAL_VERIFICATION_REPORT.md`
+2. `M2_M3_REMEDIATION_REPORT.md`
+3. `DATABASE_BOOTSTRAP_REVIEW.md`
+4. `AUTHENTICATION_INTEGRATION_TEST_REPORT.md`
+5. `MCP_TEST_FAILURE_ANALYSIS.md`
+6. `BACKEND_AUDIT_REPORT.md`
+7. `FRONTEND_AUDIT_REPORT.md`
+8. `FINAL_TEST_RESULTS.md`
+
+Use existing documentation conventions and directory structure.
+
+Do not create duplicate reports if an appropriate existing report can be updated.
+
+Every report must distinguish:
+
+- Implemented.
+- Independently tested.
+- Reported but not independently verified.
+- Blocked by environment.
+- Requires Founder authorization.
+- Unresolved.
+
+Do not describe a feature as complete merely because code exists.
+
+---
+
+# 15. Final Acceptance Criteria
+
+M2/M3 may be submitted for Founder acceptance only when:
+
+- Backend TypeScript passes.
+- Frontend TypeScript passes.
+- Frontend production build passes.
+- MCP tests complete without hangs.
+- Authentication integration tests pass.
+- Production auth remains fail-closed.
+- Database initialization is safe.
+- Rollback isolation is verified.
+- Message retrieval and pagination are correct.
+- Message status and ordering work correctly.
+- M2/M3 frontend workflows function in the browser.
+- Authorization boundaries are tested.
+- No critical or high security findings remain.
+- All test failures are classified.
+- Documentation matches actual implementation.
+- Database bootstrap is documented but not executed without approval.
+- Runtime integration limitations are explicitly disclosed.
+
+Claude/Hermes live E2E may remain blocked if the external runtimes cannot be started, but this must be reported as an unresolved integration verification item, not as a passing test.
+
+Do not grant formal acceptance yourself.
+
+---
+
+# 16. Final Response Format
+
+When finished, provide a concise but complete report:
+
+## A. Execution Summary
+- Work completed.
+- Agents used.
+- Files changed.
+- Current branch and HEAD SHA.
+
+## B. Critical Fixes
+For each:
+- Original issue.
+- Root cause.
+- Implementation.
+- Verification.
+
+## C. M2/M3 Status
+Separate backend, frontend, chat, identity registry, dashboard, activity, and runtime integration.
+
+## D. Test Results
+Actual passing, failing, skipped, and blocked counts.
+
+## E. Security
+Authentication modes, Founder signatures, loopback restrictions, nonce replay protection, authorization, and remaining risks.
+
+## F. Database
+Current inventory, bootstrap review, migration integrity, rollback verification, and pending Founder authorization.
+
+## G. Audit Findings
+Ponytail backend and Impeccable frontend findings, with severity and remediation status.
+
+## H. Remaining Blockers
+List each blocker, its cause, and what is required to resolve it.
+
+## I. Git Status
+- Current branch.
+- HEAD SHA.
+- Working tree status.
+- Changed files.
+- No commits or pushes unless separately authorized.
+
+## J. Founder Decisions Required
+List only decisions that genuinely require Founder authorization.
+
+## K. Acceptance Recommendation
+Choose exactly one:
+
+- READY FOR FOUNDER ACCEPTANCE
+- NOT READY — REMEDIATION REQUIRED
+- BLOCKED — EXTERNAL DEPENDENCY
+
+Do not mark M2/M3 formally accepted.
+
+---
+
+# Final Instruction
+
+Execute the work systematically.
+
+Prioritize correctness, security, data integrity, and actual functionality over reducing line count or producing impressive reports.
+
+Do not expand scope unnecessarily.
+
+Do not make architectural changes without evidence that they are needed.
+
+Do not conceal unresolved failures.
+
+Do not modify production data.
+
+Do not commit or push.
+
+Return the final evidence-based report and wait for Founder instructions.

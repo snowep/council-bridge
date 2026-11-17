@@ -20,8 +20,12 @@ export interface DatabaseInstance {
     getMessagesByRecipient: PreparedStatement;
     getMessagesBySender: PreparedStatement;
     listMessages: PreparedStatement;
+    listMessagesPaginated: PreparedStatement;
+    countMessagesByAgent: PreparedStatement;
+    countMessagesByAgentUnread: PreparedStatement;
     countMessagesByRecipient: PreparedStatement;
     markMessagesAsRead: PreparedStatement;
+    markMessagesAsReadByConversation: PreparedStatement;
 
     // Phase 2: Council
     getSchemaVersion: PreparedStatement;
@@ -772,7 +776,7 @@ function createDatabase(dbPath?: string): DatabaseInstance {
       share_id        TEXT PRIMARY KEY,
       memory_id       TEXT NOT NULL,
       division_id     TEXT NOT NULL,                       -- Division granted access
-      granted_by_type TEXT NOT NULL                        -- 'founder' only (Migration 002)
+      granted_by_type TEXT NOT NULL                        -- 'founder' only (Migration 002 enforces Founder-only policy)
         CHECK (granted_by_type IN ('founder')),
       granted_by_id   TEXT NOT NULL,                       -- 'founder'
       granted_at      TEXT NOT NULL DEFAULT (datetime('now')),
@@ -1049,6 +1053,15 @@ function createDatabase(dbPath?: string): DatabaseInstance {
     listMessages: db.prepare(`
       SELECT * FROM messages WHERE sender_id = ? OR recipient_id = ? ORDER BY created_at DESC LIMIT ?
     `),
+    listMessagesPaginated: db.prepare(`
+      SELECT * FROM messages WHERE sender_id = ? OR recipient_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?
+    `),
+    countMessagesByAgent: db.prepare(`
+      SELECT COUNT(*) as count FROM messages WHERE sender_id = ? OR recipient_id = ?
+    `),
+    countMessagesByAgentUnread: db.prepare(`
+      SELECT COUNT(*) as count FROM messages WHERE recipient_id = ? AND read_at IS NULL
+    `),
     countMessagesByRecipient: db.prepare('SELECT COUNT(*) as count FROM messages WHERE recipient_id = ?'),
     markMessagesAsRead: db.prepare(`
       UPDATE messages SET read_at = ? WHERE recipient_id = ? AND sender_id = ? AND read_at IS NULL
@@ -1056,6 +1069,7 @@ function createDatabase(dbPath?: string): DatabaseInstance {
     markMessagesAsReadByConversation: db.prepare(`
       UPDATE messages SET read_at = ? WHERE recipient_id = ? AND sender_id = ? AND read_at IS NULL
     `),
+    // markMessagesAsReadBatch: dynamically built with parameterized IN clause
     getMessagesByConversation: db.prepare(`
       SELECT * FROM messages WHERE (sender_id = ? OR recipient_id = ?) AND read_at IS NULL ORDER BY created_at ASC
     `),
@@ -1405,15 +1419,20 @@ function createDatabase(dbPath?: string): DatabaseInstance {
     db.close();
   }
 
-  return {
+  interface QueryResult extends Array<any> {
+  get(): any | undefined;
+  all(): any[];
+}
+
+return {
     db,
     stmt,
     generateId,
     close,
-    query: (sql: string, params?: any[]) => {
+    query: (sql: string, params?: any[]): QueryResult => {
       const statement = db.prepare(sql);
       const results = statement.all(...(params || []));
-      const arr = [...results];
+      const arr = [...results] as QueryResult;
       arr.get = () => arr[0];
       arr.all = () => arr;
       return arr;
@@ -1430,11 +1449,22 @@ const DATA_DIR = path.join(process.cwd(), 'data');
 const DB_PATH = path.join(DATA_DIR, 'council.db');
 
 // Lazy initialization to avoid loading existing database with outdated schema
+// JavaScript is single-threaded, so synchronous initialization cannot race.
+// However, we guard against initialization failures leaving the singleton in a bad state.
 let _databaseInstance: ReturnType<typeof createDatabase> | null = null;
+let _initializationError: Error | null = null;
 
 function getInstance(): ReturnType<typeof createDatabase> {
+  if (_initializationError) {
+    throw _initializationError;
+  }
   if (!_databaseInstance) {
-    _databaseInstance = createDatabase(DB_PATH);
+    try {
+      _databaseInstance = createDatabase(DB_PATH);
+    } catch (error) {
+      _initializationError = error instanceof Error ? error : new Error(String(error));
+      throw _initializationError;
+    }
   }
   return _databaseInstance;
 }
@@ -1460,11 +1490,16 @@ export const stmt = new Proxy({} as any, {
 });
 
 // For generateId, we need to make it callable and also have properties
-const _generateId = new Proxy(function() { return getInstance().generateId(); }, {
+interface GenerateIdFunction {
+  (): string;
+  [key: string]: any;
+}
+
+const _generateId: GenerateIdFunction = new Proxy(function() { return getInstance().generateId(); }, {
   get(target, prop) {
     return (getInstance().generateId as any)[prop];
   }
-}) as typeof generateId & (() => string);
+}) as GenerateIdFunction;
 
 export const generateId = _generateId;
 

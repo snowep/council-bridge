@@ -637,8 +637,8 @@ describe('MCP Tool Registration - Phase 9 Task 3', () => {
       assert.strictEqual(result.runtime, 'hermes');
     });
 
-    it('should reject duplicate agent registration', async () => {
-      // Try to register same agent_id again
+    it('should return existing agent for duplicate registration (idempotent)', async () => {
+      // Register same agent_id again
       const response = await request(server)
         .post('/mcp')
         .set('Authorization', `Bearer ${founderToken}`)
@@ -648,7 +648,7 @@ describe('MCP Tool Registration - Phase 9 Task 3', () => {
           method: 'tools/call',
           params: {
             name: 'register_agent',
-            arguments: { agent_id: 'test-agent-001', display_name: 'Test Agent', runtime: 'claude' }
+            arguments: { agent_id: 'test-agent-001', display_name: 'Different Name', runtime: 'hermes' }
           },
           id: 1
         })
@@ -656,8 +656,11 @@ describe('MCP Tool Registration - Phase 9 Task 3', () => {
         .expect(200);
 
       const parsed = parseSSEResponse(response.text);
-      assert.strictEqual(parsed.result.isError, true);
-      assert.ok(parsed.result.content[0].text.includes('already exists'));
+      // Should succeed and return existing agent (idempotent)
+      assert.ok(!parsed.result.isError);
+      const result = JSON.parse(parsed.result.content[0].text);
+      assert.strictEqual(result.agent_id, 'test-agent-001');
+      assert.strictEqual(result.display_name, 'Test Agent'); // Original name preserved
     });
 
     it('should reject register_agent from non-founder', async () => {

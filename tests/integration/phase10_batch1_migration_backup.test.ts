@@ -9,6 +9,7 @@ import Database from 'better-sqlite3';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import os from 'node:os';
 import { MigrationRegistry } from '../../src/migration-runner/registry.js';
 import { MigrationLedger } from '../../src/migration-runner/ledger.js';
 import { BackupManager } from '../../src/migration-runner/backup.js';
@@ -604,7 +605,7 @@ describe('Phase 10 Batch 1: Migration Runner & Backup/Restore', () => {
 
   describe('Test 16: Reject Corrupted Backup', () => {
     test('restore fails on corrupted backup', async () => {
-      const tmpDir = fs.mkdtempSync(path.join(process.cwd(), 'test-corrupt-'));
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'council-test-corrupt-'));
       const dbPath = path.join(tmpDir, 'test.db');
       const corruptBackup = path.join(tmpDir, 'corrupt.db');
       const restorePath = path.join(tmpDir, 'restored.db');
@@ -633,7 +634,7 @@ describe('Phase 10 Batch 1: Migration Runner & Backup/Restore', () => {
 
   describe('Test 17: Restore Failure Recovery', () => {
     test('failed restore does not corrupt target database', async () => {
-      const tmpDir = fs.mkdtempSync(path.join(process.cwd(), 'test-recovery-'));
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'council-test-recovery-'));
       const dbPath = path.join(tmpDir, 'target.db');
       const restorePath = path.join(tmpDir, 'restored.db');
 
@@ -669,7 +670,7 @@ describe('Phase 10 Batch 1: Migration Runner & Backup/Restore', () => {
 
   describe('Test 18: Preserve Current Database Before Restore', () => {
     test('current database backed up before restore attempt', async () => {
-      const tmpDir = fs.mkdtempSync(path.join(process.cwd(), 'test-preserve-'));
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'council-test-preserve-'));
       const currentPath = path.join(tmpDir, 'current.db');
       const backupPath = path.join(tmpDir, 'backup.db');
       const restorePath = path.join(tmpDir, 'restored.db');

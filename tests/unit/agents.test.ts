@@ -93,12 +93,13 @@ describe('Agents', () => {
     assert.ok(agent.created_at);
   });
 
-  test('should reject duplicate agent_id', () => {
-    agentService.registerAgent({ agent_id: 'agent-1', display_name: 'Test', runtime: 'node' });
-    assert.throws(
-      () => agentService.registerAgent({ agent_id: 'agent-1', display_name: 'Test2', runtime: 'python' }),
-      /Agent with ID 'agent-1' already exists/
-    );
+  test('should return existing agent for duplicate agent_id (idempotent)', () => {
+    const agent1 = agentService.registerAgent({ agent_id: 'agent-1', display_name: 'Test', runtime: 'node' });
+    const agent2 = agentService.registerAgent({ agent_id: 'agent-1', display_name: 'Test2', runtime: 'python' });
+    // Should return the same agent (idempotent)
+    assert.strictEqual(agent1.id, agent2.id);
+    assert.strictEqual(agent1.agent_id, agent2.agent_id);
+    assert.strictEqual(agent1.display_name, 'Test'); // Original name preserved
   });
 
   test('should list agents', () => {

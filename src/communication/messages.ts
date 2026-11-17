@@ -174,7 +174,7 @@ export function createMessageService(
         throw new Error(`Agent '${input.agent_id}' not found`);
       }
 
-      const limit = input.limit ?? 50;
+      const limit = Math.min(input.limit ?? 50, 100);
       const offset = input.offset ?? 0;
 
       // Filter by conversation if provided
@@ -187,23 +187,27 @@ export function createMessageService(
         );
       }
 
-      // Get all messages for this agent (sent or received)
-      // TODO: Implement true database-level pagination with separate count query
-      const rawMessages = dbInstance.stmt.listMessages.all(
-        input.agent_id,
-        input.agent_id,
-        limit
-      ) as any[];
-      const messages = rawMessages.map(normalizeMessage);
-
-      // Apply unread filter if needed
-      let filtered = messages;
+      // True database-level pagination with separate count query
+      // For unread_only filter, we need to count and query with the filter
       if (input.unread_only) {
-        filtered = filtered.filter(m => m.recipient_id === input.agent_id && !m.read_at);
+        const countResult = dbInstance.stmt.countMessagesByAgentUnread.get(input.agent_id) as { count: number };
+        const total = countResult.count;
+
+        const rawMessages = dbInstance.query(
+          `SELECT * FROM messages WHERE recipient_id = ? AND read_at IS NULL ORDER BY created_at DESC LIMIT ? OFFSET ?`,
+          [input.agent_id, limit, offset]
+        ) as any[];
+        return rawMessages.map(normalizeMessage);
       }
 
-      // Apply offset (after filtering for correct pagination)
-      return filtered.slice(offset, offset + limit);
+      // General case: all messages (sent or received) with SQL pagination
+      const rawMessages = dbInstance.stmt.listMessagesPaginated.all(
+        input.agent_id,
+        input.agent_id,
+        limit,
+        offset
+      ) as any[];
+      return rawMessages.map(normalizeMessage);
     },
 
     listConversations(input: ListConversationsInput): Conversation[] {
@@ -289,22 +293,25 @@ export function createMessageService(
       return result.changes;
     },
 
-    // Mark specific messages as read
+    // Mark specific messages as read (batch update)
     markMessagesAsRead(agentId: string, messageIds: string[]): number {
       if (!agentService.agentExists(agentId)) {
         throw new Error(`Agent '${agentId}' not found`);
       }
 
-      let totalChanges = 0;
-      for (const msgId of messageIds) {
-        const stmt = dbInstance.db.prepare(`
-          UPDATE messages SET read_at = datetime('now')
-          WHERE id = ? AND recipient_id = ? AND read_at IS NULL
-        `);
-        const result = stmt.run(msgId, agentId);
-        totalChanges += result.changes || 0;
+      if (messageIds.length === 0) {
+        return 0;
       }
-      return totalChanges;
+
+      // Build parameterized IN clause dynamically
+      // Use ? placeholders for each ID to prevent SQL injection
+      const placeholders = messageIds.map(() => '?').join(',');
+      const stmt = dbInstance.db.prepare(`
+        UPDATE messages SET read_at = datetime('now')
+        WHERE id IN (${placeholders}) AND recipient_id = ? AND read_at IS NULL
+      `);
+      const result = stmt.run(...messageIds, agentId);
+      return result.changes;
     },
 
     // Get unread count for an agent
