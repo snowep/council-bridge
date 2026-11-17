@@ -90,13 +90,15 @@ async function bootstrapDatabase(opts: BootstrapOptions) {
 
   // Count results using database methods
   const seats = db.stmt.listSeats.all() as any[];
-  const personas = db.stmt.listPersonas.all() as any[];
-  const runtimePersonas = db.stmt.listRuntimePersonas?.all() as any[] || [];
+  const personas = db.stmt.listAllPersonas?.all() as any[] || [];
+  const claudePersonas = db.stmt.getRuntimePersonas?.all('claude') as any[] || [];
+  const hermesPersonas = db.stmt.getRuntimePersonas?.all('hermes') as any[] || [];
+  const totalRuntimePersonas = claudePersonas.length + hermesPersonas.length;
 
   console.log('\n📊 Bootstrap Results:');
   console.log(`   Council Seats: ${seats.length}`);
   console.log(`   Personas: ${personas.length}`);
-  console.log(`   Runtime Personas: ${runtimePersonas.length}`);
+  console.log(`   Runtime Personas: ${totalRuntimePersonas} (Claude: ${claudePersonas.length}, Hermes: ${hermesPersonas.length})`);
 
   db.close();
   console.log('\n✅ Database bootstrap complete!');

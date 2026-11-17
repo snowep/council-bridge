@@ -6,8 +6,7 @@ import { Router, Request, Response } from 'express';
 import { databaseInstance as db } from '../../database.js';
 import { createHermesBridgeAdapter } from '../../mcp/hermes-bridge.js';
 import { asyncHandler } from '../middleware/error-handler.js';
-import { authMiddleware } from '../middleware/authentication.js';
-import { requireAuth } from '../middleware/authentication.js';
+import { authMiddleware, requireAuth } from '../middleware/authentication.js';
 
 const router = Router();
 const hermesAdapter = createHermesBridgeAdapter(db);
@@ -20,20 +19,26 @@ router.post('/webhook', asyncHandler(async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Invalid webhook payload' });
   }
 
-  // Verify webhook signature (optional but recommended)
+  // Verify webhook signature - REQUIRED for all environments
   const signature = req.headers['x-hermes-signature'] as string;
-  if (signature) {
-    const crypto = await import('crypto');
-    const secret = process.env.HERMES_WEBHOOK_SECRET;
-    if (secret) {
-      const expected = crypto.createHmac('sha256', secret)
-        .update(JSON.stringify(event))
-        .digest('hex');
+  const secret = process.env.HERMES_WEBHOOK_SECRET;
 
-      if (signature !== expected) {
-        return res.status(401).json({ error: 'Invalid signature' });
-      }
-    }
+  if (!secret) {
+    return res.status(500).json({ error: 'Hermes webhook secret not configured' });
+  }
+
+  if (!signature) {
+    return res.status(401).json({ error: 'Webhook signature required' });
+  }
+
+  const crypto = await import('crypto');
+  const expected = crypto.createHmac('sha256', secret)
+    .update(JSON.stringify(event))
+    .digest('hex');
+
+  // Use timing-safe comparison to prevent timing attacks
+  if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) {
+    return res.status(401).json({ error: 'Invalid signature' });
   }
 
   switch (event.type) {
@@ -97,7 +102,7 @@ router.post('/webhook', asyncHandler(async (req: Request, res: Response) => {
 }));
 
 // POST /api/hermes/session - Exchange Hermes session for Council Bridge token
-router.post('/session', asyncHandler(async (req: Request, res: Response) => {
+router.post('/session', authMiddleware, asyncHandler(async (req: Request, res: Response) => {
   const { hermes_session_id } = req.body;
 
   if (!hermes_session_id) {
@@ -119,13 +124,23 @@ router.post('/session', asyncHandler(async (req: Request, res: Response) => {
 }));
 
 // GET /api/hermes/agents - List registered Hermes agents
-router.get('/agents', asyncHandler(async (req: Request, res: Response) => {
+router.get('/agents', authMiddleware, asyncHandler(async (req: Request, res: Response) => {
   const { limit = 50, offset = 0 } = req.query;
 
-  // This would need to be implemented in the agent service
+  // Query actual agents from database
+  const agents = db.stmt.listAgents.all().slice(Number(offset), Number(offset) + Number(limit)) as any[];
+
   res.json({
     success: true,
-    message: 'Use the internal agent service to query Hermes agent registry'
+    agents: agents.map((agent: any) => ({
+      agent_id: agent.agent_id,
+      display_name: agent.display_name,
+      runtime: agent.runtime,
+      created_at: agent.created_at
+    })),
+    limit: Number(limit),
+    offset: Number(offset),
+    total: agents.length
   });
 }));
 

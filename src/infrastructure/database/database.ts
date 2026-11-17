@@ -5,6 +5,17 @@ import * as path from 'node:path';
 
 type PreparedStatement = Database.Statement;
 
+/**
+ * Query result type that extends array with helper methods.
+ * `get()` returns the first row or undefined.
+ * `all()` returns all rows as an array.
+ * Standard array methods (map, filter, etc.) work directly on rows.
+ */
+export interface QueryResult<T = any> extends Array<T> {
+  get(): T | undefined;
+  all(): T[];
+}
+
 export interface DatabaseInstance {
   db: Database.Database;
   stmt: {
@@ -223,8 +234,9 @@ export interface DatabaseInstance {
     insertFounderNonce: PreparedStatement;
     getFounderNonce: PreparedStatement;
     cleanupFounderNonces: PreparedStatement;
+    deleteAllFounderNonces: PreparedStatement;
   };
-  query: (sql: string, params?: any[]) => any[];
+  query: (sql: string, params?: any[]) => QueryResult;
   runPreparedStatement: (name: string, params?: any[]) => any;
   generateId: () => string;
   close: () => void;
@@ -773,30 +785,30 @@ function createDatabase(dbPath?: string): DatabaseInstance {
     );
 
     CREATE TABLE IF NOT EXISTS cross_division_shares (
-      share_id        TEXT PRIMARY KEY,
-      memory_id       TEXT NOT NULL,
-      division_id     TEXT NOT NULL,                       -- Division granted access
-      granted_by_type TEXT NOT NULL                        -- 'founder' only (Migration 002 enforces Founder-only policy)
-        CHECK (granted_by_type IN ('founder')),
-      granted_by_id   TEXT NOT NULL,                       -- 'founder'
-      granted_at      TEXT NOT NULL DEFAULT (datetime('now')),
-      revoked_at      TEXT,                                -- NULL = active
-      -- Migration 005: Cross-division request tracking
-      request_type    TEXT                                 -- 'task_delegate' | 'deliverable_share' | 'memory_access' | 'resource_request'
-        CHECK (request_type IN ('task_delegate', 'deliverable_share', 'memory_access', 'resource_request')),
-      status          TEXT NOT NULL DEFAULT 'approved'     -- 'pending' | 'approved' | 'rejected'
-        CHECK (status IN ('pending', 'approved', 'rejected')),
-      justification     TEXT,
-      priority          TEXT NOT NULL DEFAULT 'medium'
-        CHECK (priority IN ('low', 'medium', 'high', 'critical')),
-      deadline          TEXT,                              -- ISO datetime, nullable
-      approved_by_type  TEXT,                              -- always 'founder' when approved
-      approved_by_id    TEXT,                              -- founder's staff_id
-      approved_at       TEXT,                              -- approval timestamp
-      FOREIGN KEY (memory_id) REFERENCES memory_entries(memory_id) ON DELETE CASCADE,
-      FOREIGN KEY (division_id) REFERENCES divisions(division_id) ON DELETE CASCADE,
-      UNIQUE(memory_id, division_id)
-    );
+          share_id        TEXT PRIMARY KEY,
+          memory_id       TEXT NOT NULL,
+          division_id     TEXT NOT NULL,                       -- Division granted access
+          granted_by_type TEXT NOT NULL                        -- 'founder' or 'division' (Migration 016 allows both)
+            CHECK (granted_by_type IN ('founder', 'division')),
+          granted_by_id   TEXT NOT NULL,                       -- 'founder' or division staff_id
+          granted_at      TEXT NOT NULL DEFAULT (datetime('now')),
+          revoked_at      TEXT,                                -- NULL = active
+          -- Migration 005: Cross-division request tracking
+          request_type    TEXT                                 -- 'task_delegate' | 'deliverable_share' | 'memory_access' | 'resource_request'
+            CHECK (request_type IN ('task_delegate', 'deliverable_share', 'memory_access', 'resource_request')),
+          status          TEXT NOT NULL DEFAULT 'approved'     -- 'pending' | 'approved' | 'rejected'
+            CHECK (status IN ('pending', 'approved', 'rejected')),
+          justification     TEXT,
+          priority          TEXT NOT NULL DEFAULT 'medium'
+            CHECK (priority IN ('low', 'medium', 'high', 'critical')),
+          deadline          TEXT,                              -- ISO datetime, nullable
+          approved_by_type  TEXT,                              -- 'founder' or 'division' when approved
+          approved_by_id    TEXT,                              -- founder's staff_id or division staff_id
+          approved_at       TEXT,                              -- approval timestamp
+          FOREIGN KEY (memory_id) REFERENCES memory_entries(memory_id) ON DELETE CASCADE,
+          FOREIGN KEY (division_id) REFERENCES divisions(division_id) ON DELETE CASCADE,
+          UNIQUE(memory_id, division_id)
+        );
 
     CREATE INDEX IF NOT EXISTS idx_cross_division_shares_memory ON cross_division_shares(memory_id);
     CREATE INDEX IF NOT EXISTS idx_cross_division_shares_division ON cross_division_shares(division_id);
