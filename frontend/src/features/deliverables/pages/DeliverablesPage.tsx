@@ -127,6 +127,9 @@ export default function DeliverablesPage() {
     revision_notes: '',
   });
   const [tasks, setTasks] = useState<any[]>([]);
+  const [reviewers, setReviewers] = useState<{ type: ReviewerType; id: string; label: string }[]>([
+    { type: 'founder', id: 'founder', label: 'Founder' },
+  ]);
 
   const showSnackbar = (message: string, severity: 'success' | 'error' = 'success') => {
     setSnackbarMessage(message);
@@ -167,6 +170,38 @@ export default function DeliverablesPage() {
       setTasks(Array.isArray(res) ? res : res.data || []);
     } catch (err) {
       console.error('Failed to fetch tasks:', err);
+    }
+  };
+
+  const fetchReviewers = async () => {
+    try {
+      const seatsRes = await apiClient.get<{ data: any[] }>('/api/council/seats').catch(() => ({ data: [] }));
+      const staffRes = await apiClient.get<{ staff: any[] }>('/api/staff').catch(() => ({ staff: [] }));
+      const foundersRes = await apiClient.get<{ founders: string[] }>('/api/founders').catch(() => ({ founders: [] }));
+
+      const reviewerList: { type: ReviewerType; id: string; label: string }[] = [
+        { type: 'founder', id: 'founder', label: 'Founder' },
+      ];
+
+      (foundersRes.founders || []).forEach((f: string) => {
+        reviewerList.push({ type: 'founder', id: f, label: f });
+      });
+
+      (seatsRes.data || []).map((s: any) => ({
+        type: 'council' as ReviewerType,
+        id: s.seat_id,
+        label: s.name || s.seat_id,
+      })).forEach(r => reviewerList.push(r));
+
+      (staffRes.staff || []).map((s: any) => ({
+        type: 'division_head' as ReviewerType,
+        id: s.staff_id,
+        label: s.name || `Staff: ${s.role}`,
+      })).forEach(r => reviewerList.push(r));
+
+      setReviewers(reviewerList);
+    } catch (err) {
+      console.error('Failed to fetch reviewers:', err);
     }
   };
 
@@ -275,6 +310,7 @@ export default function DeliverablesPage() {
     fetchDeliverables();
     fetchQualityThresholds();
     fetchTasks();
+    fetchReviewers();
   }, []);
 
   if (loading && deliverables.length === 0) {
@@ -689,9 +725,14 @@ export default function DeliverablesPage() {
                     label="Reviewer ID"
                     onChange={(e) => setReviewData(prev => ({ ...prev, reviewer_id: e.target.value }))}
                   >
-                    <MenuItem value="founder">founder</MenuItem>
-                    <MenuItem value="council">council</MenuItem>
-                    {/* In a real app, these would be fetched from the API */}
+                    {reviewers
+                      .filter(r => r.type === reviewData.reviewer_type)
+                      .map((reviewer) => (
+                        <MenuItem key={reviewer.id} value={reviewer.id}>
+                          {reviewer.label}
+                        </MenuItem>
+                      ))
+                    }
                   </Select>
                 </FormControl>
 
@@ -960,8 +1001,14 @@ export default function DeliverablesPage() {
                 label="Reviewer ID"
                 onChange={(e) => setReviewData(prev => ({ ...prev, reviewer_id: e.target.value }))}
               >
-                <MenuItem value="founder">founder</MenuItem>
-                <MenuItem value="council">council</MenuItem>
+                {reviewers
+                  .filter(r => r.type === reviewData.reviewer_type)
+                  .map((reviewer) => (
+                    <MenuItem key={reviewer.id} value={reviewer.id}>
+                      {reviewer.label}
+                    </MenuItem>
+                  ))
+                }
               </Select>
             </FormControl>
 

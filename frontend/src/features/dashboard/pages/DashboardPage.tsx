@@ -147,14 +147,6 @@ export default function DashboardPage() {
     fetchSection(section);
   };
 
-  // Map display labels to backend keys
-  const sectionKeyMap: Record<string, keyof typeof loading> = {
-    'active divisions': 'divisions',
-    'staff agents': 'staff',
-    'pending approvals': 'approvals',
-    'activity': 'activity',
-  };
-
   const handleQuickActionClick = (action: QuickAction) => {
     if (action.comingSoon) {
       // Do nothing for coming soon items - they're disabled
@@ -188,6 +180,7 @@ export default function DashboardPage() {
     error: string | null;
     onClick: () => void;
     emptyAction: { label: string; href: string } | null;
+    retryKey: keyof typeof loading;
   }> = [
     {
       label: 'Active Divisions',
@@ -199,6 +192,7 @@ export default function DashboardPage() {
       error: errors.divisions,
       onClick: () => navigate('/organization'),
       emptyAction: totalDivisions === 0 ? { label: 'Create Division', href: '/organization' } : null,
+      retryKey: 'divisions',
     },
     {
       label: 'Staff Agents',
@@ -210,6 +204,7 @@ export default function DashboardPage() {
       error: errors.staff,
       onClick: () => navigate('/organization?tab=staff'),
       emptyAction: totalStaff === 0 ? { label: 'Invite Staff', href: '/organization?tab=staff' } : null,
+      retryKey: 'staff',
     },
     {
       label: 'Pending Approvals',
@@ -221,6 +216,7 @@ export default function DashboardPage() {
       error: errors.approvals,
       onClick: () => navigate('/approvals'),
       emptyAction: totalApprovals === 0 && totalStaff > 0 ? { label: 'No pending approvals', href: '/approvals' } : null,
+      retryKey: 'approvals',
     },
   ];
 
@@ -280,7 +276,7 @@ export default function DashboardPage() {
       <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 3, mb: 4 }}>
         {stats.map((stat, index) => (
           <Box key={index}>
-            <StatCard stat={stat} onRetry={() => handleRetry(sectionKeyMap[stat.label.toLowerCase()] as keyof typeof loading)} />
+            <StatCard stat={stat} onRetry={() => handleRetry(stat.retryKey)} />
           </Box>
         ))}
       </Box>

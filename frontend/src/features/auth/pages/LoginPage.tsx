@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Box,
   Card,
@@ -13,11 +13,11 @@ import {
   CircularProgress,
 } from '@mui/material';
 import { useAppAuth } from '@app/use-app-auth';
+import { apiClient } from '@shared/api/client';
 
-const RUNTIME_OPTIONS = [
-  { value: 'claude', label: 'Claude Code' },
-  { value: 'hermes', label: 'Hermes' },
-];
+interface SeatOption { value: string; label: string; }
+interface StaffOption { value: string; label: string; }
+interface DivisionOption { value: string; label: string; }
 
 const OWNER_TYPE_OPTIONS = [
   { value: 'founder', label: 'Founder' },
@@ -26,51 +26,10 @@ const OWNER_TYPE_OPTIONS = [
   { value: 'division', label: 'Division' },
 ];
 
-const SEAT_OPTIONS = [
-  { value: 'seat-01', label: 'Council Seat 01 (Steve Jobs)' },
-  { value: 'seat-02', label: 'Council Seat 02 (Virgil Abloh)' },
-  { value: 'seat-03', label: 'Council Seat 03 (Shawn Stüssy)' },
-  { value: 'seat-04', label: 'Council Seat 04 (G-Dragon)' },
-  { value: 'seat-05', label: 'Council Seat 05 (Vacant)' },
-  { value: 'seat-06', label: 'Council Seat 06 (Vacant)' },
-  { value: 'seat-07', label: 'Council Seat 07 (Vacant)' },
-  { value: 'seat-08', label: 'Council Seat 08 (Vacant)' },
-  { value: 'seat-09', label: 'Council Seat 09 (Vacant)' },
-  { value: 'seat-10', label: 'Council Seat 10 (Vacant)' },
-  { value: 'seat-11', label: 'Council Seat 11 (Vacant)' },
+const RUNTIME_OPTIONS = [
+  { value: 'claude', label: 'Claude Code' },
+  { value: 'hermes', label: 'Hermes' },
 ];
-
-const STAFF_OPTIONS = [
-  { value: 'staff-dev-head-001', label: 'Staff: Developer Division Head' },
-  { value: 'staff-marketing-head-001', label: 'Staff: Marketing Division Head' },
-  { value: 'staff-finance-head-001', label: 'Staff: Finance Division Head' },
-  { value: 'staff-creative-head-001', label: 'Staff: Creative Division Head' },
-  { value: 'staff-research-head-001', label: 'Staff: Research Division Head' },
-];
-
-const DIVISION_OPTIONS = [
-  { value: 'developer', label: 'Division: Developer' },
-  { value: 'marketing', label: 'Division: Marketing' },
-  { value: 'finance', label: 'Division: Finance' },
-  { value: 'creative', label: 'Division: Creative' },
-  { value: 'research-intelligence', label: 'Division: Research & Intelligence' },
-  { value: 'business-operations', label: 'Division: Business Operations' },
-];
-
-function getOwnerIdOptions(ownerType: string) {
-  switch (ownerType) {
-    case 'founder':
-      return [{ value: 'founder', label: 'Founder' }];
-    case 'seat':
-      return SEAT_OPTIONS;
-    case 'staff':
-      return STAFF_OPTIONS;
-    case 'division':
-      return DIVISION_OPTIONS;
-    default:
-      return [];
-  }
-}
 
 export default function LoginPage() {
   const { login, isLoading, navigateAfterLogin } = useAppAuth();
@@ -79,14 +38,50 @@ export default function LoginPage() {
   const [runtime, setRuntime] = useState<'claude' | 'hermes'>('claude');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [seatOptions, setSeatOptions] = useState<SeatOption[]>([]);
+  const [staffOptions, setStaffOptions] = useState<StaffOption[]>([]);
+  const [divisionOptions, setDivisionOptions] = useState<DivisionOption[]>([]);
+  const [dataLoading, setDataLoading] = useState(false);
+
+  const getOwnerIdOptions = (type: string, seats: SeatOption[], staff: StaffOption[], divisions: DivisionOption[]) => {
+    switch (type) {
+      case 'founder': return [{ value: 'founder', label: 'Founder' }];
+      case 'seat': return seats;
+      case 'staff': return staff;
+      case 'division': return divisions;
+      default: return [];
+    }
+  };
+
+  // Fetch available accounts from API
+  useEffect(() => {
+    const fetchOptions = async () => {
+      setDataLoading(true);
+      try {
+        const [seatsRes, staffRes, divisionsRes] = await Promise.allSettled([
+          apiClient.get<{ data: SeatOption[] }>('/api/council/seats').catch(() => ({ data: [] })),
+          apiClient.get<{ staff: StaffOption[] }>('/api/staff').catch(() => ({ staff: [] })),
+          apiClient.get<{ divisions: DivisionOption[] }>('/api/divisions').catch(() => ({ divisions: [] })),
+        ]);
+        setSeatOptions((seatsRes.status === 'fulfilled' ? seatsRes.value.data : []).map(s => ({ value: s.value, label: s.value })));
+        setStaffOptions(staffRes.status === 'fulfilled' ? staffRes.value.staff || [] : []);
+        setDivisionOptions(divisionsRes.status === 'fulfilled' ? divisionsRes.value.divisions || [] : []);
+      } catch {
+        // Keep empty arrays on error - user can manually enter
+      } finally {
+        setDataLoading(false);
+      }
+    };
+    fetchOptions();
+  }, []);
 
   // Reset ownerId when ownerType changes
   React.useEffect(() => {
-    const options = getOwnerIdOptions(ownerType);
+    const options = getOwnerIdOptions(ownerType, seatOptions, staffOptions, divisionOptions);
     if (options.length > 0) {
       setOwnerId(options[0].value);
     }
-  }, [ownerType]);
+  }, [ownerType, seatOptions, staffOptions, divisionOptions]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
