@@ -41,8 +41,7 @@ export default function LoginPage() {
   const [seatOptions, setSeatOptions] = useState<SeatOption[]>([]);
   const [staffOptions, setStaffOptions] = useState<StaffOption[]>([]);
   const [divisionOptions, setDivisionOptions] = useState<DivisionOption[]>([]);
-  const [dataLoading, setDataLoading] = useState(false);
-
+  
   const getOwnerIdOptions = (type: string, seats: SeatOption[], staff: StaffOption[], divisions: DivisionOption[]) => {
     switch (type) {
       case 'founder': return [{ value: 'founder', label: 'Founder' }];
@@ -56,7 +55,6 @@ export default function LoginPage() {
   // Fetch available accounts from API
   useEffect(() => {
     const fetchOptions = async () => {
-      setDataLoading(true);
       try {
         const [seatsRes, staffRes, divisionsRes] = await Promise.allSettled([
           apiClient.get<{ data: SeatOption[] }>('/api/council/seats').catch(() => ({ data: [] })),
@@ -68,8 +66,6 @@ export default function LoginPage() {
         setDivisionOptions(divisionsRes.status === 'fulfilled' ? divisionsRes.value.divisions || [] : []);
       } catch {
         // Keep empty arrays on error - user can manually enter
-      } finally {
-        setDataLoading(false);
       }
     };
     fetchOptions();
@@ -140,7 +136,7 @@ export default function LoginPage() {
                 name="owner_id"
                 onChange={(e) => setOwnerId(e.target.value)}
               >
-                {getOwnerIdOptions(ownerType).map((opt) => (
+                {getOwnerIdOptions(ownerType, seatOptions, staffOptions, divisionOptions).map((opt) => (
                   <MenuItem key={opt.value} value={opt.value}>{opt.label}</MenuItem>
                 ))}
               </Select>

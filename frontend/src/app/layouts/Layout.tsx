@@ -1,21 +1,20 @@
-import { Outlet, NavLink } from 'react-router-dom';
+import { Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
   Box,
-  Drawer,
   AppBar,
+  Drawer,
   Toolbar,
   List,
   ListItem,
+  ListItemButton,
   ListItemIcon,
   ListItemText,
   Typography,
   IconButton,
-  Avatar,
   Menu,
   MenuItem,
   Divider,
   Tooltip,
-  Chip,
 } from '@mui/material';
 import {
   DashboardOutlined,
@@ -33,8 +32,9 @@ import {
   PersonOutlined,
   DarkModeOutlined,
   LightModeOutlined,
+  SettingsOutlined,
+  History,
 } from '@mui/icons-material';
-import { styled } from '@mui/material/styles';
 import { useState } from 'react';
 import { useAppAuth } from '../use-app-auth';
 import { useThemeStore } from '../../shared/theme';
@@ -43,57 +43,27 @@ const LOCAL_SINGLE_USER_MODE = import.meta.env.VITE_LOCAL_SINGLE_USER_MODE === '
 
 const drawerWidth = 260;
 
-// Styled NavLink with proper hover/focus/active states
-const StyledNavLink = styled(NavLink)(({ theme }) => ({
-  borderRadius: (theme.shape.borderRadius as number) * 2,
-  margin: '0.25rem 1rem',
-  display: 'flex',
-  alignItems: 'center',
-  textDecoration: 'none',
-  color: theme.palette.text.primary,
-  backgroundColor: 'transparent',
-  transition: 'background-color 150ms ease, color 150ms ease',
-  '&:hover': {
-    backgroundColor: theme.palette.action.hover,
-    color: theme.palette.text.primary,
-    textDecoration: 'none',
-  },
-  '&.active': {
-    backgroundColor: theme.palette.primary.main,
-    color: theme.palette.primary.contrastText,
-    '&:hover': {
-      backgroundColor: theme.palette.primary.dark,
-    },
-  },
-  '&:focus-visible': {
-    outline: `2px solid ${theme.palette.primary.main}`,
-    outlineOffset: '2px',
-  },
-  '& .MuiListItemIcon-root': {
-    color: 'inherit',
-    minWidth: 40,
-  },
-  '& .MuiListItemTextPrimary': {
-    color: 'inherit',
-  },
-}));
-
 const navigationItems = [
-  { path: '/dashboard', label: 'Dashboard', icon: <DashboardOutlined />, comingSoon: false },
-  { path: '/chat', label: 'Chat', icon: <ChatOutlined />, comingSoon: false },
-  { path: '/council', label: 'Council', icon: <AccountBalanceOutlined />, comingSoon: true },
-  { path: '/meetings', label: 'Meetings', icon: <EventOutlined />, comingSoon: true },
-  { path: '/memory', label: 'Memory', icon: <LibraryBooksOutlined />, comingSoon: false },
-  { path: '/organization', label: 'Organization', icon: <BusinessOutlined />, comingSoon: false },
-  { path: '/tasks', label: 'Tasks & Delegation', icon: <EngineeringOutlined />, comingSoon: false },
-  { path: '/executions', label: 'Executions', icon: <PlayArrowOutlined />, comingSoon: false },
-  { path: '/deliverables', label: 'Deliverables', icon: <AssignmentOutlined />, comingSoon: false },
-  { path: '/approvals', label: 'Approvals', icon: <VerifiedUserOutlined />, comingSoon: false },
+  { path: '/dashboard', label: 'Dashboard', icon: <DashboardOutlined /> },
+  { path: '/activity', label: 'Activity', icon: <History /> },
+  { path: '/chat', label: 'Chat', icon: <ChatOutlined /> },
+  { path: '/council', label: 'Council', icon: <AccountBalanceOutlined /> },
+  { path: '/meetings', label: 'Meetings', icon: <EventOutlined /> },
+  { path: '/memory', label: 'Memory', icon: <LibraryBooksOutlined /> },
+  { path: '/organization', label: 'Organization', icon: <BusinessOutlined /> },
+  { path: '/tasks', label: 'Tasks & Delegation', icon: <EngineeringOutlined /> },
+  { path: '/executions', label: 'Executions', icon: <PlayArrowOutlined /> },
+  { path: '/deliverables', label: 'Deliverables', icon: <AssignmentOutlined /> },
+  { path: '/approvals', label: 'Approvals', icon: <VerifiedUserOutlined /> },
+  { path: '/profile', label: 'Profile', icon: <PersonOutlined /> },
+  { path: '/settings', label: 'Settings', icon: <SettingsOutlined /> },
 ];
 
 export default function Layout() {
   const themeStore = useThemeStore();
   const { authContext, logout } = useAppAuth();
+  const location = useLocation();
+  const navigate = useNavigate();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
 
@@ -122,43 +92,53 @@ export default function Layout() {
     themeStore.setMode(themeStore.mode === 'light' ? 'dark' : 'light');
   };
 
-  const drawer = (
-    <Box onClick={handleDrawerClose} sx={{ textAlign: 'center', p: 2 }}>
-      <Typography variant="h6" sx={{ fontWeight: 700, mb: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1 }}>
-        <AccountBalanceOutlined sx={{ fontSize: 28 }} />
-        Council Bridge
-      </Typography>
-      <Divider sx={{ mb: 2 }} />
-      <List component="nav" aria-label="main navigation">
-        {navigationItems.map((item) => (
-          <ListItem key={item.path} disablePadding>
-            <StyledNavLink
-              to={item.path}
-              end
-              aria-current={item.comingSoon ? undefined : 'page'}
-              aria-disabled={item.comingSoon}
-              onClick={(e) => {
-                if (item.comingSoon) {
-                  e.preventDefault();
-                  e.stopPropagation();
-                }
-              }}
-            >
-              <ListItemIcon>{item.icon}</ListItemIcon>
-              <ListItemText primary={item.label} />
-              {item.comingSoon && (
-                <Chip label="Coming Soon" size="small" color="warning" variant="outlined" />
-              )}
-            </StyledNavLink>
-          </ListItem>
-        ))}
-      </List>
-    </Box>
+  const isItemSelected = (path: string) =>
+    location.pathname === path || location.pathname.startsWith(`${path}/`);
+
+  const drawerNavigation = (
+    <List component="nav" aria-label="main navigation">
+      {navigationItems.map((item) => (
+        <ListItem key={item.path} disablePadding>
+          <ListItemButton
+            component={NavLink}
+            to={item.path}
+            end
+            selected={isItemSelected(item.path)}
+          >
+            <ListItemIcon>{item.icon}</ListItemIcon>
+            <ListItemText primary={item.label} />
+          </ListItemButton>
+        </ListItem>
+      ))}
+    </List>
   );
 
   return (
-    <Box sx={{ display: 'flex', minHeight: '100vh' }}>
-      {/* Desktop permanent drawer */}
+    <Box sx={{ display: 'flex' }}>
+      <AppBar position="fixed" sx={{ zIndex: (theme) => theme.zIndex.drawer + 1 }}>
+        <Toolbar>
+          <IconButton
+            color="inherit"
+            edge="start"
+            onClick={handleDrawerToggle}
+            sx={{ mr: 2, display: { md: 'none' } }}
+            aria-label="Open navigation menu"
+          >
+            <MenuIcon />
+          </IconButton>
+          <Typography variant="h6" component="div" sx={{ flexGrow: 1, fontWeight: 600 }}>
+            Council Bridge
+          </Typography>
+          <Tooltip title={themeStore.mode === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}>
+            <IconButton onClick={handleThemeToggle} color="inherit">
+              {themeStore.mode === 'dark' ? <LightModeOutlined /> : <DarkModeOutlined />}
+            </IconButton>
+          </Tooltip>
+          <IconButton onClick={handleMenuOpen} color="inherit" aria-label="User menu">
+            <PersonOutlined />
+          </IconButton>
+        </Toolbar>
+      </AppBar>
       <Drawer
         variant="permanent"
         sx={{
@@ -167,17 +147,15 @@ export default function Layout() {
           flexShrink: 0,
           '& .MuiDrawer-paper': {
             boxSizing: 'border-box',
-            borderRight: 1,
-            borderColor: 'divider',
+            border: 'none',
             backgroundColor: 'background.paper',
           },
         }}
         open
       >
-        {drawer}
+        <Toolbar />
+        <Box sx={{ overflow: 'auto' }}>{drawerNavigation}</Box>
       </Drawer>
-
-      {/* Mobile temporary drawer */}
       <Drawer
         variant="temporary"
         open={mobileOpen}
@@ -185,92 +163,63 @@ export default function Layout() {
         ModalProps={{ keepMounted: true }}
         sx={{
           display: { xs: 'block', md: 'none' },
+          '& .MuiDrawer-paper': {
+            boxSizing: 'border-box',
+            border: 'none',
+            backgroundColor: 'background.paper',
+          },
         }}
       >
-        {drawer}
+        <Toolbar />
+        <Box sx={{ overflow: 'auto' }}>{drawerNavigation}</Box>
       </Drawer>
-
-      {/* Main content wrapper - includes AppBar and main content */}
-      <Box sx={{ display: 'flex', flexGrow: 1, minHeight: '100vh', width: { md: `calc(100% - ${drawerWidth}px)` } }}>
-        {/* AppBar */}
-        <AppBar
-          position="fixed"
-          sx={{
-            width: { md: '100%' },
-            ml: { md: `${drawerWidth}px` },
-            backgroundColor: (t) => t.palette.background.paper,
-            borderBottom: 1,
-            borderColor: 'divider',
-            boxShadow: 'none',
-          }}
-          elevation={0}
-        >
-          <Toolbar>
-            <IconButton
-              color="inherit"
-              edge="start"
-              onClick={handleDrawerToggle}
-              sx={{ mr: 2, display: { md: 'none' } }}
-              aria-label="Open navigation menu"
-            >
-              <MenuIcon />
-            </IconButton>
-            <Box sx={{ flexGrow: 1 }} />
-            <Typography variant="h6" sx={{ fontWeight: 600, display: { xs: 'none', sm: 'block' } }}>
-              Council Bridge
-            </Typography>
-            <Box sx={{ flexGrow: 1 }} />
-            <Tooltip title={themeStore.mode === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}>
-              <IconButton onClick={handleThemeToggle} color="inherit">
-                {themeStore.mode === 'dark' ? <LightModeOutlined /> : <DarkModeOutlined />}
-              </IconButton>
-            </Tooltip>
-            <IconButton onClick={handleMenuOpen} color="inherit" aria-label="User menu">
-              <Avatar
-                sx={{ width: 32, height: 32, bgcolor: 'primary.main' }}
-              >
-                <PersonOutlined fontSize="small" />
-              </Avatar>
-            </IconButton>
-          </Toolbar>
-        </AppBar>
-
-        {/* Main content */}
-        <Box
-          component="main"
-          sx={{
-            flexGrow: 1,
-            p: 3,
-            backgroundColor: 'background.default',
-          }}
-        >
-          <Outlet />
-        </Box>
+      <Box component="main" sx={{ flexGrow: 1, p: 3, minHeight: '100vh' }}>
+        <Toolbar />
+        <Outlet />
       </Box>
-
-      {/* User menu - positioned at app root level for proper z-index */}
       <Menu
         anchorEl={anchorEl}
         open={Boolean(anchorEl)}
         onClose={handleMenuClose}
-        transformOrigin={{ horizontal: 'right', vertical: 'top' }}
-        anchorOrigin={{ horizontal: 'right', vertical: 'bottom' }}
+        anchorOrigin={{
+          vertical: 'bottom',
+          horizontal: 'right',
+        }}
+        transformOrigin={{
+          vertical: 'top',
+          horizontal: 'right',
+        }}
       >
-        <Box sx={{ px: 2, py: 1, borderBottom: 1, borderColor: 'divider' }} role="menu" aria-label="User menu options">
-          <Typography variant="body2" color="text.secondary">
+        <MenuItem onClick={handleMenuClose}>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
             Signed in as
           </Typography>
           <Typography variant="body1" sx={{ fontWeight: 500 }}>
             {authContext?.owner_type === 'founder' ? 'Founder' : authContext?.owner_id}
           </Typography>
-          <Typography variant="caption" color="text.secondary">
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
             {authContext?.runtime} • {authContext?.owner_type}
             {LOCAL_SINGLE_USER_MODE && ' • Local Mode'}
           </Typography>
-        </Box>
+        </MenuItem>
+        <Divider />
+        <MenuItem onClick={() => { handleMenuClose(); navigate('/profile'); }}>
+          <ListItemIcon>
+            <PersonOutlined fontSize="small" />
+          </ListItemIcon>
+          Profile
+        </MenuItem>
+        <MenuItem onClick={() => { handleMenuClose(); navigate('/settings'); }}>
+          <ListItemIcon>
+            <SettingsOutlined fontSize="small" />
+          </ListItemIcon>
+          Settings
+        </MenuItem>
         <Divider />
         <MenuItem onClick={handleLogout}>
-          <ListItemIcon aria-label="Logout"><LogoutOutlined fontSize="small" /></ListItemIcon>
+          <ListItemIcon>
+            <LogoutOutlined fontSize="small" />
+          </ListItemIcon>
           Logout
         </MenuItem>
       </Menu>

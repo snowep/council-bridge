@@ -1,5 +1,5 @@
 import axios, { type AxiosInstance, type InternalAxiosRequestConfig, AxiosError } from 'axios';
-import type { SessionTokenResponse, AuthStatusResponse, FounderPublicKeyResponse } from '../types/api';
+import type { SessionTokenResponse, AuthStatusResponse, FounderPublicKeyResponse, ActivityResponse } from '../types/api';
 
 // Use relative URL when frontend and backend share origin (production with Vite proxy)
 // Fall back to explicit URL for development or separate deployments
@@ -97,6 +97,12 @@ class ApiClient {
   // Health check
   async healthCheck(): Promise<{ status: string }> {
     const response = await this.client.get('/health');
+    return response.data;
+  }
+
+  // Activity
+  async getActivity(params: { limit?: number; offset?: number }): Promise<ActivityResponse> {
+    const response = await this.client.get<ActivityResponse>('/api/activity', { params });
     return response.data;
   }
 

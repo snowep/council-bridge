@@ -17,14 +17,14 @@ export class ValidationError extends Error {
 }
 
 export class AuthorizationError extends Error {
-  constructor(message: string = 'Authorization denied') {
+  constructor(message: string = 'Authorization denied', public statusCode: number = 403) {
     super(message);
     this.name = 'AuthorizationError';
   }
 }
 
 export class NotFoundError extends Error {
-  constructor(message: string = 'Resource not found') {
+  constructor(message: string = 'Resource not found', public statusCode: number = 404) {
     super(message);
     this.name = 'NotFoundError';
   }

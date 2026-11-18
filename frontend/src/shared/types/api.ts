@@ -367,6 +367,21 @@ export interface PaginatedResponse<T> {
   offset: number;
 }
 
+export interface ActivityResponse {
+  activity: ActivityItem[];
+  limit: number;
+  offset: number;
+}
+
+export interface ActivityItem {
+  id: string;
+  title: string;
+  time: string;
+  type: 'task' | 'deliverable' | 'staff' | 'division' | 'approval' | 'execution' | 'message' | 'meeting';
+  href?: string;
+  metadata?: Record<string, unknown>;
+}
+
 export interface ApiError {
   error: string;
   code: string;

@@ -1,10 +1,19 @@
 // Single source of truth for theme state
 // Replaces dual state in App.tsx and Layout.tsx
 
-import React from 'react';
-import { createContext, useContext, useCallback, type ReactNode, useState, useEffect } from 'react';
+import {
+  createContext,
+  useContext,
+  useCallback,
+  type ReactNode,
+  useState,
+  useEffect,
+} from 'react';
+import {
+  Experimental_CssVarsProvider,
+  type Theme,
+} from '@mui/material/styles';
 import { lightTheme, darkTheme } from './index';
-import { type Theme } from '@mui/material/styles';
 
 type ThemeMode = 'light' | 'dark';
 
@@ -31,7 +40,11 @@ function getThemeState() {
       const saved = localStorage.getItem('theme_mode') as ThemeMode | null;
       if (saved === 'light' || saved === 'dark') {
         themeState.mode = saved;
-      } else if (typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+      } else if (
+        typeof window !== 'undefined' &&
+        window.matchMedia &&
+        window.matchMedia('(prefers-color-scheme: dark)').matches
+      ) {
         themeState.mode = 'dark';
       }
     }
@@ -56,7 +69,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const state = getThemeState();
-    const listener = () => forceUpdate(n => n + 1);
+    const listener = () => forceUpdate((n) => n + 1);
     // Subscribe to changes
     state.listeners.add(listener);
 
@@ -73,20 +86,22 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       localStorage.setItem('theme_mode', mode);
     } catch {}
     // Notify all listeners
-    state.listeners.forEach(listener => listener());
+    state.listeners.forEach((listener) => listener());
   }, []);
 
+  const currentMode = getThemeState().mode;
+  const theme = currentMode === 'dark' ? darkTheme : lightTheme;
+
   const value: ThemeContextValue = {
-    mode: getThemeState().mode,
+    mode: currentMode,
     setMode,
-    theme: getThemeState().mode === 'dark' ? darkTheme : lightTheme,
+    theme,
   };
 
+  // Wrap with MUI's CSS Variables Provider to inject styles to DOM
   return (
-    <React.Fragment>
-      <ThemeContext.Provider value={value}>
-        {children}
-      </ThemeContext.Provider>
-    </React.Fragment>
+    <Experimental_CssVarsProvider theme={theme}>
+      <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>
+    </Experimental_CssVarsProvider>
   );
 }

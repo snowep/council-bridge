@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-route
 import { CssBaseline } from '@mui/material';
 import { type ReactNode } from 'react';
 import DashboardPage from '../features/dashboard/pages/DashboardPage';
+import ActivityPage from '../features/activity/pages/ActivityPage';
 import ChatPage from '../features/chat/pages/ChatPage';
 import CouncilPage from '../features/council/pages/CouncilPage';
 import MeetingsPage from '../features/meetings/pages/MeetingsPage';
@@ -11,6 +12,8 @@ import TasksPage from '../features/tasks/pages/TasksPage';
 import ExecutionsPage from '../features/executions/pages/ExecutionsPage';
 import DeliverablesPage from '../features/deliverables/pages/DeliverablesPage';
 import ApprovalsPage from '../features/approvals/pages/ApprovalsPage';
+import SettingsPage from '../features/settings/pages/SettingsPage';
+import ProfilePage from '../features/profile/pages/ProfilePage';
 import LoginPage from '../features/auth/pages/LoginPage';
 import NotFoundPage from '../features/not-found/pages/NotFoundPage';
 import Layout from '../app/layouts/Layout';
@@ -71,6 +74,7 @@ export default function App() {
             >
               <Route index element={<DashboardPage />} />
               <Route path="dashboard" element={<DashboardPage />} />
+              <Route path="activity" element={<ActivityPage />} />
               <Route path="chat" element={<ChatPage />} />
               <Route path="council" element={<CouncilPage />} />
               <Route path="meetings" element={<MeetingsPage />} />
@@ -80,6 +84,8 @@ export default function App() {
               <Route path="executions" element={<ExecutionsPage />} />
               <Route path="deliverables" element={<DeliverablesPage />} />
               <Route path="approvals" element={<ApprovalsPage />} />
+              <Route path="settings" element={<SettingsPage />} />
+              <Route path="profile" element={<ProfilePage />} />
             </Route>
             {/* 404 catch-all route */}
             <Route path="*" element={<NotFoundPage />} />

@@ -1,11 +1,11 @@
 // Staff Routes
-// Implements: GET /api/staff, GET /api/staff/:id, GET /api/staff/divisions/members
+// Implements: GET /api/staff, GET /api/staff/:id, POST /api/staff, GET /api/staff/divisions/members
 
 import { Router, Request, Response } from 'express';
-import { listStaffAgents, getStaffAgentById, getDivisionMembers, getAllDivisionMembers } from '../../council/divisions.js';
-import { authMiddleware, requireAuth } from '../middleware/authentication.js';
-import { asyncHandler, NotFoundError } from '../middleware/error-handler.js';
-import { ListStaffSchema } from '../schemas/index.js';
+import { listStaffAgents, getStaffAgentById, getDivisionMembers, getAllDivisionMembers, registerStaffAgent } from '../../council/divisions.js';
+import { authMiddleware, requireAuth, getAuthContext } from '../middleware/authentication.js';
+import { asyncHandler, NotFoundError, ValidationError, AuthorizationError } from '../middleware/error-handler.js';
+import { ListStaffSchema, RegisterStaffSchema } from '../schemas/index.js';
 
 const router = Router();
 import { databaseInstance as db } from '../../database.js';
@@ -63,6 +63,30 @@ router.get('/:id', asyncHandler(async (req: Request, res: Response) => {
   }
 
   res.json({ staff });
+}));
+
+// POST /api/staff - Invite/register staff agent (Founder only)
+router.post('/', asyncHandler(async (req: Request, res: Response) => {
+  const ctx = requireAuth(req);
+
+  // Founder authorization required
+  if (ctx.owner_type !== 'founder') {
+    throw new AuthorizationError('Only Founder can invite staff agents');
+  }
+
+  const input = RegisterStaffSchema.parse(req.body);
+
+  const staff = registerStaffAgent(db, {
+    staff_id: db.generateId(),
+    name: input.name,
+    role: input.role,
+    division_id: input.division_id,
+    runtime_instances: input.runtime_instances ?? [],
+    permissions: input.permissions ?? [],
+    status: input.status ?? 'pending',
+  });
+
+  res.status(201).json({ staff });
 }));
 
 // GET /api/staff/divisions/members - List division members

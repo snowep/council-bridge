@@ -1,490 +1,689 @@
-# Council Bridge — M3 Wave 0: UI Baseline & Repository Audit
+# Council Bridge — M3 Final Audit Remediation
 
-## Project Information
+## 1. Authorization and objective
 
-**Repository:** `snowep/council-bridge`  
-**Local path:** `C:\Projects\council-bridge`  
-**Default branch:** `master`  
-**Frontend:** React 19 + Vite + MUI 9 + TypeScript  
-**Backend:** Existing Express API and SQLite architecture  
-**Milestone:** M3 — Dashboard & UI/UX Functional Completion  
-**Wave:** 0 — UI Baseline & Repository Audit
+The Founder authorizes implementation of the corrections identified in the M3 Final Audit for commit:
 
-## 1. Objective
+`1d066ec4bca7b086923d9e4161269e745dce1dc5`
 
-Conduct a complete, READ-ONLY baseline audit of the existing Council Bridge frontend and its supporting backend APIs.
+Repository: `snowep/council-bridge`
 
-The purpose is to establish exactly what currently exists, what works, what is incomplete, what is inconsistent, and what must be implemented during M3 Waves 1–6.
+Branch: `refactor/repository-structure`
 
-This is an audit and planning task.
+Your task is to resolve all nine audit findings in priority order, verify the resulting implementation, and produce a complete remediation report.
 
-Do not implement M3 features during Wave 0.
+This is an M3 remediation task only.
 
-Do not redesign or rewrite the frontend.
+**M4 is explicitly out of scope and must not begin.**
 
-Do not modify existing application behavior.
+Do not interpret this authorization as approval to seed the organization, reconcile organizational identities, modify production databases, or implement future M4 features.
 
-## 2. Governance and Execution Rules
+M2 remains pending formal Founder acceptance. Do not change its status.
 
-M2 has not yet been formally accepted by the Founder.
+M3 remains unaccepted until a separate Founder decision.
 
-Therefore:
+---
 
-- Wave 0 is authorized as a read-only audit.
-- Do not declare M2 accepted.
-- Do not declare M3 implementation authorized.
-- M3 implementation remains subject to the Founder's milestone approval.
-- Do not make commits or pushes.
+## 2. Mandatory preparation
 
-Preserve all existing user changes.
+Before modifying anything:
 
-Never modify production databases or execute production migrations.
+1. Inspect the current Git branch and working tree.
+2. Record the current HEAD commit.
+3. Preserve all existing uncommitted user changes.
+4. Read:
+   - `docs/reports/M3_WAVE0_UI_BASELINE_REPORT.md`
+   - `docs/reports/M3_WAVE0_RECONCILIATION_REPORT.md`
+   - `docs/reports/M3_IMPLEMENTATION_ROADMAP.md`
+   - `docs/reports/M3_ACCEPTANCE_CRITERIA.md`
+   - `docs/reports/M3_WAVE1_DASHBOARD_ACTIONS_REPORT.md`
+   - `docs/reports/M3_WAVE3_NAVIGATION_ROUTING_REPORT.md`
+   - `docs/reports/M3_WAVE4_SETTINGS_PROFILE_REPORT.md`
+   - `docs/reports/M3_WAVE5_THEME_RESPONSIVE_REPORT.md`
+   - `docs/reports/M3_WAVE6_QUALITY_ACCEPTANCE_REPORT.md`
+5. Inspect the exact source files associated with all nine findings.
+6. Verify that the audit findings still apply to the current HEAD. If subsequent commits already resolved any finding, verify the fix and document the evidence rather than reimplementing it.
+7. Identify existing frontend, backend, API, database, testing, and design conventions before changing code.
 
-Do not weaken authentication, authorization, security policies, or rate limits.
+Create an initial remediation checklist and map every finding to its affected files and tests.
 
-## 3. Repository and Frontend Inventory
+Do not assume the original audit commit is still the current branch HEAD.
 
-Inspect the complete tracked repository structure, with particular attention to:
+---
 
-- Frontend application structure.
-- React entry points.
-- Vite configuration.
-- Routing.
-- Layouts and navigation.
-- Dashboard.
-- Activity page.
-- Settings.
-- Profile.
-- Theme configuration.
-- MUI component usage.
-- Shared UI utilities.
-- API clients.
-- Authentication integration.
-- State management.
-- Frontend tests.
+# 3. Remediation priority
+
+Resolve findings in this exact order.
+
+## P1 — Finding 1: Dashboard action wiring
+
+**Affected file:**
+`frontend/src/features/dashboard/pages/DashboardPage.tsx`
+
+### Problem
+
+The Create Division and Invite Staff Quick Actions have empty callbacks:
+
+`onClick: () => {}`
+
+Their dialogs and API handlers exist, but users cannot open the dialogs through the advertised Dashboard actions.
+
+### Required implementation
+
+1. Connect Create Division to its dialog-opening state.
+2. Connect Invite Staff to its dialog-opening state.
+3. Verify New Task opens a functional creation workflow.
+4. Inspect the existing Tasks page behavior for `/tasks?create`.
+5. Ensure the query parameter actually opens the task creation interface, or implement an equivalent functional workflow.
+6. Ensure all three actions are keyboard accessible.
+7. Prevent duplicate submissions.
+8. Preserve loading, validation, success, and error states.
+9. Ensure successful operations refresh the relevant Dashboard data.
+10. Ensure dialogs close correctly and reset form state only after successful submission or explicit cancellation.
+
+### Tests
+
+- Each Dashboard action opens the correct workflow.
+- Each workflow can be cancelled.
+- Each workflow validates required fields.
+- Each successful operation persists.
+- Failed API requests display errors.
+- Repeated clicks do not create duplicate records.
+- New Task navigation opens the creation workflow.
+- Dashboard data refreshes after successful operations.
+
+Do not declare this finding resolved merely because the dialogs exist.
+
+---
+
+## P1 — Finding 2: Activity page and routing
+
+**Affected areas:**
+- `frontend/src/app/App.tsx`
+- Frontend Activity feature
+- `frontend/src/app/layouts/Layout.tsx`
+- Existing Activity API integration
+
+### Problem
+
+The Dashboard links to `/activity`, but the route and Activity page are missing.
+
+The backend endpoint already exists:
+
+`GET /api/activity`
+
+### Required implementation
+
+1. Inspect the existing Activity API contract and `ListActivitySchema`.
+2. Inspect the implementation of `listActivity`.
+3. Build an Activity page using the existing project architecture and MUI 9.
+4. Register `/activity` in React Router.
+5. Add the appropriate navigation entry.
+6. Connect the page to the existing authenticated API.
+7. Implement loading, empty, error, and populated states.
+8. Support the existing pagination contract.
+9. Preserve chronological ordering and stable pagination behavior.
+10. Ensure API errors are handled correctly.
+11. Ensure the page works after a direct browser refresh at `/activity`.
+12. Ensure the Dashboard's View All link reaches the page.
+
+### Security
+
+- Preserve existing authentication middleware.
+- Do not expose activity belonging to unauthorized identities.
+- Do not bypass the API and query the database directly from the frontend.
+- Do not invent cross-division access permissions.
+
+### Tests
+
+- Activity route renders.
+- Direct navigation and browser refresh work.
+- Authenticated API request succeeds.
+- Unauthenticated access follows existing authentication behavior.
+- Pagination works.
+- Empty and error states render.
+- Dashboard View All navigation works.
+- Existing activity authorization tests remain passing.
+
+Do not create a second Activity API if the existing endpoint is sufficient.
+
+---
+
+## P1 — Finding 3: Profile persistence and misleading save behavior
+
+**Affected file:**
+`frontend/src/features/profile/pages/ProfilePage.tsx`
+
+### Problem
+
+The current Profile implementation displays generated placeholder information and reports successful saves without persisting profile changes.
+
+### Required implementation
+
+First inspect the existing identity model, authentication context, database schema, and profile-related APIs.
+
+Choose one of these valid outcomes:
+
+**Option A — Genuine profile persistence**
+
+If the existing architecture supports editable profile information:
+
+1. Implement the appropriate authenticated API integration.
+2. Load profile values from an authoritative source.
+3. Validate changes.
+4. Persist changes through the backend.
+5. Handle loading, saving, success, and error states.
+6. Reload the profile and confirm persistence.
+7. Ensure the caller can only update permitted fields belonging to their identity.
+
+**Option B — Explicit read-only profile**
+
+If the architecture does not support profile persistence:
+
+1. Remove misleading edit/save controls.
+2. Present actual available identity information as read-only.
+3. Remove generated placeholder email addresses.
+4. Remove fake successful-save notifications.
+5. Clearly indicate unavailable profile information without fabricating values.
+6. Use readable, selectable values rather than unnecessarily disabling all fields.
+
+Do not introduce a large profile subsystem solely to make the UI appear editable.
+
+### Tests
+
+- Displayed identity information comes from an authoritative source.
+- No fabricated profile values are presented as actual identity data.
+- Save notifications occur only after genuine persistence.
+- Unauthorized profile updates are rejected.
+- Read-only fields remain accessible and selectable.
+- Profile behavior remains correct after reload.
+
+Document which option was implemented and why.
+
+---
+
+## P1 — Finding 4: Database seeding skill security
+
+**Affected file:**
+`skills/database-seeding.md`
+
+### Problem
+
+The current skill contains destructive cleanup and reseeding instructions, including deletion of operational records and use of `INSERT OR REPLACE`, without sufficient production protections.
+
+### Required implementation
+
+Rewrite the skill to establish strict environment boundaries.
+
+Requirements:
+
+1. General seeding instructions must target isolated development or test databases only.
+2. Explicitly prohibit production database seeding and cleanup through this skill.
+3. Remove automatic deletion of operational records.
+4. Do not use `INSERT OR REPLACE` where it can overwrite or delete existing operational data.
+5. Prefer explicit, idempotent, narrowly scoped inserts with conflict handling.
+6. Verify the referenced seeding scripts exist.
+7. Inspect the actual scripts and ensure they enforce the documented environment restrictions.
+8. Require explicit database-path verification before any operation.
+9. Require backup and integrity verification for any separately authorized data mutation.
+10. Require explicit Founder authorization before any production database mutation.
+11. Do not expose production credentials or secrets.
+12. Do not provide a command that can accidentally target the production database.
+
+### Important restriction
+
+Do not execute any seeding script during this remediation task.
+
+Do not delete, replace, truncate, reset, or otherwise modify production records.
+
+Do not perform M4 organizational bootstrap.
+
+### Tests and verification
+
+- Inspect all referenced scripts.
+- Verify environment guards.
+- Verify production paths are rejected.
+- Verify destructive operations are absent from the normal workflow.
+- Verify isolated test seeding remains functional.
+- Document any script that cannot safely be verified.
+
+The documentation and implementation must agree. A warning in Markdown is insufficient if the script itself remains unsafe.
+
+---
+
+# 4. P2 — Remaining findings
+
+## P2 — Finding 5: Authorization HTTP status correctness
+
+**Affected files:**
+- `src/api/routes/divisions.routes.ts`
+- `src/api/routes/staff.routes.ts`
+- `src/api/middleware/error-handler.ts`
+
+### Problem
+
+Authorization failures currently use `ValidationError`, which can result in HTTP 500 because the error handler defaults unclassified errors to 500.
+
+### Required implementation
+
+1. Inspect the existing error classes and API error conventions.
+2. Use the existing `AuthorizationError` or an equivalent correctly classified error.
+3. Ensure authorization failures consistently return HTTP 403.
+4. Ensure validation failures return HTTP 400.
+5. Ensure missing resources return HTTP 404.
+6. Ensure unexpected server failures return HTTP 500.
+7. Do not expose stack traces or sensitive information in production responses.
+8. Preserve correlation IDs and existing structured error responses.
+9. Apply consistent behavior to division and staff routes.
+
+### Tests
+
+- Unauthorized division creation returns 403.
+- Unauthorized staff creation returns 403.
+- Invalid request bodies return 400.
+- Missing records return 404.
+- Unexpected exceptions return 500.
+- Existing authentication and security regression tests pass.
+
+Do not weaken authorization to make requests succeed.
+
+---
+
+## P2 — Finding 6: Settings persistence and cancellation
+
+**Affected file:**
+`frontend/src/features/settings/pages/SettingsPage.tsx`
+
+### Problem
+
+Settings behavior is inconsistent:
+
+- Notification preferences are stored locally.
+- Cancel does not restore previous values.
+- `hasChanges` is hardcoded around local single-user mode.
+- Save and Cancel may be disabled outside local mode.
+- Some switches imply notification delivery capabilities that do not exist.
+
+### Required implementation
+
+Inspect the existing settings architecture and determine which preferences are genuinely supported.
+
+For preferences that are intentionally local:
+
+1. Store them using the existing local preference mechanism.
+2. Load the saved values on page initialization.
+3. Maintain a separate editable draft state.
+4. Make Save persist the draft.
+5. Make Cancel restore the last saved values.
+6. Calculate `hasChanges` from actual state differences.
+7. Provide meaningful success and error feedback.
+8. Ensure theme settings remain consistent with the existing theme provider.
+
+For preferences that require backend or external service support:
+
+- Implement them only if a supported contract already exists.
+- Otherwise label them accurately as unavailable or remove misleading controls.
+- Do not claim email or push notifications are operational without actual integration.
+
+### Tests
+
+- Preferences load correctly.
+- Changes are detected.
+- Save persists supported settings.
+- Cancel restores previous saved values.
+- Reload preserves saved preferences.
+- Theme behavior remains correct.
+- Unsupported capabilities are not presented as operational.
+
+---
+
+## P2 — Finding 7: Quality-gate evidence and test reliability
+
+**Affected areas:**
+- Frontend and backend test configuration.
 - E2E tests.
-- Backend API routes consumed by the frontend.
+- Accessibility tests.
+- `docs/reports/M3_WAVE6_QUALITY_ACCEPTANCE_REPORT.md`
 
-Identify:
+### Problem
 
-1. Existing pages and routes.
-2. Existing reusable components.
-3. Existing design tokens and theme definitions.
-4. Existing API integrations.
-5. Missing or incomplete functionality.
-6. Duplicate implementations.
-7. Dead code and unused components.
-8. Inconsistent patterns.
-9. Dependencies that should not be introduced or duplicated.
+The existing report has incomplete test totals, unexplained failures despite exit code 0, insufficient frontend E2E evidence, and incomplete accessibility verification.
 
-Do not recommend restructuring merely for aesthetic reasons.
+### Required implementation
 
-## 4. Page-by-Page Functional Audit
+#### A. Test command reliability
 
-Audit every existing frontend page.
+Inspect all relevant package scripts and test-runner configuration.
 
-For each page, document:
+Ensure:
 
-- Purpose.
-- Route.
-- Main components.
-- API dependencies.
-- Authentication requirements.
-- Available user actions.
-- Functional status.
-- Loading behavior.
-- Empty-state behavior.
-- Error handling.
-- Responsive behavior.
-- Accessibility concerns.
-- Existing tests.
-- Missing functionality.
+- Failed tests cause a non-zero exit code.
+- Failed suites cannot be silently reported as successful.
+- Skipped and pending tests are reported explicitly.
+- Test cleanup and process shutdown work correctly.
+- No existing test failures are hidden or suppressed.
 
-Use these classifications:
+Do not change expected assertions merely to achieve green results.
 
-- COMPLETE
-- PARTIALLY COMPLETE
-- BROKEN
-- NOT IMPLEMENTED
-- NOT APPLICABLE
+Do not increase timeouts or suppress exit codes as a workaround.
 
-At minimum, examine:
+#### B. Backend verification
 
-### Dashboard
+Run the relevant backend test suites and record:
 
-- Operational metrics.
-- Council status.
-- Agent status.
-- Division information.
-- Recent activity.
-- Dashboard actions.
-- Loading and error states.
-- Whether displayed metrics reflect actual backend data.
+- Exact command.
+- Total tests.
+- Passed.
+- Failed.
+- Skipped.
+- Cancelled.
+- Exit code.
+- Execution duration.
 
-### Activity
+Investigate and fix regressions caused by this remediation.
 
-- Activity API.
-- Event retrieval.
-- Filtering.
-- Pagination.
-- Sorting.
-- Authentication.
-- Empty and error states.
+Clearly identify unrelated pre-existing failures.
 
-### Navigation and Routing
+#### C. Frontend verification
 
-- Main navigation.
-- Route registration.
-- Active navigation state.
-- Browser history.
-- Unknown routes.
-- 404 handling.
-- Protected routes.
+Run:
 
-### Settings
+- TypeScript compilation.
+- Frontend unit tests.
+- Frontend integration tests.
+- Frontend E2E tests.
+- Production build.
 
-- Existing settings.
-- Persistence.
-- Validation.
-- Save behavior.
-- Error handling.
-- Permission boundaries.
+Record exact totals and exit codes.
 
-### Profile
+#### D. Accessibility
 
-- Profile data retrieval.
-- Editable fields.
-- Persistence.
-- Validation.
-- Authentication.
-- Error handling.
+Perform an actual accessibility audit against WCAG 2.2 AA criteria.
 
-Do not assume a page is functional merely because it renders.
+At minimum, verify:
 
-## 5. Backend API and Data Contract Audit
+- Keyboard-only navigation.
+- Visible focus.
+- Dialog focus management.
+- Accessible labels and names.
+- Color contrast.
+- Form error identification.
+- Screen-reader semantics.
+- Responsive zoom and reflow.
+- Interactive control accessibility.
 
-Map every frontend page and action to its backend endpoint.
+Use automated tooling where available, but do not treat a clean axe scan as proof of complete WCAG compliance.
 
-For each API dependency, document:
+Document both automated and manual verification.
 
-- HTTP method.
-- Endpoint.
-- Request schema.
-- Response schema.
-- Authentication middleware.
-- Authorization requirements.
-- Error responses.
-- Pagination behavior.
-- Current implementation status.
-- Frontend integration status.
+#### E. Responsive verification
 
-Identify:
+Verify at:
 
-- Missing endpoints.
-- Inconsistent response formats.
-- Incorrect frontend assumptions.
-- Unauthenticated access.
-- Missing validation.
-- Unnecessary duplicate requests.
-- Potential N+1 queries.
-- Missing pagination.
-- Data that is mocked or hardcoded instead of retrieved from the backend.
+- 375 px
+- 768 px
+- 1024 px
+- 1440 px
+- 1920 px
 
-Do not create new endpoints during Wave 0.
+Record actual results and defects.
 
-## 6. Organization and Identity Data Integrity Baseline
+Do not claim a viewport was tested unless it was actually tested.
 
-Record the current database-backed organization and identity counts without changing data.
+---
 
-The intended logical organization is:
+## P2 — Finding 8: Wave 1 report accuracy
 
-| Entity | Expected logical count |
-|---|---:|
-| Council seats | 11 |
-| Divisions | 6 |
-| Division Heads | 6 |
-| Specialists | 45 |
-| Total division staff | 51 |
-| Staff runtime instances | 102 |
+**Affected file:**
+`docs/reports/M3_WAVE1_DASHBOARD_ACTIONS_REPORT.md`
 
-The six divisions are:
+### Problem
 
-1. Developer
-2. Marketing
-3. Finance
-4. Creative
-5. Research & Intelligence
-6. Business Operations
+The report claims all three actions are functional even though two action callbacks are empty.
 
-Important distinctions:
+It also describes pending staff registration as an invitation without demonstrating external invitation delivery.
 
-- Council seats are separate from division staff.
-- Founder is not an additional Council voting seat.
-- Division Heads and specialists are not Council voting members.
-- Each logical staff identity maps to Claude and Hermes runtime instances.
-- Runtime instances must not be counted as separate logical staff identities.
+### Required implementation
 
-Query the current database using safe, read-only operations.
+After completing the actual Wave 1 fixes:
 
-Report actual counts alongside expected counts.
+1. Reconcile the report with source code and test evidence.
+2. Describe Create Division accurately.
+3. Describe Invite Staff accurately.
+4. Distinguish staff registration from external invitation delivery.
+5. Describe New Task behavior accurately.
+6. Record actual API endpoints.
+7. Record actual authorization behavior.
+8. Record tests and results.
+9. List unresolved limitations.
+10. Remove unsupported completion claims.
 
-Do not bootstrap, reconcile, repair, delete, insert, or update production records.
+Do not claim an external invitation was sent unless a real invitation mechanism exists and was tested.
 
-Historical audit counts must not be presented as current database counts.
+---
 
-If the current database cannot safely be accessed, clearly mark the counts as UNVERIFIED.
+## P2 — Finding 9: Responsive and accessibility verification
 
-This is a baseline only. Full organization reconciliation belongs to the appropriate later integration milestone.
+**Affected files:**
+- `docs/reports/M3_WAVE5_THEME_RESPONSIVE_REPORT.md`
+- `docs/reports/M3_WAVE6_QUALITY_ACCEPTANCE_REPORT.md`
+- Relevant frontend components.
 
-## 7. Design System and UI/UX Audit
+### Problem
 
-Inspect the current MUI 9 implementation.
+Responsive and accessibility compliance is described without sufficient execution evidence.
 
-Preserve:
+The Profile page also uses disabled fields for read-only values, which can impair normal selection and accessibility.
 
-- Vanilla MUI components.
+### Required implementation
+
+1. Verify all five required viewport widths.
+2. Fix layout overflow and unusable navigation.
+3. Verify responsive dialogs and forms.
+4. Verify keyboard access and focus behavior.
+5. Verify contrast and readable text.
+6. Verify accessible names and form instructions.
+7. Replace inappropriate disabled read-only fields with proper read-only presentation.
+8. Verify screen-reader semantics.
+9. Record actual results and outstanding issues.
+10. Update Wave 5 and Wave 6 reports to reflect evidence.
+
+Do not claim WCAG 2.2 AA compliance if any required criteria remain unverified.
+
+---
+
+# 5. Architecture and design constraints
+
+All changes must preserve the established Council Bridge architecture.
+
+## Frontend
+
+- React 19.
+- Vite.
+- TypeScript.
+- MUI 9.
 - Google's Material Design system.
-- Existing working architecture.
-- Existing functional behavior.
+- Vanilla MUI components as the default.
+- Custom CSS only when genuinely necessary.
 
 Do not introduce:
+
 - A second component library.
-- Unnecessary custom component abstractions.
-- Decorative AI-generated design patterns.
-- Unnecessary gradients or glassmorphism.
-- Arbitrary CSS overrides.
-- Duplicate theme systems.
+- Generic AI-generated dashboard patterns.
+- Unnecessary abstractions.
+- Duplicate API clients.
+- Parallel state-management systems.
+- Unnecessary dependencies.
 
-Evaluate:
+Maintain the existing command-center/control-panel visual direction.
 
-### Visual consistency
-- Typography.
-- Spacing.
-- Component sizing.
-- Borders and elevation.
-- Color tokens.
-- Icon usage.
-- Surface hierarchy.
+## Backend
 
-### Theme
-- Light theme.
-- Dark theme.
-- Text contrast.
-- Component contrast.
-- Theme persistence.
-- Theme switching.
+- Preserve Express architecture.
+- Preserve SQLite architecture.
+- Reuse existing services and validation schemas.
+- Preserve authenticated API boundaries.
+- Preserve existing authorization rules.
+- Preserve migration-runner conventions.
 
-### Responsive behavior
-Inspect at these viewport widths:
+## Security
 
-- 375px.
-- 768px.
-- 1024px.
-- 1440px.
-- 1920px.
+- Production authentication remains fail-closed.
+- Never reintroduce hardcoded identity fallbacks.
+- Never weaken token or webhook verification.
+- Never expose Founder private keys.
+- Never trust client-supplied authorization claims.
+- Preserve explicit cross-division authorization.
+- Do not expose sensitive data in logs.
 
-Identify overflow, broken layouts, navigation problems, and unusable controls.
+---
 
-### Accessibility
-Evaluate:
+# 6. Absolute M4 boundary
 
-- Keyboard navigation.
-- Focus visibility.
-- Semantic structure.
-- Form labels.
-- Accessible names.
-- Color contrast.
-- Interactive target usability.
-- Screen-reader compatibility where practical.
+This task must not start M4.
 
-Do not implement visual changes in this wave.
+The following activities are explicitly prohibited:
 
-## 8. Frontend Quality and Technical Audit
+1. Creating the missing five divisions.
+2. Creating missing Division Heads.
+3. Creating the missing 45 specialists.
+4. Creating or reconciling 102 runtime instances.
+5. Running organizational bootstrap scripts.
+6. Modifying production organizational records.
+7. Performing database cleanup.
+8. Applying production migrations.
+9. Changing Council membership or vacancies.
+10. Changing permanent Council seats.
+11. Modifying Council governance or voting rules.
+12. Implementing M4 integration or organization reconciliation features.
 
-Inspect:
+The current organizational database counts remain unchanged.
 
-- React component lifecycle and state handling.
-- Unnecessary renders.
-- Effects and dependency correctness.
-- API request lifecycle.
-- Error boundaries.
-- Memory leaks.
-- Loading-state consistency.
-- Form validation.
-- TypeScript quality.
-- Console errors.
-- Dependency health.
-- Test coverage.
+If any M4 dependency is discovered, document it as an external dependency. Do not implement it.
 
-Identify concrete problems with file paths and relevant code references.
+---
 
-Avoid speculative refactoring.
+# 7. Regression and acceptance verification
 
-## 9. Required Quality Audits
+After all nine findings are addressed, execute a complete regression pass.
 
-### Ponytail — Backend
+Required checks:
 
-Audit relevant backend code and frontend-facing API behavior for:
+- Backend tests.
+- Frontend unit tests.
+- Frontend integration tests.
+- Frontend E2E tests.
+- TypeScript.
+- ESLint.
+- Prettier.
+- Production build.
+- Authentication and authorization regression.
+- Dashboard workflow tests.
+- Activity page tests.
+- Profile behavior tests.
+- Settings behavior tests.
+- Responsive verification.
+- Accessibility verification.
 
-- Maintainability.
-- Architecture.
-- Security.
-- Error handling.
-- Data integrity.
-- Performance.
-- API contract consistency.
+Do not hide or suppress failures.
 
-### Impeccable — Frontend
+Do not change tests to make incorrect behavior appear correct.
 
-Perform a UI/UX quality audit for:
+Report any pre-existing failures separately with evidence.
 
-- Visual hierarchy.
-- Layout consistency.
-- Interaction quality.
-- Typography.
-- Spacing.
-- Responsiveness.
-- Accessibility.
-- Usability.
-- Consistency with Material Design.
+---
 
-Do not apply suggested changes automatically.
+# 8. Required deliverables
 
-Record findings and prioritize them.
+Create:
 
-## 10. M3 Wave Planning
+`docs/reports/M3_FINAL_AUDIT_REMEDIATION_REPORT.md`
 
-Based on actual findings, produce a concrete implementation plan for:
+The report must include:
 
-### Wave 1 — Dashboard Actions
-Identify missing functionality, API dependencies, interaction requirements, and tests.
+1. Executive summary.
+2. Original commit SHA.
+3. Remediation starting commit SHA.
+4. Final HEAD SHA.
+5. Working-tree state before and after.
+6. All nine findings and their disposition.
+7. Files created and modified.
+8. Implementation details for each finding.
+9. API changes, if any.
+10. Security and authorization verification.
+11. Database safety verification.
+12. Test commands and exact results.
+13. Accessibility verification.
+14. Responsive verification.
+15. Remaining limitations.
+16. M3 acceptance criteria status.
+17. Explicit confirmation that M4 was not started.
+18. Explicit confirmation that no production database was modified.
 
-### Wave 2 — Activity Page
-Identify required API work, pagination, filtering, and frontend integration.
+Update the existing Wave reports where necessary so they reflect actual implementation rather than unsupported claims.
 
-### Wave 3 — Navigation & Routing
-Identify route and navigation defects and required regression tests.
+Create a findings matrix:
 
-### Wave 4 — Settings & Profile
-Identify incomplete settings/profile functionality and persistence requirements.
+| Finding | Priority | Status | Evidence |
+|---|---|---|---|
+| M3-001 Dashboard actions | P1 | | |
+| M3-002 Activity page | P1 | | |
+| M3-003 Profile persistence | P1 | | |
+| M3-004 Database seeding security | P1 | | |
+| M3-005 Authorization status | P2 | | |
+| M3-006 Settings persistence | P2 | | |
+| M3-007 Quality evidence | P2 | | |
+| M3-008 Wave 1 report accuracy | P2 | | |
+| M3-009 Responsive/accessibility | P2 | | |
 
-### Wave 5 — Theme & Responsive UI
-Identify theme inconsistencies, responsive defects, and accessibility improvements.
+Use only these dispositions:
 
-### Wave 6 — Frontend Quality & Acceptance
-Identify E2E, accessibility, regression, Ponytail, and Impeccable acceptance requirements.
+- RESOLVED
+- PARTIALLY RESOLVED
+- BLOCKED
+- NOT APPLICABLE — with evidence
 
-For each wave, include:
+---
 
-- Objective.
-- Exact files likely to be affected.
-- Dependencies.
-- Implementation tasks.
-- Security considerations.
-- Test requirements.
-- Acceptance criteria.
-- Estimated complexity.
-- Blocking issues.
+# 9. Git and execution restrictions
 
-Do not begin implementation.
+- Preserve all user changes.
+- Do not reset the branch.
+- Do not force checkout over modified files.
+- Do not delete untracked user files.
+- Do not commit.
+- Do not push.
+- Do not merge.
+- Do not deploy.
+- Do not force-push.
+- Do not rewrite Git history.
+- Do not execute production migrations.
+- Do not modify production database contents.
+- Do not run database seeding.
+- Do not begin M4.
+- Do not declare M2 accepted.
+- Do not declare M3 accepted.
 
-## 11. Required Deliverables
+Leave all changes in the working tree for Founder review.
 
-Create the following documentation:
+---
 
-### A. `docs/reports/M3_WAVE0_UI_BASELINE_REPORT.md`
+# 10. Final status
 
-Include:
+Conclude with exactly one of these statuses:
 
-1. Executive Summary.
-2. Repository and Frontend Architecture.
-3. Page and Route Inventory.
-4. Page-by-Page Functional Audit.
-5. Backend API Mapping.
-6. Organization and Identity Baseline.
-7. Design System Audit.
-8. Responsive Audit.
-9. Accessibility Audit.
-10. Frontend Technical Findings.
-11. Ponytail Backend Audit.
-12. Impeccable Frontend Audit.
-13. Prioritized Findings.
-14. Risks and Dependencies.
-15. M3 Implementation Readiness.
+**READY FOR FINAL FOUNDER AUDIT**
 
-### B. `docs/reports/M3_IMPLEMENTATION_ROADMAP.md`
+All nine findings resolved, regression evidence complete, and no release-blocking defects remain.
 
-Include detailed Wave 1–6 plans.
+**PARTIALLY COMPLETE — CORRECTIONS REMAIN**
 
-Make dependencies explicit.
+Some findings remain unresolved. List each finding and the exact remaining work.
 
-Identify critical-path work.
+**BLOCKED**
 
-Separate must-fix requirements from optional improvements.
+Implementation cannot safely proceed. Explain the specific blocker and what authorization or dependency is required.
 
-### C. `docs/reports/M3_ACCEPTANCE_CRITERIA.md`
+Do not declare formal M3 acceptance.
 
-Define measurable acceptance criteria for the entire M3 milestone.
-
-Include functional, technical, security, UI/UX, accessibility, responsive, and regression requirements.
-
-## 12. Priority Classification
-
-Classify findings:
-
-- P0 — Critical security, data integrity, or application-breaking issue.
-- P1 — Core functionality or major usability defect.
-- P2 — Important consistency, reliability, or maintainability issue.
-- P3 — Optional improvement.
-
-For each finding, provide:
-
-- ID.
-- Priority.
-- Description.
-- Evidence.
-- File path.
-- User impact.
-- Proposed correction.
-- Relevant M3 wave.
-
-Do not inflate priorities.
-
-## 13. Definition of Done
-
-Wave 0 is complete only when:
-
-- All existing frontend pages have been inventoried.
-- All routes have been inspected.
-- Frontend API dependencies are mapped.
-- Current organization counts are recorded or explicitly marked unverified.
-- MUI and design-system consistency has been audited.
-- Responsive and accessibility findings are documented.
-- Ponytail and Impeccable audits are completed.
-- M3 Waves 1–6 have concrete implementation plans.
-- M3 acceptance criteria are measurable.
-- No application implementation has been performed.
-- All findings have supporting evidence.
-
-## 14. Final Response
-
-Present:
-
-1. Wave 0 completion status.
-2. Repository structure findings.
-3. Frontend page audit summary.
-4. API integration findings.
-5. Organization and identity counts.
-6. Critical and high-priority issues.
-7. Ponytail and Impeccable findings.
-8. M3 Wave 1–6 roadmap.
-9. Test commands and actual results.
-10. Documentation created.
-11. Remaining blockers.
-12. Recommendation for Founder Review.
-
-Do not claim M3 implementation is complete.
-
-Do not claim M2 acceptance.
-
-End by presenting the Wave 0 findings and proposed M3 implementation sequence for the Founder's approval.
+The Founder will review the remediation report and authorize the next step separately.
