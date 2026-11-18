@@ -13,6 +13,8 @@ const router = Router();
 const hermesAdapter = createHermesBridgeAdapter(db);
 
 // Canonical serialization: sort object keys recursively for consistent hashing
+// This MUST match the exact algorithm used by the Hermes sender
+// See: docs/specs/hermes-webhook-contract.md for the serialization contract
 function canonicalize(obj: any): any {
   if (obj === null || typeof obj !== 'object') {
     return obj;
@@ -31,6 +33,17 @@ function canonicalize(obj: any): any {
 // Generate correlation ID for response tracking
 function generateCorrelationId(): string {
   return randomUUID();
+}
+
+// Validate hex signature format
+// Hermes signatures are HMAC-SHA256 hex digests (64 characters)
+function isValidHexSignature(signature: string): boolean {
+  // HMAC-SHA256 in hex is exactly 64 characters
+  if (typeof signature !== 'string' || signature.length !== 64) {
+    return false;
+  }
+  // Must be valid hexadecimal
+  return /^[a-fA-F0-9]{64}$/.test(signature);
 }
 
 // POST /api/hermes/webhook - Receive messages from Hermes webhook
@@ -59,6 +72,7 @@ router.post('/webhook', asyncHandler(async (req: Request, res: Response) => {
     });
   }
 
+  // Validate signature is present
   if (!signature) {
     return res.status(401).json({
       success: false,
@@ -67,16 +81,40 @@ router.post('/webhook', asyncHandler(async (req: Request, res: Response) => {
     });
   }
 
+  // Validate signature format before processing
+  // Reject malformed, empty, or incorrectly sized signatures
+  if (!isValidHexSignature(signature)) {
+    return res.status(401).json({
+      success: false,
+      error: { code: 'INVALID_SIGNATURE', message: 'Invalid signature format' },
+      correlationId
+    });
+  }
+
   const crypto = await import('crypto');
+
+  // Compute expected signature using canonical serialization
+  const canonicalized = canonicalize(event);
+  const payload = JSON.stringify(canonicalized);
   const expected = crypto.createHmac('sha256', secret)
-    .update(JSON.stringify(canonicalize(event)))
+    .update(payload)
     .digest('hex');
 
   // Use timing-safe comparison to prevent timing attacks
-  if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) {
+  // Both buffers must have equal length (guaranteed by hex validation above)
+  try {
+    if (!crypto.timingSafeEqual(Buffer.from(signature, 'hex'), Buffer.from(expected, 'hex'))) {
+      return res.status(401).json({
+        success: false,
+        error: { code: 'INVALID_SIGNATURE', message: 'Invalid signature' },
+        correlationId
+      });
+    }
+  } catch (error) {
+    // Should never reach here due to hex validation, but handle defensively
     return res.status(401).json({
       success: false,
-      error: { code: 'INVALID_SIGNATURE', message: 'Invalid signature' },
+      error: { code: 'INVALID_SIGNATURE', message: 'Signature verification failed' },
       correlationId
     });
   }

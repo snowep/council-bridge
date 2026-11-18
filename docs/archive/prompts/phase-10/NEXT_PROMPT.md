@@ -1,857 +1,302 @@
-# COUNCIL BRIDGE — CLAUDE & HERMES MCP CONNECTIVITY REMEDIATION + LIVE TWO-WAY E2E
+# Council Bridge — Final Founder Acceptance Audit
 
-## ROLE
+**Repository:** `snowep/council-bridge`  
+**Target report:** `docs/reports/COMMIT_AUDIT_REMEDIATION_REPORT.md`  
+**Audit scope:** Final verification of commit audit remediation  
+**Mode:** Read-only verification and reporting  
+**Authority:** Founder retains final acceptance authority.
 
-Act as the Senior Backend Engineer, MCP Integration Engineer, Security Engineer, and E2E Test Engineer responsible for completing live Claude ↔ Hermes messaging through Council Bridge.
+## 1. Objective
 
-Repository:
-`C:\Projects\council-bridge`
+Conduct the final independent repository audit of the remediation work completed following the review of commit:
 
-GitHub:
-`https://github.com/snowep/council-bridge`
+`cee8c531d3f1373a9517bd592b8611b0fdc89f75`
 
-Target branch:
-`refactor/repository-structure`
+The remediation report currently states:
 
-Your responsibility is to diagnose the actual environment, fix verified defects, establish authenticated connections, execute real two-way message-delivery tests, and produce an evidence-based final report.
+**READY FOR PRODUCTION**
 
-Do not merely write a test plan. Execute the work and tests wherever the available environment permits.
+Verify whether the implementation and test evidence justify that conclusion.
 
----
+Do not assume the reported 560 passing tests, clean TypeScript compilation, or completed remediation are independently verified. Inspect the actual repository and execute relevant checks.
 
-# 1. NON-NEGOTIABLE RULES
+The goal is to produce an evidence-based final recommendation for Founder acceptance.
 
-### Repository safety
+## 2. Audit Scope
 
-- Preserve all existing user changes.
-- Inspect Git status and current HEAD before modifying anything.
-- Never discard, reset, overwrite, or revert unrelated work.
-- Do not use destructive Git commands.
-- Do not commit, push, merge, rebase, or rewrite Git history.
-- Do not change branches without explicit approval.
-- Do not deploy.
-
-### Database safety
-
-- Never modify the production database.
-- Never execute bootstrap against `data/council.db`.
-- Never run production migrations or database cleanup.
-- Never delete existing identities, messages, conversations, or records.
-- Use a dedicated disposable E2E database.
-- Use the existing migration runner and supported bootstrap workflow.
-- Verify database paths before every write operation.
-- Stop if an operation could affect production data.
-
-### Security
-
-- Do not disable authentication to make tests pass.
-- Do not introduce hardcoded identity fallbacks.
-- Do not expose Founder private keys.
-- Do not log session tokens, private keys, webhook secrets, or signatures.
-- Do not bypass session ownership checks.
-- Do not allow Claude to impersonate Hermes or vice versa.
-- Preserve production fail-closed authentication.
-- Do not make the webhook signature optional merely to make tests pass.
-- Do not create an unauthenticated alternative messaging endpoint.
-
-### Testing integrity
-
-- Do not use mocked Claude or Hermes clients for live E2E claims.
-- Do not call service functions directly and label the result live E2E.
-- Do not treat HTTP 200 as proof of message delivery.
-- Do not treat MCP initialization as proof of message delivery.
-- Do not treat database persistence alone as proof of agent-to-agent delivery.
-- Clearly distinguish unit, integration, adapter, MCP, and live runtime E2E results.
-- Never fabricate test results.
-- If a runtime is unavailable, report the blocker instead of claiming success.
-
----
-
-# 2. WAVE 0 — ENVIRONMENT AND REPOSITORY BASELINE
-
-Before implementation, inspect:
-
-1. Git branch, HEAD SHA, and working tree.
-2. Node.js and npm versions.
-3. Installed dependencies.
-4. Council Bridge environment configuration.
-5. Current server process and startup logs.
-6. Current listening ports.
-7. Claude Code installation and MCP configuration.
-8. Hermes installation and MCP configuration.
-9. Existing E2E scripts and test infrastructure.
-10. Current database configuration and migration state.
-
-Run appropriate diagnostics.
-
-Windows PowerShell:
-
-```powershell
-git status --short
-git branch --show-current
-git rev-parse HEAD
-
-node --version
-npm --version
-
-Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue |
-    Where-Object { $_.LocalPort -in 3333,3334 } |
-    Format-Table LocalAddress,LocalPort,OwningProcess
-
-claude --version
-claude mcp list
-
-hermes --version
-hermes mcp --help
-```
-
-Inspect the actual Hermes MCP command syntax before using it. Do not assume unsupported CLI commands exist.
+### A. Webhook Signature Verification — P0/P1
 
 Inspect:
-
-- `src/server.ts`
-- `src/mcp/tools.ts`
-- `src/mcp/hermes-bridge.ts`
 - `src/api/routes/hermes-bridge.routes.ts`
-- `src/api/middleware/authentication.ts`
-- `src/auth/`
-- `src/communication/messages.ts`
-- `src/communication/agents.ts`
-- Database initialization and migration runner.
-- Existing bootstrap script.
-- Existing E2E tests.
-- `package.json`
-- Claude MCP configuration.
-- Hermes MCP configuration.
-
-Find the actual current MCP endpoint and configured client endpoints.
-
-Expected Council Bridge endpoint:
-
-`http://127.0.0.1:3334/mcp`
-
-Expected health endpoint:
-
-`http://127.0.0.1:3334/health`
-
-Do not assume these are correct until verified against the running server.
-
-### Diagnose ECONNREFUSED
-
-Determine the exact cause for each client independently.
-
-Investigate:
-
-- Incorrect port.
-- Stale server process.
-- Port conflicts.
-- Server startup failure.
-- Database initialization failure preventing `app.listen()`.
-- Wrong bind address.
-- Windows versus WSL versus Docker networking.
-- Incorrect MCP URL.
-- Incompatible MCP transport configuration.
-- Client process startup errors.
-- Node.js ESM module caching.
-- Incorrect environment variables.
-
-Determine whether Claude, Hermes, and Council Bridge run in the same network environment.
-
-Do not change configuration blindly.
-
-### Wave 0 deliverable
-
-Create:
-
-`docs/reports/LIVE_MCP_E2E_BASELINE.md`
-
-Include:
-
-- Current HEAD SHA.
-- Git working-tree state.
-- Actual server endpoint.
-- Actual listening process and port.
-- Health check result.
-- Claude configuration and connection status.
-- Hermes configuration and connection status.
-- Exact ECONNREFUSED root cause for each client.
-- Relevant startup errors.
-- Environment differences.
-- Confirmed blockers.
-
-Do not proceed with live tests until connectivity is established or the blocker is clearly identified.
-
----
-
-# 3. WAVE 1 — FIX MCP CONNECTIVITY
-
-Fix only verified problems.
-
-### Server
+- Signature utilities and authentication middleware.
+- `tests/unit/hermes-webhook-signature.test.ts`
 
 Verify:
 
-- Server initializes the database before listening.
-- Server reports startup failures clearly.
-- The expected port is used consistently.
-- Bind address is compatible with the actual clients.
-- `/health` reports the actual server status.
-- `/mcp` uses the supported Streamable HTTP transport.
-- Graceful shutdown releases the listener and database resources.
+1. `isValidHexSignature()` rejects:
+   - Empty signatures.
+   - Incorrect-length signatures.
+   - Oversized signatures.
+   - Non-hexadecimal characters.
+   - Malformed input types, where applicable.
 
-Check whether repeated startup or stale processes create port conflicts.
+2. `crypto.timingSafeEqual()` is only called after buffer lengths have been validated.
 
-Do not introduce multiple competing server instances.
+3. Invalid signatures return the intended HTTP status without throwing an unhandled exception.
 
-### Claude Code
+4. Valid signatures are accepted.
 
-Verify the actual Claude MCP configuration.
+5. Canonical JSON serialization recursively handles:
+   - Nested objects.
+   - Arrays.
+   - Unicode.
+   - Numbers.
+   - Null values.
+   - Different object-key insertion orders.
 
-Requirements:
+6. Verify interoperability with the actual Hermes sender:
+   - Same canonicalization algorithm.
+   - Same HMAC algorithm.
+   - Same encoding.
+   - Same signature header format.
 
-- Correct Council Bridge endpoint.
-- Correct transport.
-- Valid authentication mechanism.
-- Successful MCP initialization.
-- Successful tool discovery.
-- No stale port 3333 configuration if the actual server uses 3334.
+**Important:** Unit tests proving receiver behavior do not independently establish sender interoperability. Classify this separately.
 
-Verify the client using the installed Claude Code CLI.
-
-Do not overwrite unrelated MCP configurations.
-
-### Hermes
-
-Verify the actual Hermes MCP configuration and adapter.
-
-Requirements:
-
-- Correct Council Bridge endpoint.
-- Correct transport or adapter protocol.
-- Valid authentication.
-- Successful connection.
-- Successful tool discovery.
-- Successful Hermes webhook registration if the adapter requires it.
-- Successful message retrieval.
-
-Preserve the existing working Hermes Bridge adapter.
-
-Do not duplicate its functionality.
-
-### ESM caching
-
-Investigate the previously reported ESM caching issue.
-
-Verify:
-
-- Which module was stale.
-- Whether a process restart resolves it.
-- Whether runtime route registration is deterministic.
-- Whether imports capture stale database instances.
-- Whether the server requires a full restart after route or adapter changes.
-
-Do not introduce arbitrary cache-busting imports.
-
-### Wave 1 acceptance
-
-- Council Bridge starts successfully.
-- Health endpoint returns HTTP 200.
-- Claude establishes MCP connection.
-- Hermes establishes its intended authenticated connection.
-- Both clients discover the expected tools.
-- No ECONNREFUSED.
-- No authentication bypass.
-
-Document all changes.
-
----
-
-# 4. WAVE 2 — AUTHENTICATION AND IDENTITY REMEDIATION
-
-Previous repository review identified concerns in:
-
-`src/api/routes/hermes-bridge.routes.ts`
-
-Reported concerns:
-
-1. `POST /api/hermes/webhook` accepts requests without a signature in some configurations.
-2. `POST /api/hermes/session` has no authentication middleware.
-3. `GET /api/hermes/agents` returns placeholder information instead of actual agent records.
-4. The route imports authentication middleware but does not consistently apply it.
-
-Inspect the latest source before changing anything.
-
-These findings must be resolved with the existing security architecture.
-
-### Hermes webhook authentication
-
-Implement or correct:
-
-- Mandatory authentication in production.
-- Cryptographic signature validation.
-- Constant-time signature comparison.
-- Timestamp validation and replay protection where the protocol supports it.
-- Payload integrity validation.
-- Clear rejection of invalid or missing signatures.
-- Safe secret handling.
-- Test-only credentials isolated from production credentials.
-
-If the current adapter uses a different authenticated protocol, preserve that protocol and document it.
-
-### Hermes session provisioning
-
-Verify:
-
-- Session creation uses the existing authentication architecture.
-- Identity is validated against the authoritative registry.
-- Runtime identity is validated.
-- Expiration is enforced.
-- Session tokens cannot be reused after revocation.
-- Invalid or inactive identities are rejected.
-- Founder signature requirements remain intact in production.
-
-Do not automatically authorize arbitrary Hermes session IDs.
-
-### Agent identity
-
-The test must use two independent logical communication identities.
-
-For example:
-
-- `e2e-claude-agent`
-- `e2e-hermes-agent`
-
-Use stable test-only identities.
-
-Verify both identities exist in the authoritative `agents` registry.
-
-Verify their runtime assignments.
-
-Verify that Claude cannot send as Hermes and Hermes cannot send as Claude.
-
-Do not treat Founder mode as proof of independent agent authentication.
-
-Founder mode may be used for administrative provisioning if permitted, but actual message-delivery tests must use separate authenticated agent sessions.
-
-### Authorization tests
-
-Verify:
-
-1. Missing credentials are rejected.
-2. Invalid credentials are rejected.
-3. Expired credentials are rejected.
-4. Revoked credentials are rejected.
-5. Wrong runtime is rejected.
-6. Sender identity spoofing is rejected.
-7. Unauthorized recipient access is rejected.
-8. Cross-agent message access is rejected.
-9. Invalid webhook signatures are rejected.
-10. Replay attempts are rejected.
-
-Preserve existing production authentication behavior.
-
-### Agent listing
-
-Implement the Hermes agent listing route using the actual registry service if it is intended to expose that information.
-
-Apply appropriate authentication and authorization.
-
-Do not return private session information.
-
----
-
-# 5. WAVE 3 — MESSAGE DELIVERY AND CONVERSATION CORRECTNESS
+### B. E2E Test Database Isolation — P1
 
 Inspect:
-
-- `src/mcp/tools.ts`
-- `src/mcp/hermes-bridge.ts`
-- `src/communication/messages.ts`
-- `src/communication/agents.ts`
-- Database message schema.
-- Message and inbox queries.
-
-Verify the following contracts.
-
-### Message persistence
-
-Every successful send must produce:
-
-- Unique message ID.
-- Correct sender ID.
-- Correct recipient ID.
-- Message content.
-- Creation timestamp.
-- Correct optional reply relationship.
-- Correct read state.
-
-The response must contain the real persisted message ID.
-
-### Message direction
-
-Verify both:
-
-`sender = Claude AND recipient = Hermes`
-
-and:
-
-`sender = Hermes AND recipient = Claude`
-
-Do not assume the existing adapter's protocol translation is correct simply because it returns success.
-
-### Message ordering
-
-Conversation history must be chronological:
-
-- Oldest message first.
-- Newest message last.
-
-Verify that pagination does not reverse the conversation or omit older records.
-
-### Pagination
-
-Previous review found 500-message caps in:
-
-- `checkInbox()`
-- `listConversations()`
-
-Inspect the current source.
-
-Remove inappropriate hard caps or replace them with correct SQL pagination.
-
-Do not retrieve all historical messages into memory unnecessarily.
+- `tests/e2e/live-claude-hermes-messaging-Wave5.e2e.test.ts`
+- Test database setup and teardown.
+- Database initialization and configuration.
 
 Verify:
 
-- Limit.
-- Offset.
-- Conversation filtering.
-- Unread filtering.
-- Total counts.
-- Stable chronological ordering.
+1. E2E tests use isolated databases under `test-dbs-e2e/`.
+2. No fallback to development or production databases is possible.
+3. Tests cannot modify existing development or production database files.
+4. Database cleanup executes after both successful and failed tests.
+5. Test isolation is enforced by implementation rather than merely asserted in test descriptions.
 
-### Replies
+### C. Persistence Verification — P1
 
-A reply must:
+Inspect the persistence-after-restart test.
 
-- Reference the original message ID.
-- Be sent by the original recipient.
-- Return to the original sender.
-- Preserve the relationship in SQLite.
-- Appear in both agents' conversation histories.
+Determine precisely whether it performs:
 
-Reject unauthorized replies.
+- A database connection close/reopen cycle, or
+- A complete server process shutdown and restart.
 
-### Read state
+Do not treat these as equivalent.
 
-Verify that only the intended recipient can mark a message as read.
-
-Verify that unread counts change correctly.
-
-### Identity registry synchronization
-
-Inspect whether the existing identity synchronization is actually invoked.
-
-Verify:
-
-- Agent records exist before messaging.
-- Registration is idempotent.
-- Runtime mappings are correct.
-- Existing identities are not overwritten.
-- No duplicate identities are created.
-
-Do not expand permissions as a side effect of synchronization.
-
----
-
-# 6. WAVE 4 — BUILD THE LIVE E2E TEST SUITE
-
-Create a dedicated E2E suite.
-
-Suggested file:
-
-`tests/e2e/live-claude-hermes-messaging.e2e.test.ts`
-
-Use the project's existing testing conventions.
-
-If the test needs supporting scripts, place them under:
-
-`scripts/e2e/`
-
-Add an appropriate npm script, for example:
-
-```json
-{
-  "scripts": {
-    "test:e2e:messaging": "..."
-  }
-}
-```
-
-Adapt the actual command to the existing project tooling.
-
-### Isolated database
-
-Create a unique temporary SQLite database.
-
-Requirements:
-
-- Never point to `data/council.db`.
-- Apply required migrations.
-- Bootstrap only the identities and records needed for E2E.
-- Use test-only keys and credentials.
-- Verify database location before every write.
-- Clean up only test-owned temporary data.
-- Do not delete production records.
-- Do not reuse stale test databases without explicit validation.
-
-The test must fail closed if it detects a production database path.
-
-### Actual client requirements
-
-The test must use:
-
-- Actual Claude Code MCP client.
-- Actual Hermes runtime or its real Bridge adapter.
-- Actual running Council Bridge HTTP/MCP server.
-- Actual authentication and session mechanisms.
-- Actual SQLite persistence.
-
-Do not replace either runtime with a mock.
-
-If the installed clients cannot be programmatically controlled through their public interfaces, use their real CLI/runtime processes and automate supported interaction methods.
-
-Do not fabricate a simulated client and call it live E2E.
-
-### Test 1 — Claude to Hermes
-
-1. Start Council Bridge.
-2. Authenticate Claude as `e2e-claude-agent`.
-3. Authenticate Hermes as `e2e-hermes-agent`.
-4. Verify both session identities.
-5. Verify MCP initialization.
-6. Discover communication tools.
-7. Generate a unique test correlation ID.
-8. Claude sends a message to Hermes through its actual MCP client.
-9. Capture the returned message ID.
-10. Hermes retrieves the message through its actual integration.
-11. Verify exact content.
-12. Verify sender and recipient.
-13. Verify message ID and timestamp.
-14. Verify persisted database record.
-
-### Test 2 — Hermes to Claude
-
-1. Hermes sends a unique message through its actual Bridge adapter.
-2. Capture the persisted message ID.
-3. Claude retrieves it through MCP.
-4. Verify exact content.
-5. Verify sender and recipient.
-6. Verify database persistence.
-
-### Test 3 — Hermes replies to Claude
-
-1. Hermes replies to the original Claude message.
-2. Verify the reply references the original message ID.
-3. Verify the reply sender is Hermes.
-4. Verify the recipient is Claude.
-5. Verify Claude retrieves the reply.
-6. Verify the reply appears in conversation history.
-
-### Test 4 — Claude replies to Hermes
-
-1. Claude replies to the original Hermes message.
-2. Verify the reply references the correct original message.
-3. Verify Hermes retrieves the reply.
-4. Verify database relationships.
-
-### Test 5 — Conversation history
-
-Verify both agents see the same conversation.
-
-Expected order:
-
-1. Claude initial message.
-2. Hermes reply.
-3. Hermes initial message.
-4. Claude reply.
-
-Use the actual timestamps and message IDs to establish ordering.
-
-Verify pagination does not omit messages.
-
-### Test 6 — Authentication isolation
-
-Attempt:
-
-- Claude using Hermes identity.
-- Hermes using Claude identity.
-- Invalid token.
-- Expired token.
-- Revoked token.
-- Unauthorized inbox retrieval.
-- Unauthorized reply.
-
-Every attempt must produce the appropriate rejection.
-
-No test should succeed through Founder fallback.
-
-### Test 7 — Read state
-
-1. Deliver a message to Hermes.
-2. Confirm unread state.
-3. Mark it read through Hermes.
-4. Confirm read timestamp.
-5. Confirm Claude cannot alter Hermes's read state.
-
-### Test 8 — Persistence after restart
-
-1. Complete message exchange.
-2. Stop Council Bridge gracefully.
-3. Restart Council Bridge using the same E2E database.
-4. Reconnect Claude.
-5. Reconnect Hermes.
-6. Retrieve conversation history.
-7. Verify all messages and replies remain.
-8. Verify IDs and relationships are unchanged.
-
-Do not restart or alter the production server.
-
----
-
-# 7. WAVE 5 — OBSERVABILITY AND DIAGNOSTICS
-
-Provide structured test diagnostics.
-
-Capture:
-
-- Server startup and shutdown status.
-- Actual endpoint.
-- MCP initialization result.
-- Tool discovery result.
-- Authenticated logical identity.
-- Runtime identity.
+Verify persisted:
 - Message IDs.
-- Correlation IDs.
-- Message timestamps.
+- Message content.
+- Sender identity.
+- Recipient identity.
+- Timestamps.
 - Reply relationships.
-- Database verification results.
-- HTTP response status.
-- MCP error details.
-- Connection failures.
-- Restart persistence results.
+- Conversation history.
 
-Never log secrets or complete tokens.
+Report the exact lifecycle tested.
 
-Add useful error messages where missing.
+If only database close/reopen is implemented, classify the original restart requirement as partially verified. Do not introduce unrelated process-management changes.
 
-Do not add unnecessary infrastructure or Redis.
+### D. Message Ordering and Pagination — P1
 
----
+Inspect:
+- `src/infrastructure/database/database.ts`
+- `src/communication/messages.ts`
+- Relevant API and MCP message handlers.
+- Ordering and pagination tests.
 
-# 8. WAVE 6 — REGRESSION AND QUALITY AUDITS
+Verify:
 
-Run relevant checks:
+1. DESC means newest-first at the database retrieval layer.
+2. Ordering has a deterministic secondary key.
+3. Pagination has no duplicate or missing messages.
+4. Conversation history follows the documented ordering contract.
+5. Read/unread state remains correct.
+6. Reply relationships remain intact.
+7. Tests assert actual ordering and pagination behavior.
 
-1. Backend TypeScript compilation.
-2. Backend unit tests.
-3. Authentication tests.
-4. Hermes adapter tests.
-5. MCP integration tests.
-6. Message service tests.
-7. Migration tests.
-8. Live Claude/Hermes E2E tests.
-9. Frontend TypeScript compilation.
-10. Frontend production build.
-11. Existing frontend E2E tests.
+Do not change the established contract unless a concrete defect is found.
 
-Run the repository's actual scripts rather than inventing commands.
+### E. Conversation Listing Scalability — P2
 
-### Ponytail backend audit
+The current 10,000-message cap has been acknowledged as an acceptable limitation.
 
-Run the installed Ponytail backend audit workflow if available.
+Verify:
+- Where the cap is enforced.
+- Whether it affects conversation listing, history retrieval, or both.
+- Whether the behavior is documented.
+- Whether current tests cover the boundary.
+
+Classify this as:
+
+`ACCEPTED LIMITATION`
+
+Do not remove the cap or implement speculative optimization.
+
+### F. Migration Consistency — P2
+
+Inspect:
+- Migration runner.
+- Migration registry.
+- Schema version handling.
+- Migrations through 016.
+- Migration tests.
+
+Verify:
+
+1. Fresh database initialization.
+2. Existing database upgrade behavior.
+3. Migration ordering.
+4. Migration 016 execution.
+5. Schema version 16.0.0 consistency.
+6. Migration metadata accurately reflects applied migrations.
+7. No production database modification is required for this audit.
+
+A schema version declaration alone is not sufficient evidence that migrations have executed correctly.
+
+### G. Route Compatibility — P2
+
+Verify removal of duplicate aliases:
+
+- `/organization/divisions`
+- `/organization/staff`
+
+Confirm:
+- Canonical endpoints remain operational.
+- Frontend code uses canonical endpoints.
+- MCP tools and internal callers do not depend on removed aliases.
+- Authentication and authorization behavior remain unchanged.
+
+### H. Security and Production Configuration
+
+Perform a focused regression review.
+
+Confirm:
+- Production authentication remains fail-closed.
+- Local Founder mode remains restricted to loopback use.
+- No hardcoded identity fallback has returned.
+- No private Founder keys are exposed to browser code or tracked files.
+- Webhook authentication remains enforced.
+- Rate limits have not been weakened.
+- Session cleanup and graceful shutdown remain functional.
+- No accidental development-mode behavior is enabled in production.
+
+Do not perform destructive security tests against production services.
+
+## 3. Test and Build Verification
+
+Run the relevant checks using the repository's existing scripts.
+
+At minimum:
+
+- Webhook signature unit tests.
+- Messaging and persistence tests.
+- E2E database isolation tests.
+- Migration tests.
+- Authentication and authorization regression tests.
+- MCP integration tests.
+- Complete backend test suite.
+- TypeScript typecheck.
+- Frontend typecheck and production build, if applicable.
+
+Report exact commands and actual results.
+
+For every failed test:
+- Identify whether it is related to this remediation.
+- Identify whether it is pre-existing.
+- Include the relevant error and file location.
+- Do not suppress, skip, or rewrite failing tests merely to obtain a passing result.
+
+Do not claim a check passed unless it was actually executed.
+
+## 4. Documentation Review
 
 Inspect:
 
-- Authentication boundaries.
-- Error handling.
-- SQL correctness.
-- Resource lifecycle.
-- Session management.
-- Concurrency.
-- Data integrity.
-- Test quality.
+`docs/reports/COMMIT_AUDIT_REMEDIATION_REPORT.md`
 
-### Impeccable frontend audit
+Ensure it accurately distinguishes:
 
-Only if frontend files changed.
+- RESOLVED
+- PARTIALLY RESOLVED
+- NOT RESOLVED
+- ACCEPTED LIMITATION
+- NOT APPLICABLE
 
-Inspect:
+Correct inaccurate claims only when necessary.
 
-- MUI component consistency.
-- Accessibility.
-- Responsive behavior.
-- Existing design system compliance.
+The report must not claim a genuine server restart if only a database close/reopen test exists.
 
-Do not redesign unrelated UI.
+The phrase READY FOR PRODUCTION must be supported by the actual evidence. If production deployment conditions have not been tested, qualify the statement accordingly.
 
-### Regression handling
-
-For every failing test:
-
-- Record the exact test.
-- Record the error.
-- Identify whether it was introduced by this work.
-- Compare with the baseline.
-- Fix failures caused by this implementation.
-- Do not silently skip existing failures.
-- Do not call a failure pre-existing without baseline evidence.
-
----
-
-# 9. DOCUMENTATION
+## 5. Required Deliverable
 
 Create:
 
-`docs/reports/LIVE_MCP_E2E_FINAL_REPORT.md`
+`docs/reports/FINAL_FOUNDER_ACCEPTANCE_AUDIT.md`
 
-Include:
+Use this structure:
 
-## A. Environment
+1. Executive Summary
+2. Target Commit and Repository State
+3. Audit Scope
+4. Findings and Evidence
+5. Webhook Security Verification
+6. E2E Database Isolation Verification
+7. Persistence Verification
+8. Message Ordering and Pagination
+9. Scalability Limitation
+10. Migration Verification
+11. Route Compatibility
+12. Security Regression Results
+13. Test and Build Results
+14. Remaining Risks and Limitations
+15. Final Audit Recommendation
 
-- OS.
-- Node.js version.
-- npm version.
-- Claude Code version.
-- Hermes version.
-- Council Bridge commit SHA.
-- Actual server endpoint.
-- Database type and isolated database location.
+Include a summary table:
 
-## B. Root cause
+| Finding | Classification | Evidence | Remaining Action |
+|---|---|---|---|
 
-Document the actual cause of Claude connectivity failures and Hermes connectivity failures separately.
+Conclude with exactly one recommendation:
 
-## C. Implementation changes
+- **READY FOR FOUNDER ACCEPTANCE**
+- **READY WITH DOCUMENTED LIMITATIONS**
+- **NOT READY — REMEDIATION REQUIRED**
 
-List each changed file and explain the change.
+Do not declare formal Founder acceptance.
 
-## D. Authentication
+## 6. Execution Restrictions
 
-Show evidence of independent authentication for both identities.
+- Read-only audit by default.
+- Only make narrowly scoped documentation corrections when necessary.
+- Do not commit or push.
+- Do not merge or deploy.
+- Do not rewrite Git history or force-push.
+- Do not modify production databases.
+- Do not run production migrations.
+- Do not delete user data or files.
+- Do not change authentication, authorization, rate limits, or security policies.
+- Do not introduce Redis or unrelated dependencies.
+- Preserve all existing user changes.
+- Do not expand the scope into the next milestone.
 
-Never include secrets.
+If an implementation defect is discovered, document it and propose the smallest corrective action. Do not silently implement broad fixes.
 
-## E. Delivery results
+## 7. Final Response
 
-Include a table:
+Present:
 
-| Test | Direction | Result | Message ID | Evidence |
-|---|---|---|---|---|
-| Initial delivery | Claude → Hermes | | | |
-| Initial delivery | Hermes → Claude | | | |
-| Reply | Hermes → Claude | | | |
-| Reply | Claude → Hermes | | | |
-| History | Both | | | |
-| Read state | Both | | | |
-| Restart persistence | Both | | | |
-| Identity isolation | Both | | | |
+1. Audit recommendation.
+2. Confirmed resolved findings.
+3. Accepted limitations.
+4. Outstanding issues, if any.
+5. Actual test results.
+6. Report path.
+7. Whether the remediation is ready for the Founder's formal decision.
 
-## F. Test summary
-
-Report:
-
-- Total tests.
-- Passed.
-- Failed.
-- Skipped.
-- Blocked.
-- TypeScript status.
-- Production build status.
-- Security test status.
-- Live E2E status.
-
-## G. Outstanding issues
-
-List every unresolved issue.
-
-## H. Acceptance recommendation
-
-Choose one:
-
-- READY FOR FOUNDER REVIEW.
-- READY WITH DOCUMENTED NON-BLOCKING ISSUES.
-- NOT READY — REMEDIATION REQUIRED.
-- BLOCKED — LIVE RUNTIME UNAVAILABLE.
-
-Do not formally accept the milestone on behalf of the Founder.
-
----
-
-# 10. EXECUTION MANAGEMENT
-
-Work in controlled waves.
-
-After each wave:
-
-1. Report completed work.
-2. Report test results.
-3. Report unresolved issues.
-4. Preserve the working tree.
-5. Continue if safe.
-
-Do not stop after discovering the first problem. Diagnose and fix all issues within the authorized scope.
-
-However, stop immediately if:
-
-- Production database modification is required.
-- Production private keys are needed.
-- Authentication must be weakened.
-- Existing data could be destroyed.
-- A destructive Git operation appears necessary.
-- The runtime cannot be started without external authorization.
-- An external service or account approval is required.
-
-In those situations, explain the exact blocker and the minimum Founder action required.
-
-Do not substitute mocked tests for unavailable live runtimes.
-
----
-
-# 11. FINAL ACCEPTANCE CRITERIA
-
-The work is ready for Founder review only when all of the following are demonstrated:
-
-- [ ] Council Bridge starts reliably.
-- [ ] Correct MCP endpoint is verified.
-- [ ] Claude MCP connection succeeds.
-- [ ] Hermes connection succeeds.
-- [ ] Both agents authenticate independently.
-- [ ] Both discover communication tools.
-- [ ] Claude → Hermes delivery succeeds.
-- [ ] Hermes → Claude delivery succeeds.
-- [ ] Hermes → Claude reply succeeds.
-- [ ] Claude → Hermes reply succeeds.
-- [ ] Correct sender and recipient are preserved.
-- [ ] Reply relationships are correct.
-- [ ] Conversation history is chronological.
-- [ ] Pagination works correctly.
-- [ ] Read state is correct.
-- [ ] Unauthorized identity access is rejected.
-- [ ] Message records persist in SQLite.
-- [ ] History survives Bridge restart.
-- [ ] Backend regression tests pass.
-- [ ] TypeScript compilation passes.
-- [ ] No production database changes occurred.
-- [ ] No unauthorized Git operations occurred.
-- [ ] Final report contains reproducible evidence.
-
-A successful REST webhook test is not sufficient.
-
-A successful MCP connection is not sufficient.
-
-A successful message insertion is not sufficient.
-
-The actual Claude and Hermes runtimes must exchange and retrieve messages through Council Bridge.
-
-**Begin with Wave 0. Inspect the current environment and repository before changing any files. Execute the complete workflow and produce the final report.**
+**Important:** This is an audit, not an acceptance declaration. The Founder alone decides whether to formally accept the remediation and close the relevant milestone.
