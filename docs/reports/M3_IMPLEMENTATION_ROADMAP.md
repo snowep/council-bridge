@@ -502,26 +502,57 @@ All waves must be complete
 
 ```
 Wave 1: Dashboard Actions
-   ↓
-Wave 2: Activity Page
-   ↘
-Wave 3: Navigation & Routing → Wave 4: Settings & Profile
-   ↓                           ↙
-Wave 5: Theme & Responsive UI
-   ↓
-Wave 6: Frontend Quality & Acceptance
+   │
+   ├── Verify Tasks API (first)
+   └── Implement dashboard functionality
+
+Wave 2: Activity Page (independent, can start immediately)
+   │
+   └── Wave 3: Navigation & Routing (general routing independent of Activity)
+
+Wave 4: Settings & Profile (independent)
+
+Wave 5: Theme & Responsive UI (depends on core pages: Waves 1-4)
+
+Wave 6: Frontend Quality & Acceptance (depends on all previous waves)
 ```
 
 ---
 
 ## M3 Implementation Sequence
 
-1. **Wave 2** (start first - no dependencies)
-2. **Wave 3** (depends on Wave 2 for Activity page)
-3. **Wave 1** (can run in parallel, depends on database)
-4. **Wave 4** (independent)
-5. **Wave 5** (independent, polish)
-6. **Wave 6** (final integration)
+1. **Wave 1:** Dashboard Actions
+   - Verify Tasks API endpoints exist and work BEFORE implementing new functionality
+   - Replace hardcoded metrics with API calls
+   - Add proper loading and error states
+   - Dependencies: Database must have divisions populated (M4 requirement)
+
+2. **Wave 2:** Activity Page (no dependencies, can start immediately)
+   - Create ActivityPage component
+   - Register route
+   - Integrate with memory API
+
+3. **Wave 3:** Navigation & Routing
+   - Verify all existing routes work
+   - Add 404 handling
+   - Add active state management
+   - Note: General routing verification is independent of Activity page
+   - Activity route integration occurs after Wave 2
+
+4. **Wave 4:** Settings & Profile (independent)
+   - Create SettingsPage
+   - Create ProfilePage
+   - Add theme toggle
+
+5. **Wave 5:** Theme & Responsive UI (depends on Waves 1-4 being complete)
+   - Fix responsive issues
+   - Add accessibility enhancements
+   - Standardize visual patterns
+
+6. **Wave 6:** Frontend Quality & Acceptance (depends on all previous waves)
+   - Add E2E tests
+   - Add component unit tests
+   - Set up quality gates
 
 ---
 

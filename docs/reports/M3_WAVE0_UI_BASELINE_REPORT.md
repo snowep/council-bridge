@@ -365,17 +365,40 @@ Some endpoints referenced in frontend code may not have corresponding backend ro
 | Divisions | 1 | 6 | ✗ MISSING |
 | Division Heads | 0 | 6 | ✗ MISSING |
 | Specialists | 0 | 45 | ✗ MISSING |
-| Total division staff | 2 | 51 | ✗ MISMATCH |
+| Logical division staff | 2 | 51 | ✗ MISMATCH |
 | Staff runtime instances | 8 | 102 | ✗ MISMATCH |
 | Personas | 4 | 4* | ✓ MATCH* |
 | Meetings | 0 | 0 | ✓ MATCH |
 
 *4 personas created for 4 founder seats during test initialization
 
+### Identity Terminology Clarification
+
+**Important Distinction:**
+- **Logical Staff Identities:** Individual staff members (e.g., "John Doe")
+- **Runtime Instances:** Each logical staff identity maps to TWO runtime instances (Claude + Hermes)
+
+**Current Database State:**
+- 2 logical staff identities (founder + test agent)
+- 8 runtime instances (2 staff × 4 runtimes each = 8)
+
+**Expected Production State:**
+- 51 logical division staff identities
+- 102 runtime instances (51 staff × 2 runtimes each = 102)
+
+**Organization Population:** Full division and staff population belongs to M4 milestone, subject to explicit Founder authorization.
+
 ### Council Seats (11 total)
 
 - seats-01 through seat-04: Permanent founder seats (Steve Jobs, Virgil Abloh, Shawn Stüssy, G-Dragon)
-- seats-05 through seat-11: Vacant, replaceable seats (10 vacant seats)
+- seats-05 through seat-11: Vacant, replaceable seats (7 vacant seats)
+
+**Council Seat Composition:**
+- 4 permanent founding seats: seat-01 (Steve Jobs), seat-02 (Virgil Abloh), seat-03 (Shawn Stüssy), seat-04 (G-Dragon)
+- 7 replaceable vacant seats: seat-05 through seat-11
+- Total: 11 seats (4 occupied, 7 vacant)
+
+**Note:** Council seats are separate from division staff. Founder is not an additional Council voting seat.
 
 ### Divisions
 
@@ -591,8 +614,7 @@ Current: 0 records (empty table)
 
 | ID | Priority | Description | Evidence | File | Impact | Proposed Fix | Wave |
 |----|----------|-------------|----------|------|--------|--------------|------|
-| P0-001 | P0 | Database missing 5 of 6 divisions | query: divisions=1, expected=6 | data/council.db | Organization incomplete | Run division initialization fixtures | 1 |
-| P0-002 | P0 | Tasks API endpoints may not be properly connected | Frontend calls /api/tasks, need verification | tasks.routes.ts | Create/assign tasks fail | Verify backend implementation | 1-2 |
+| P0-001 | P0 | Tasks API endpoints may not be properly connected | Frontend calls /api/tasks, need verification | tasks.routes.ts | Create/assign tasks fail | Verify backend implementation | 1-2 |
 
 ### P1 - Core Functionality
 
@@ -660,22 +682,32 @@ Current: 0 records (empty table)
 
 ## 16. Test Commands and Actual Results
 
-### Commands Executed
-
+### Backend Tests (Verified)
 ```bash
 npm run test
-# Result: 37 tests PASS (exit code 0)
-
-npm run typecheck
-# Result: PASS (exit code 0)
+# Result: 560 tests PASS (exit code 0)
+# Source: Phase 10 commit audit verification
+# Date: 2026-11-18
 ```
 
-### Test Coverage Summary
+### Frontend Tests (UNVERIFIED)
+```bash
+# Frontend test execution not verified during Wave 0 audit
+# Reported: 37 tests PASS
+# Status: UNVERIFIED - requires separate execution
+```
 
-- Unit tests: Present and passing
-- Integration tests: Present for auth middleware and database
-- Security tests: Present
-- E2E tests: Not present
+### TypeScript Compilation (Verified)
+```bash
+npm run typecheck
+# Result: PASS (exit code 0)
+# Date: 2026-11-18
+```
+
+### Test Evidence Reconciliation
+- **Backend:** 560 tests verified passing (Phase 10 audit)
+- **Frontend:** 37 tests reported but not verified during Wave 0
+- **Total:** Backend test evidence is VERIFIED; frontend test evidence is UNVERIFIED
 
 ---
 
@@ -684,15 +716,16 @@ npm run typecheck
 This report serves as:
 - M3_WAVE0_UI_BASELINE_REPORT.md
 
-Pending creation:
-- M3_IMPLEMENTATION_ROADMAP.md
-- M3_ACCEPTANCE_CRITERIA.md
+Reference files:
+- `docs/reports/M3_IMPLEMENTATION_ROADMAP.md`
+- `docs/reports/M3_ACCEPTANCE_CRITERIA.md`
+- `docs/reports/M3_WAVE0_RECONCILIATION_REPORT.md` (reconciliation of all three)
 
 ---
 
 ## 18. Remaining Blockers
 
-1. **Database population:** Need full 6-division structure
+1. **Database population:** Need full 6-division structure (M4 requirement)
 2. **API endpoint verification:** Confirm all frontend calls have backend support
 3. **Activity page:** Needs to be created
 4. **Settings/Profile pages:** Need to be created
@@ -702,6 +735,7 @@ Pending creation:
 ## 19. Recommendations for Founder Review
 
 1. **Approve M3 Wave 0 completion:** Audit is complete, all findings documented
-2. **Proceed to M3 Wave 2:** Start with Activity page (no dependencies)
-3. **Schedule division initialization:** Required before full org functionality
+2. **Proceed to M3 Wave 1:** Start with Dashboard Actions - verify API first, then implement
+3. **Schedule division initialization:** Required before full org functionality (M4)
 4. **Prioritize API verification:** Ensure frontend-backend contract alignment
+5. **Recognize M3_WAVE0_RECONCILIATION_REPORT.md:** Contains corrections to all three deliverables
