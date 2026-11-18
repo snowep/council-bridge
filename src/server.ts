@@ -2,6 +2,7 @@
 // Phase 8: Explicit auth modes, fail-closed in production
 // Phase 10: Modular route registration
 
+import 'dotenv/config';
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import crypto from 'crypto';
@@ -475,8 +476,22 @@ app.use(errorHandler);
 // Start server
 const PORT = parseInt(process.env.PORT || '3334', 10);
 
-initDb().then(() => {
+initDb().then(async () => {
   setDatabaseInstance(db);
+
+  // Register Founder as the canonical communication identity
+  try {
+    const { createAgentService } = await import('./communication/agents.js');
+    const agentService = createAgentService(db);
+    agentService.registerFounder();
+    console.log('🔐 Founder agent registered in identity registry');
+  } catch (e: any) {
+    if (e.message?.includes('already exists')) {
+      console.log('[init] Founder agent already registered');
+    } else {
+      console.log('[init] Founder registration:', e.message);
+    }
+  }
 
   // Start scheduled cleanup tasks
   setInterval(() => {

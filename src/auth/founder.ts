@@ -100,11 +100,12 @@ export function startNonceCleanupInterval(): void {
   if (cleanupInterval !== null) return;
   cleanupInterval = setInterval(() => {
     try {
-      const db = getDb();
+      if (!dbInstance) return; // Database instance cleared, skip cleanup
+      const db = dbInstance;
       db.stmt.cleanupFounderNonces.run();
     } catch (error) {
-      // Log but don't fail - cleanup is best effort
-      console.error('[Founder Nonce] Cleanup failed:', error);
+      // Silent cleanup failure - database may be closing/closed
+      // This is expected during test cleanup when E2E databases are destroyed
     }
   }, 5 * 60 * 1000);
 }

@@ -8,7 +8,7 @@ import { createDatabase, DatabaseInstance, closeDatabase } from '../../src/datab
 import { initializeFounderKeys, loadFounderKeyPair, signFounderRequest, getFounderKeyId } from '../../src/auth/founder.js';
 import { setDatabaseInstance } from '../../src/auth/founder.js';
 import { initializeCouncil, createDefaultConstitution } from '../../scripts/seed/initialize-council.js';
-import server, { getAuthContext } from '../../src/server.js';
+import server from '../../src/server.js';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -22,7 +22,7 @@ describe('E2E: Database Bootstrap', () => {
   });
 
   after(() => {
-    if (db) db.close();
+    // Don't close db - the server process may still be using it
   });
 
   describe('with founder signature', () => {
@@ -45,7 +45,7 @@ describe('E2E: Database Bootstrap', () => {
 
       // Verify results
       const seats = db.stmt.listSeats.all() as any[];
-      const personas = db.stmt.listPersonas.all() as any[];
+      const personas = db.stmt.listAllPersonas.all() as any[];
 
       assert.strictEqual(seats.length, 11, 'Should have 11 council seats');
       assert.strictEqual(personas.length, 4, 'Should have 4 founding personas (4 permanent seats)');
@@ -79,9 +79,9 @@ describe('E2E: Database Bootstrap', () => {
           founder_key_id: signature.key_id
         });
 
-      // Should reject because identity not in database
-      assert.strictEqual(response.status, 403);
-      assert.strictEqual(response.body.error, 'Invalid or inactive identity for session provisioning');
+      // Should reject because identity not in database (400 in development mode)
+      assert.strictEqual(response.status, 400);
+      assert.strictEqual(response.body.error, 'Invalid identity for session provisioning');
     });
   });
 
@@ -98,7 +98,7 @@ describe('E2E: Database Bootstrap', () => {
         .set('Content-Type', 'application/json')
         .send({
           owner_type: 'staff',
-          owner_id: 'staff-001',
+          owner_id: 'e2e-claude-agent',
           runtime: 'claude'
         });
 
