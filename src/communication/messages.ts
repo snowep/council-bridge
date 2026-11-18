@@ -104,7 +104,7 @@ export function createMessageService(
       return normalizeMessage(msg);
     },
 
-    checkInbox(agentId: string, conversationId?: string): Message[] {
+    checkInbox(agentId: string, conversationId?: string, limit: number = 50, offset: number = 0): Message[] {
       if (!agentService.agentExists(agentId)) {
         throw new Error(`Agent '${agentId}' not found`);
       }
@@ -117,14 +117,15 @@ export function createMessageService(
           SELECT * FROM messages
           WHERE (sender_id = ? AND recipient_id = ?)
              OR (sender_id = ? AND recipient_id = ?)
-          ORDER BY created_at ASC
-        `, [agentId, conversationId, conversationId, agentId]);
+          ORDER BY created_at DESC
+          LIMIT ? OFFSET ?
+        `, [agentId, conversationId, conversationId, agentId, limit, offset]);
 
         return (rawMessages as any[]).map(normalizeMessage);
       }
 
-      // Use listMessages to get BOTH sent and received messages for this agent
-      const rawMessages = dbInstance.stmt.listMessages.all(agentId, agentId, 500) as any[];
+      // Use listMessagesPaginated to get BOTH sent and received messages for this agent
+      const rawMessages = dbInstance.stmt.listMessagesPaginated.all(agentId, agentId, limit, offset) as any[];
       return rawMessages.map(normalizeMessage);
     },
 
@@ -141,7 +142,7 @@ export function createMessageService(
         SELECT * FROM messages
         WHERE (sender_id = ? AND recipient_id = ?)
            OR (sender_id = ? AND recipient_id = ?)
-        ORDER BY created_at ASC
+        ORDER BY created_at DESC
         LIMIT ? OFFSET ?
       `, [agentId, partnerId, partnerId, agentId, limit, offset]);
 
@@ -216,7 +217,7 @@ export function createMessageService(
       }
 
       // Get all messages for this agent (sent or received) from database
-      const rawMessages = dbInstance.stmt.listMessages.all(input.agent_id, input.agent_id, 500) as any[];
+      const rawMessages = dbInstance.stmt.listMessages.all(input.agent_id, input.agent_id, 10000) as any[];
       const allMessages = rawMessages.map(normalizeMessage);
 
       // Group by conversation partner

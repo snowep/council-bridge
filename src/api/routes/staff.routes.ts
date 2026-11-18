@@ -1,10 +1,9 @@
 // Staff Routes
-// Implements: GET /api/staff, GET /api/organization/staff, GET /api/divisions/members
+// Implements: GET /api/staff, GET /api/staff/:id, GET /api/staff/divisions/members
 
 import { Router, Request, Response } from 'express';
-import { listStaffAgents, getStaffAgentById, getDivisionMembers, getAllDivisionMembers, getStaffDivisions } from '../../council/divisions.js';
-import { getDatabase } from '../../database.js';
-import { authMiddleware, getAuthContext, requireAuth } from '../middleware/authentication.js';
+import { listStaffAgents, getStaffAgentById, getDivisionMembers, getAllDivisionMembers } from '../../council/divisions.js';
+import { authMiddleware, requireAuth } from '../middleware/authentication.js';
 import { asyncHandler, NotFoundError } from '../middleware/error-handler.js';
 import { ListStaffSchema } from '../schemas/index.js';
 
@@ -66,16 +65,7 @@ router.get('/:id', asyncHandler(async (req: Request, res: Response) => {
   res.json({ staff });
 }));
 
-// GET /api/organization/staff - Alias for staff
-router.get('/organization/staff', asyncHandler(async (req: Request, res: Response) => {
-  requireAuth(req);
-
-  const staff = listStaffAgents(db);
-
-  res.json({ staff });
-}));
-
-// GET /api/divisions/members - List division members
+// GET /api/staff/divisions/members - List division members
 router.get('/divisions/members', asyncHandler(async (req: Request, res: Response) => {
   requireAuth(req);
 

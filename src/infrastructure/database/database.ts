@@ -243,8 +243,10 @@ export interface DatabaseInstance {
 }
 
 // Phase 4 schema version. Bumped when createDatabase() adds tables.
-// Bumped to 5.0.0 for Task 5: task_audit table
-export const SCHEMA_VERSION = '5.0.0';
+// Current version aligns with migrations/016_fix_cross_division_shares_granted_by_type.sql
+// This represents the full Phase 4-6 schema with task_audit, deliverable workflow, and execution tables.
+// Previous: 5.0.0 for Task 5: task_audit table - updated to reflect complete migration sequence 016
+export const SCHEMA_VERSION = '16.0.0';
 
 function createDatabase(dbPath?: string): DatabaseInstance {
   const isProduction = process.env.NODE_ENV === 'production';
@@ -1063,11 +1065,11 @@ function createDatabase(dbPath?: string): DatabaseInstance {
       SELECT * FROM messages WHERE sender_id = ? ORDER BY created_at DESC LIMIT ?
     `),
     listMessages: db.prepare(`
-      SELECT * FROM messages WHERE sender_id = ? OR recipient_id = ? ORDER BY created_at DESC LIMIT ?
-    `),
+    SELECT * FROM messages WHERE sender_id = ? OR recipient_id = ? ORDER BY created_at DESC LIMIT ?
+      `),
     listMessagesPaginated: db.prepare(`
-      SELECT * FROM messages WHERE sender_id = ? OR recipient_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?
-    `),
+    SELECT * FROM messages WHERE sender_id = ? OR recipient_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?
+      `),
     countMessagesByAgent: db.prepare(`
       SELECT COUNT(*) as count FROM messages WHERE sender_id = ? OR recipient_id = ?
     `),

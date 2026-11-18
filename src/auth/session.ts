@@ -1,5 +1,6 @@
 // Session Token Management - Production Hardened
 // Phase 8: Cryptographically secure session tokens with explicit mode control
+// Phase 9: Automatic periodic cleanup to prevent memory leaks in long-running production
 
 import crypto from 'crypto';
 import { getAuthConfig } from './config.js';
@@ -33,6 +34,31 @@ function getSessionSecret() { return getConfig().session_secret; }
 
 // In-memory session store (production should use Redis or database)
 const sessionStore = new Map<string, SessionContext>();
+
+// Periodic cleanup interval - prevents memory leaks in long-running production
+let cleanupInterval: NodeJS.Timeout | null = null;
+const CLEANUP_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+
+// Start periodic cleanup of expired sessions
+export function startSessionCleanupInterval(): NodeJS.Timeout {
+  if (cleanupInterval) {
+    return cleanupInterval;
+  }
+  cleanupInterval = setInterval(() => {
+    cleanupExpiredSessions();
+  }, CLEANUP_INTERVAL_MS);
+  // Don't keep the process alive - use unref to allow cleanup
+  cleanupInterval.unref?.();
+  return cleanupInterval;
+}
+
+// Stop the cleanup interval
+export function stopSessionCleanupInterval(): void {
+  if (cleanupInterval) {
+    clearInterval(cleanupInterval);
+    cleanupInterval = null;
+  }
+}
 
 // Generate cryptographically secure random bytes
 function secureRandomBytes(length: number): Buffer {

@@ -14,7 +14,9 @@ import { createDatabase, DatabaseInstance } from './database.js';
 import {
   validateSessionToken,
   listActiveSessions,
-  cleanupExpiredSessions
+  cleanupExpiredSessions,
+  startSessionCleanupInterval,
+  stopSessionCleanupInterval
 } from './auth/session.js';
 
 import {
@@ -494,12 +496,10 @@ initDb().then(async () => {
   }
 
   // Start scheduled cleanup tasks
-  setInterval(() => {
-    cleanupExpiredSessions();
-  }, 5 * 60 * 1000);
+    startSessionCleanupInterval();
 
-  // Start deterministic founder nonce cleanup
-  startNonceCleanupInterval();
+    // Start deterministic founder nonce cleanup
+    startNonceCleanupInterval();
 
   const bindAddress = LOCAL_MODE ? LOCAL_BIND_ADDRESS : '0.0.0.0';
   app.listen(PORT, bindAddress, () => {
@@ -510,12 +510,14 @@ initDb().then(async () => {
 // Graceful shutdown cleanup
 process.on('SIGTERM', () => {
   stopNonceCleanupInterval();
+  stopSessionCleanupInterval();
   if (db) db.close();
   process.exit(0);
 });
 
 process.on('SIGINT', () => {
   stopNonceCleanupInterval();
+  stopSessionCleanupInterval();
   if (db) db.close();
   process.exit(0);
 });

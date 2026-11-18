@@ -3,42 +3,82 @@
 // This enables two-way integration between Hermes and the Council Bridge ecosystem
 
 import { Router, Request, Response } from 'express';
+import { randomUUID } from 'node:crypto';
 import { databaseInstance as db } from '../../database.js';
 import { createHermesBridgeAdapter } from '../../mcp/hermes-bridge.js';
-import { asyncHandler } from '../middleware/error-handler.js';
-import { authMiddleware, requireAuth } from '../middleware/authentication.js';
+import { asyncHandler, NotFoundError } from '../middleware/error-handler.js';
+import { authMiddleware, requireAuth, getAuthContext } from '../middleware/authentication.js';
 
 const router = Router();
 const hermesAdapter = createHermesBridgeAdapter(db);
 
+// Canonical serialization: sort object keys recursively for consistent hashing
+function canonicalize(obj: any): any {
+  if (obj === null || typeof obj !== 'object') {
+    return obj;
+  }
+  if (Array.isArray(obj)) {
+    return obj.map(canonicalize);
+  }
+  const sorted: Record<string, any> = {};
+  const keys = Object.keys(obj).sort();
+  for (const key of keys) {
+    sorted[key] = canonicalize(obj[key]);
+  }
+  return sorted;
+}
+
+// Generate correlation ID for response tracking
+function generateCorrelationId(): string {
+  return randomUUID();
+}
+
 // POST /api/hermes/webhook - Receive messages from Hermes webhook
 router.post('/webhook', asyncHandler(async (req: Request, res: Response) => {
+  const correlationId = (req.headers['x-correlation-id'] as string) || generateCorrelationId();
   const event = req.body;
 
   if (!event || !event.type) {
-    return res.status(400).json({ error: 'Invalid webhook payload' });
+    return res.status(400).json({
+      success: false,
+      error: { code: 'INVALID_PAYLOAD', message: 'Invalid webhook payload' },
+      correlationId
+    });
   }
 
   // Verify webhook signature - REQUIRED for all environments
+  // Use canonical JSON serialization to ensure consistent key ordering
   const signature = req.headers['x-hermes-signature'] as string;
   const secret = process.env.HERMES_WEBHOOK_SECRET;
 
   if (!secret) {
-    return res.status(500).json({ error: 'Hermes webhook secret not configured' });
+    return res.status(500).json({
+      success: false,
+      error: { code: 'CONFIG_ERROR', message: 'Hermes webhook secret not configured' },
+      correlationId
+    });
   }
 
   if (!signature) {
-    return res.status(401).json({ error: 'Webhook signature required' });
+    return res.status(401).json({
+      success: false,
+      error: { code: 'SIGNATURE_REQUIRED', message: 'Webhook signature required' },
+      correlationId
+    });
   }
 
   const crypto = await import('crypto');
   const expected = crypto.createHmac('sha256', secret)
-    .update(JSON.stringify(event))
+    .update(JSON.stringify(canonicalize(event)))
     .digest('hex');
 
   // Use timing-safe comparison to prevent timing attacks
   if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) {
-    return res.status(401).json({ error: 'Invalid signature' });
+    return res.status(401).json({
+      success: false,
+      error: { code: 'INVALID_SIGNATURE', message: 'Invalid signature' },
+      correlationId
+    });
   }
 
   switch (event.type) {
@@ -49,10 +89,19 @@ router.post('/webhook', asyncHandler(async (req: Request, res: Response) => {
           event.to_council_id,
           event.content
         );
-        res.json({ success: true, message_id: result?.id || 'created' });
+        res.json({
+          success: true,
+          data: { message_id: result?.id || 'created' },
+          correlationId
+        });
       } catch (error) {
         res.status(400).json({
-          error: error instanceof Error ? error.message : 'Failed to send message'
+          success: false,
+          error: {
+            code: 'MESSAGE_FAILED',
+            message: error instanceof Error ? error.message : 'Failed to send message'
+          },
+          correlationId
         });
       }
       break;
@@ -63,10 +112,19 @@ router.post('/webhook', asyncHandler(async (req: Request, res: Response) => {
           event.hermes_id,
           event.display_name
         );
-        res.json({ success: true, agent_id: agentId });
+        res.json({
+          success: true,
+          data: { agent_id: agentId },
+          correlationId
+        });
       } catch (error) {
         res.status(400).json({
-          error: error instanceof Error ? error.message : 'Failed to register agent'
+          success: false,
+          error: {
+            code: 'REGISTRATION_FAILED',
+            message: error instanceof Error ? error.message : 'Failed to register agent'
+          },
+          correlationId
         });
       }
       break;
@@ -79,52 +137,75 @@ router.post('/webhook', asyncHandler(async (req: Request, res: Response) => {
         );
         res.json({
           success: true,
-          messages: messages.map((m: any) => ({
-            id: m.id,
-            sender_id: m.sender_id,
-            recipient_id: m.recipient_id,
-            content: m.content,
-            created_at: m.created_at,
-            read_at: m.read_at,
-            status: m.status
-          }))
+          data: {
+            messages: messages.map((m: any) => ({
+              id: m.id,
+              sender_id: m.sender_id,
+              recipient_id: m.recipient_id,
+              content: m.content,
+              created_at: m.created_at,
+              read_at: m.read_at,
+              status: m.status
+            }))
+          },
+          correlationId
         });
       } catch (error) {
         res.status(400).json({
-          error: error instanceof Error ? error.message : 'Failed to fetch messages'
+          success: false,
+          error: {
+            code: 'FETCH_FAILED',
+            message: error instanceof Error ? error.message : 'Failed to fetch messages'
+          },
+          correlationId
         });
       }
       break;
 
     default:
-      res.status(400).json({ error: `Unknown event type: ${event.type}` });
+      res.status(400).json({
+        success: false,
+        error: { code: 'UNKNOWN_EVENT', message: `Unknown event type: ${event.type}` },
+        correlationId
+      });
   }
 }));
 
 // POST /api/hermes/session - Exchange Hermes session for Council Bridge token
 router.post('/session', authMiddleware, asyncHandler(async (req: Request, res: Response) => {
+  const correlationId = (req.headers['x-correlation-id'] as string) || generateCorrelationId();
   const { hermes_session_id } = req.body;
 
   if (!hermes_session_id) {
-    return res.status(400).json({ error: 'hermes_session_id required' });
+    return res.status(400).json({
+      success: false,
+      error: { code: 'MISSING_FIELD', message: 'hermes_session_id required' },
+      correlationId
+    });
   }
 
   try {
     const token = await hermesAdapter.hermesSessionToToken(hermes_session_id);
     res.json({
       success: true,
-      session_token: token,
-      hermes_session_id
+      data: { session_token: token, hermes_session_id },
+      correlationId
     });
   } catch (error) {
     res.status(400).json({
-      error: error instanceof Error ? error.message : 'Failed to create session'
+      success: false,
+      error: {
+        code: 'SESSION_FAILED',
+        message: error instanceof Error ? error.message : 'Failed to create session'
+      },
+      correlationId
     });
   }
 }));
 
 // GET /api/hermes/agents - List registered Hermes agents
 router.get('/agents', authMiddleware, asyncHandler(async (req: Request, res: Response) => {
+  const correlationId = (req.headers['x-correlation-id'] as string) || generateCorrelationId();
   const { limit = 50, offset = 0 } = req.query;
 
   // Query actual agents from database
@@ -132,15 +213,18 @@ router.get('/agents', authMiddleware, asyncHandler(async (req: Request, res: Res
 
   res.json({
     success: true,
-    agents: agents.map((agent: any) => ({
-      agent_id: agent.agent_id,
-      display_name: agent.display_name,
-      runtime: agent.runtime,
-      created_at: agent.created_at
-    })),
-    limit: Number(limit),
-    offset: Number(offset),
-    total: agents.length
+    data: {
+      agents: agents.map((agent: any) => ({
+        agent_id: agent.agent_id,
+        display_name: agent.display_name,
+        runtime: agent.runtime,
+        created_at: agent.created_at
+      })),
+      limit: Number(limit),
+      offset: Number(offset),
+      total: agents.length
+    },
+    correlationId
   });
 }));
 

@@ -1,10 +1,9 @@
 // Divisions Routes
-// Implements: GET /api/divisions, GET /api/organization/divisions
+// Implements: GET /api/divisions, GET /api/divisions/:id
 
 import { Router, Request, Response } from 'express';
 import { listDivisions, getDivisionById } from '../../council/divisions.js';
-import { getDatabase } from '../../database.js';
-import { authMiddleware, getAuthContext, requireAuth } from '../middleware/authentication.js';
+import { authMiddleware, requireAuth } from '../middleware/authentication.js';
 import { asyncHandler, NotFoundError } from '../middleware/error-handler.js';
 
 const router = Router();
@@ -43,15 +42,6 @@ router.get('/:id', asyncHandler(async (req: Request, res: Response) => {
   }
 
   res.json({ division });
-}));
-
-// GET /api/organization/divisions - Alias for divisions
-router.get('/organization/divisions', asyncHandler(async (req: Request, res: Response) => {
-  requireAuth(req);
-
-  const divisions = listDivisions(db);
-
-  res.json({ divisions });
 }));
 
 export default router;
