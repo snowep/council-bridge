@@ -86,7 +86,7 @@ const LOCK_FILE = join(NONCE_STORE_DIR, '.nonces.lock');
  * Initialize the nonce store directory and file with proper permissions.
  * Throws on filesystem errors (fail-closed security model).
  */
-function initNonceStore(): void {
+export function initNonceStore(): void {
   if (!existsSync(NONCE_STORE_DIR)) {
     mkdirSync(NONCE_STORE_DIR, { recursive: true, mode: DIR_MODE });
   }
@@ -100,7 +100,7 @@ function initNonceStore(): void {
  * Returns a Map of nonce keys to their timestamps.
  * Throws if file contains corrupt/invalid JSON lines (fail-closed security model).
  */
-function parseNonceRecords(): Map<string, number> {
+export function parseNonceRecords(): Map<string, number> {
   const records = new Map<string, number>();
   try {
     if (!existsSync(NONCE_STORE_FILE)) return records;
@@ -124,7 +124,7 @@ function parseNonceRecords(): Map<string, number> {
  * Atomically write all nonce records to the file.
  * Uses temp file + rename pattern to never expose partially written files.
  */
-function writeNonceRecordsSync(records: Map<string, NonceRecord>): boolean {
+export function writeNonceRecordsSync(records: Map<string, NonceRecord>): boolean {
   try {
     initNonceStore();
     const tmpFile = NONCE_STORE_FILE + '.tmp';
@@ -147,21 +147,90 @@ function writeNonceRecordsSync(records: Map<string, NonceRecord>): boolean {
 
 /**
  * Cross-process file lock for nonce consumption.
- * Uses mkdir as atomic lock acquisition (directory creation is atomic on POSIX/Windows).
+ * Uses exclusive mkdir as atomic lock acquisition (directory creation is atomic on POSIX/Windows).
+ * Fails if lock directory already exists (no recursive: true).
+ * Recovers stale locks from crashed processes.
  */
-function acquireNonceLock(): boolean {
+export function acquireNonceLock(): boolean {
   try {
-    mkdirSync(LOCK_FILE, { recursive: true });
+    // Ensure parent directory exists first
+    if (!existsSync(NONCE_STORE_DIR)) {
+      mkdirSync(NONCE_STORE_DIR, { recursive: true, mode: DIR_MODE });
+    }
+    // Exclusive creation - fails if LOCK_FILE already exists
+    mkdirSync(LOCK_FILE);
+    writeLockPid();
     return true;
-  } catch {
+  } catch (error: any) {
+    // If lock exists, check if it's stale
+    if (error.code === 'EEXIST' && existsSync(LOCK_FILE)) {
+      if (isLockStale()) {
+        try {
+          // Remove stale lock and retry
+          const pidFile = join(LOCK_FILE, 'owner.pid');
+          if (existsSync(pidFile)) { rmSync(pidFile); }
+          rmSync(LOCK_FILE, { recursive: true, force: true });
+          mkdirSync(LOCK_FILE);
+          writeLockPid();
+          return true;
+        } catch {
+          return false;
+        }
+      }
+    }
     return false;
   }
 }
 
-function releaseNonceLock(): void {
+// Lock stale timeout: 30 seconds (crashed process recovery)
+const LOCK_STALE_MS = 30 * 1000;
+
+/**
+ * Check if lock is stale (owner process crashed)
+ * Reads PID from lock file if present, checks if process still exists
+ */
+export function isLockStale(): boolean {
+  const pidFile = join(LOCK_FILE, 'owner.pid');
+  if (!existsSync(pidFile)) {
+    // No PID file - check directory mtime as fallback
+    try {
+      const stat = statSync(LOCK_FILE);
+      return Date.now() - stat.mtimeMs > LOCK_STALE_MS;
+    } catch {
+      return true; // Treat as stale if can't stat
+    }
+  }
+  try {
+    const pid = parseInt(readFileSync(pidFile, 'utf-8').trim(), 10);
+    if (isNaN(pid)) return true;
+    // Send signal 0 to check if process exists (throws if not)
+    process.kill(pid, 0);
+    return false; // Process still alive
+  } catch {
+    return true; // Process dead or error - stale
+  }
+}
+
+/**
+ * Write current PID to lock directory for stale detection
+ */
+export function writeLockPid(): void {
+  try {
+    writeFileSync(join(LOCK_FILE, 'owner.pid'), String(process.pid));
+  } catch {
+    // Ignore PID write errors
+  }
+}
+
+export function releaseNonceLock(): void {
   try {
     const lockDir = join(NONCE_STORE_DIR, '.nonces.lock');
     if (existsSync(lockDir)) {
+      // Remove PID file first
+      const pidFile = join(lockDir, 'owner.pid');
+      if (existsSync(pidFile)) {
+        try { rmSync(pidFile); } catch {}
+      }
       // Remove lock directory synchronously
       rmSync(lockDir, { recursive: true, force: true });
     }
