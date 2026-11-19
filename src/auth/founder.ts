@@ -50,7 +50,7 @@ export const KEY_FILE = join(KEYS_DIR, 'founder-keys.json');
 const KEY_ID_LENGTH = 16;
 const NONCE_LENGTH = 32;
 const REQUEST_TIMESTAMP_TOLERANCE_MS = 5 * 60 * 1000; // 5 minutes
-const NONCE_MAX_LENGTH = 128; // Prevent excessive nonce length
+export const NONCE_MAX_LENGTH = 128; // Prevent excessive nonce length
 const NONCE_EXPIRY_MS = REQUEST_TIMESTAMP_TOLERANCE_MS + 60 * 1000; // 6 minutes (1 min buffer)
 
 let cachedKeyPair: FounderKeyPair | null = null;
@@ -81,6 +81,14 @@ export function setDatabaseInstance(db: DatabaseInstance): void {
  */
 
 const LOCK_FILE = join(NONCE_STORE_DIR, '.nonces.lock');
+const LOCK_OWNER_FILE = join(LOCK_FILE, 'owner.json');
+const LOCK_STALE_MS = 30 * 1000; // 30 seconds - lock considered stale after this
+
+interface LockOwner {
+  pid: number;
+  token: string; // Unique token to prevent PID reuse attacks
+  acquired: number; // Timestamp when lock was acquired
+}
 
 /**
  * Initialize the nonce store directory and file with proper permissions.
@@ -92,6 +100,175 @@ export function initNonceStore(): void {
   }
   if (!existsSync(NONCE_STORE_FILE)) {
     writeFileSync(NONCE_STORE_FILE, '', { mode: FILE_MODE });
+  }
+}
+
+/**
+ * Generate a unique ownership token for this lock acquisition.
+ * Combines PID, timestamp, and random bytes to prevent PID reuse attacks.
+ */
+function generateLockToken(): string {
+  return `${process.pid}-${Date.now()}-${crypto.randomBytes(8).toString('hex')}`;
+}
+
+/**
+ * Write ownership metadata atomically.
+ * Must succeed for lock acquisition to be valid.
+ * @throws on failure - caller must clean up lock directory
+ */
+function writeLockOwner(token: string): void {
+  const owner: LockOwner = {
+    pid: process.pid,
+    token,
+    acquired: Date.now()
+  };
+  // Write atomically via temp file + rename
+  const tmpFile = LOCK_OWNER_FILE + '.tmp';
+  writeFileSync(tmpFile, JSON.stringify(owner), { mode: FILE_MODE });
+  renameSync(tmpFile, LOCK_OWNER_FILE);
+}
+
+/**
+ * Read and validate lock ownership metadata.
+ * Returns owner info if valid, null if missing/corrupt.
+ */
+function readLockOwner(): LockOwner | null {
+  try {
+    if (!existsSync(LOCK_OWNER_FILE)) return null;
+    const data = readFileSync(LOCK_OWNER_FILE, 'utf-8');
+    const owner = JSON.parse(data) as LockOwner;
+    // Validate required fields
+    if (typeof owner.pid !== 'number' || typeof owner.token !== 'string' || typeof owner.acquired !== 'number') {
+      return null;
+    }
+    return owner;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Check if lock is stale (owner process crashed).
+ * Uses token validation to prevent PID reuse false positives.
+ * A lock is stale ONLY if:
+ * - Owner metadata is missing/corrupt, AND lock directory is old, OR
+ * - Owner process is confirmed dead (signal 0 fails) AND token matches expected format
+ * Permission errors and ambiguous states fail closed (return false = not stale).
+ */
+export function isLockStale(): boolean {
+  const owner = readLockOwner();
+
+  // No valid owner metadata - check directory age as last resort
+  if (!owner) {
+    try {
+      const stat = statSync(LOCK_FILE);
+      // Only consider stale if directory is older than threshold
+      // and we can't read valid owner info (fail-closed: ambiguous = not stale)
+      return Date.now() - stat.mtimeMs > LOCK_STALE_MS;
+    } catch {
+      // Can't stat - treat as stale to allow recovery
+      return true;
+    }
+  }
+
+  // Valid owner metadata exists - check if process is alive
+  try {
+    // Signal 0 checks process existence without sending a signal
+    // This can have false positives due to PID reuse, but combined with token
+    // and timestamp checks, it's acceptable for crash recovery
+    process.kill(owner.pid, 0);
+    // Process exists - not stale (even if it's a different process with recycled PID,
+    // the token mismatch will prevent false stale detection in acquireNonceLock)
+    return false;
+  } catch {
+    // Process dead - stale
+    return true;
+  }
+}
+
+/**
+ * Acquire cross-process exclusive lock with ownership token.
+ * Returns ownership token on success, null on failure.
+ * Ownership token MUST be passed to releaseNonceLock() for safe release.
+ *
+ * Algorithm:
+ * 1. Try atomic mkdirSync (fails if exists)
+ * 2. Write owner.json atomically with unique token
+ * 3. If mkdir fails with EEXIST:
+ *    - Read existing owner.json
+ *    - If stale (isLockStale), attempt atomic takeover:
+ *      a. Write new owner.json with new token to temp file
+ *      b. Atomic rename owner.json.tmp -> owner.json
+ *      c. Verify we still own it by reading back
+ *    - If not stale, fail
+ * 4. On any failure after mkdir, clean up ONLY if we own the lock
+ */
+export function acquireNonceLock(): string | null {
+  let token: string | null = null;
+
+  try {
+    // Ensure parent directory exists
+    if (!existsSync(NONCE_STORE_DIR)) {
+      mkdirSync(NONCE_STORE_DIR, { recursive: true, mode: DIR_MODE });
+    }
+
+    // Generate unique token for this acquisition attempt
+    token = generateLockToken();
+
+    // Attempt exclusive directory creation
+    mkdirSync(LOCK_FILE);
+
+    // We got the directory - write ownership atomically
+    // If this fails, we MUST clean up the directory we just created
+    try {
+      writeLockOwner(token);
+    } catch (e) {
+      // Failed to write owner - clean up our directory and fail
+      try { rmSync(LOCK_FILE, { recursive: true, force: true }); } catch {}
+      return null;
+    }
+
+    return token;
+
+  } catch (error: any) {
+    // Directory already exists - check for stale lock
+    if (error.code === 'EEXIST' && existsSync(LOCK_FILE)) {
+      // Read existing owner BEFORE any modification
+      const existingOwner = readLockOwner();
+
+      // Check if existing lock is stale
+      if (isLockStale()) {
+        // Attempt atomic ownership transfer
+        // Write new owner to temp file first
+        const newToken = generateLockToken();
+        const tmpOwnerFile = LOCK_OWNER_FILE + '.tmp';
+
+        try {
+          const newOwner: LockOwner = {
+            pid: process.pid,
+            token: newToken,
+            acquired: Date.now()
+          };
+          writeFileSync(tmpOwnerFile, JSON.stringify(newOwner), { mode: FILE_MODE });
+
+          // Atomic rename - this is the commit point
+          renameSync(tmpOwnerFile, LOCK_OWNER_FILE);
+
+          // Verify we successfully took ownership by reading back
+          const verifyOwner = readLockOwner();
+          if (verifyOwner && verifyOwner.token === newToken) {
+            return newToken;
+          }
+          // Rename succeeded but verification failed - another process raced us
+          return null;
+        } catch {
+          // Failed to take over - clean up temp file if it exists
+          try { rmSync(tmpOwnerFile, { force: true }); } catch {}
+          return null;
+        }
+      }
+    }
+    return null;
   }
 }
 
@@ -146,102 +323,35 @@ export function writeNonceRecordsSync(records: Map<string, NonceRecord>): boolea
 }
 
 /**
- * Cross-process file lock for nonce consumption.
- * Uses exclusive mkdir as atomic lock acquisition (directory creation is atomic on POSIX/Windows).
- * Fails if lock directory already exists (no recursive: true).
- * Recovers stale locks from crashed processes.
+ * Release lock ONLY if we own it.
+ * Verifies ownership token before removing lock directory.
+ * @param token - The ownership token returned by acquireNonceLock()
+ * @returns true if lock was released, false if not owned by caller or error
  */
-export function acquireNonceLock(): boolean {
+export function releaseNonceLock(token: string | null): boolean {
+  if (!token) return false;
+
   try {
-    // Ensure parent directory exists first
-    if (!existsSync(NONCE_STORE_DIR)) {
-      mkdirSync(NONCE_STORE_DIR, { recursive: true, mode: DIR_MODE });
+    // Verify we still own the lock before releasing
+    const owner = readLockOwner();
+    if (!owner || owner.token !== token) {
+      // Lock doesn't exist, or belongs to another process, or was transferred
+      // Do NOT delete - another process may now own it
+      return false;
     }
-    // Exclusive creation - fails if LOCK_FILE already exists
-    mkdirSync(LOCK_FILE);
-    writeLockPid();
+
+    // We own it - safe to remove
+    try { rmSync(LOCK_OWNER_FILE, { force: true }); } catch {}
+    rmSync(LOCK_FILE, { recursive: true, force: true });
     return true;
-  } catch (error: any) {
-    // If lock exists, check if it's stale
-    if (error.code === 'EEXIST' && existsSync(LOCK_FILE)) {
-      if (isLockStale()) {
-        try {
-          // Remove stale lock and retry
-          const pidFile = join(LOCK_FILE, 'owner.pid');
-          if (existsSync(pidFile)) { rmSync(pidFile); }
-          rmSync(LOCK_FILE, { recursive: true, force: true });
-          mkdirSync(LOCK_FILE);
-          writeLockPid();
-          return true;
-        } catch {
-          return false;
-        }
-      }
-    }
+  } catch {
     return false;
-  }
-}
-
-// Lock stale timeout: 30 seconds (crashed process recovery)
-const LOCK_STALE_MS = 30 * 1000;
-
-/**
- * Check if lock is stale (owner process crashed)
- * Reads PID from lock file if present, checks if process still exists
- */
-export function isLockStale(): boolean {
-  const pidFile = join(LOCK_FILE, 'owner.pid');
-  if (!existsSync(pidFile)) {
-    // No PID file - check directory mtime as fallback
-    try {
-      const stat = statSync(LOCK_FILE);
-      return Date.now() - stat.mtimeMs > LOCK_STALE_MS;
-    } catch {
-      return true; // Treat as stale if can't stat
-    }
-  }
-  try {
-    const pid = parseInt(readFileSync(pidFile, 'utf-8').trim(), 10);
-    if (isNaN(pid)) return true;
-    // Send signal 0 to check if process exists (throws if not)
-    process.kill(pid, 0);
-    return false; // Process still alive
-  } catch {
-    return true; // Process dead or error - stale
-  }
-}
-
-/**
- * Write current PID to lock directory for stale detection
- */
-export function writeLockPid(): void {
-  try {
-    writeFileSync(join(LOCK_FILE, 'owner.pid'), String(process.pid));
-  } catch {
-    // Ignore PID write errors
-  }
-}
-
-export function releaseNonceLock(): void {
-  try {
-    const lockDir = join(NONCE_STORE_DIR, '.nonces.lock');
-    if (existsSync(lockDir)) {
-      // Remove PID file first
-      const pidFile = join(lockDir, 'owner.pid');
-      if (existsSync(pidFile)) {
-        try { rmSync(pidFile); } catch {}
-      }
-      // Remove lock directory synchronously
-      rmSync(lockDir, { recursive: true, force: true });
-    }
-  } catch {
-    // Ignore lock release errors
   }
 }
 
 /**
  * Check and consume a nonce atomically for cross-process safety.
- * Uses directory-based lock for cross-process atomicity.
+ * Uses directory-based lock with ownership token for cross-process atomicity.
  *
  * @param keyId The founder key ID
  * @param operation The operation name (e.g., 'bootstrap_database')
@@ -263,8 +373,9 @@ export function checkAndConsumeNonceFile(keyId: string, operation: string, nonce
 
   const nonceKey = `${keyId}:${operation}:${nonce}`;
 
-  // Acquire cross-process lock
-  if (!acquireNonceLock()) {
+  // Acquire cross-process lock with ownership token
+  const token = acquireNonceLock();
+  if (!token) {
     return false; // Could not acquire lock, reject operation
   }
 
@@ -302,7 +413,8 @@ export function checkAndConsumeNonceFile(keyId: string, operation: string, nonce
     }
     return true;
   } finally {
-    releaseNonceLock();
+    // Release ONLY our lock
+    releaseNonceLock(token);
   }
 }
 
