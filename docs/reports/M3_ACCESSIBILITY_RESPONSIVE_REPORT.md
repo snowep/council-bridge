@@ -4,9 +4,11 @@
 
 ### 13 Application Routes Verified
 
+Routes from `frontend/src/app/App.tsx`:
+
 | Route | Path | Status |
 |-------|------|--------|
-| Dashboard | `/` | ✅ Verified |
+| Dashboard | `/` or `/dashboard` | ✅ Verified |
 | Activity | `/activity` | ✅ Verified |
 | Chat | `/chat` | ✅ Verified |
 | Council | `/council` | ✅ Verified |
@@ -24,13 +26,13 @@
 
 ### 5 Viewport Widths Tested
 
-| Viewport | Width | Status |
-|----------|-------|--------|
-| Mobile | 375px | ✅ Tested |
-| Tablet | 768px | ✅ Tested |
-| Small Desktop | 1024px | ✅ Tested |
-| Desktop | 1440px | ✅ Tested |
-| Wide Desktop | 1920px | ✅ Tested |
+| Viewport | Width | Height | Status |
+|----------|-------|--------|--------|
+| Mobile | 375px | 667px | ✅ Tested |
+| Tablet | 768px | 1024px | ✅ Tested |
+| Small Desktop | 1024px | 768px | ✅ Tested |
+| Desktop | 1440px | 900px | ✅ Tested |
+| Large Desktop | 1920px | 1080px | ✅ Tested |
 
 **Total Page/Viewport Combinations**: 13 × 5 = **65**
 
@@ -98,7 +100,7 @@ All 65 combinations verified for:
 
 **Impact**: Low - affects outlined buttons on light theme only
 
-**Reason**: Material Design system token limitation. The primary color is a design system token that cannot be arbitrarily changed without affecting the entire application's color scheme.
+**Reason**: Material Design 3.0 outlined button specifications. The primary color is a design system token that cannot be arbitrarily changed without affecting the entire application's color scheme.
 
 **Mitigation**:
 - Buttons have sufficient visual size (≥44px minimum touch target)
@@ -110,23 +112,25 @@ All 65 combinations verified for:
 
 **Resolution Status**: Documented as acceptable exception. The violation is limited to outlined variant on light theme only, with mitigations in place. Critical accessibility is preserved through size, focus, and label affordances.
 
+**Note**: WCAG 2.2 AA compliance is NOT fully achieved due to the four documented color-contrast exceptions. The report MUST state these exceptions remain.
+
 ## Keyboard Verification Results
 
 ### Tests Performed
-- ✅ Tab key navigation through all interactive elements
-- ✅ Shift+Tab reverse navigation
-- ✅ Enter key activation of buttons and links
-- ✅ Space key activation of checkboxes and toggles
-- ✅ Escape key closing dialogs and menus
-- ✅ Arrow key navigation in dropdowns
-- ✅ Focus indicator visibility (2px outline)
-- ✅ Logical focus order matching visual layout
-- ✅ Focus restoration after dialog close
-- ✅ Drawer keyboard opening/closing
-- ✅ Theme toggle keyboard operation
-- ✅ Form input and validation navigation
-- ✅ No keyboard traps encountered
-- ✅ No inaccessible controls
+- Tab key navigation through all interactive elements ✅
+- Shift+Tab reverse navigation ✅
+- Enter key activation of buttons and links ✅
+- Space key activation of checkboxes and toggles ✅
+- Escape key closing dialogs and menus ✅
+- Arrow key navigation in dropdowns ✅
+- Focus indicator visibility (2px outline) ✅
+- Logical focus order matching visual layout ✅
+- Focus restoration after dialog close ✅
+- Drawer keyboard opening/closing ✅
+- Theme toggle keyboard operation ✅
+- Form input and validation navigation ✅
+- No keyboard traps encountered ✅
+- No inaccessible controls ✅
 
 ### Keyboard Test Commands
 ```typescript
@@ -206,14 +210,16 @@ Evidence captured for:
 | Settings controls accessible | ✅ Complete |
 | Profile controls accessible | ✅ Complete |
 
-**WCAG 2.2 AA Compliance**: Achieved for all critical user interactions. Documented exceptions for non-functional color-contrast on outlined buttons.
+**WCAG 2.2 AA Compliance**: NOT FULLY ACHIEVED due to four documented color-contrast exceptions on outlined buttons (Organization, Tasks, Deliverables, Approvals pages). The exceptions are documented with mitigations but remain outstanding accessibility violations.
 
 ## Conclusion
 
 M3-009 is **RESOLVED**:
-- All 13 routes tested at all 5 viewport widths (65 combinations)
-- All interactive states verified
-- axe-core scans executed with zero critical violations
-- Color-contrast exceptions documented with mitigations
-- Keyboard navigation verified end-to-end
-- Settings and Profile controls accessible
+- All 13 routes tested at all 5 viewport widths (65 combinations) ✅
+- All interactive states verified ✅
+- axe-core scans executed with zero critical violations ✅
+- Color-contrast exceptions documented with mitigations ✅
+- Keyboard navigation verified end-to-end ✅
+- Settings and Profile controls accessible ✅
+
+**Exception**: Four serious color-contrast violations on outlined buttons remain. WCAG 2.2 AA compliance cannot be claimed while these violations exist. The design system constraint prevents resolution without changing approved visual styling.
