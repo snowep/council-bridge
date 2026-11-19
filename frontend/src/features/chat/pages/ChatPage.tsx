@@ -357,7 +357,7 @@ export default function ChatPage() {
       <Box
         sx={{
           display: { xs: 'none', md: 'flex' },
-          width: 380,
+          width: { sm: 320, md: 350 },
           borderRight: 1,
           borderColor: 'divider',
           flexDirection: 'column',

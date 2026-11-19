@@ -1,6 +1,6 @@
 import React from 'react';
 import { Box, List, ListItem, ListItemButton, Avatar, Chip, Typography, TextField, IconButton, Button, InputAdornment } from '@mui/material';
-import { SearchOutlined, RefreshOutlined, CloseOutlined, AddOutlined } from '@mui/icons-material';
+import { SearchOutlined, RefreshOutlined, AddOutlined, ChatOutlined } from '@mui/icons-material';
 import type { Conversation } from '../types';
 import { ParticipantIcon, PARTICIPANT_COLORS, getParticipantType, formatTime } from '../constants';
 
@@ -37,9 +37,9 @@ export const ConversationList: React.FC<ConversationListProps> = ({
     return (
       <Box sx={{ p: 3, textAlign: 'center', display: 'flex', flexDirection: 'column', gap: 2, flex: 1 }}>
         <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1.5 }}>
-          <Box sx={{ fontSize: 48, color: 'text.secondary' }}>💬</Box>
+          <ChatOutlined sx={{ fontSize: 48, color: 'text.secondary' }} />
           <Typography variant="body1" color="text.secondary">
-            {fetchError ? 'Failed to load conversations' : 'No conversations yet'}
+            {fetchError ? 'Unable to load conversations' : 'No conversations yet'}
           </Typography>
           {fetchError && (
             <Button variant="outlined" startIcon={<RefreshOutlined />} onClick={onRetry}>
@@ -160,11 +160,11 @@ export const ConversationList: React.FC<ConversationListProps> = ({
                       </Typography>
                       {conv.unread_count > 0 && (
                         <Chip
-                          label={conv.unread_count > 99 ? '99+' : conv.unread_count}
+                          label={conv.unread_count > 999 ? '999+' : conv.unread_count > 99 ? '99+' : conv.unread_count}
                           size="small"
                           color="primary"
                           variant="filled"
-                          sx={{ height: 20, fontSize: '0.65rem', minWidth: 20, borderRadius: 10 }}
+                          sx={{ height: 20, fontSize: '0.65rem', minWidth: 22, borderRadius: 10 }}
                         />
                       )}
                     </Box>

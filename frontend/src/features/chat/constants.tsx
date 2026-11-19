@@ -7,7 +7,7 @@ import {
 export const PARTICIPANT_COLORS = {
   founder: 'secondary',
   council: 'primary',
-  staff: 'default',
+  staff: 'info',
   division: 'success',
 } as const;
 
