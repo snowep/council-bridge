@@ -5,7 +5,7 @@
 
 import { createDatabase } from '../src/database.js';
 import { initializeCouncil, createDefaultConstitution } from './seed/initialize-council.js';
-import { verifyFounderOperation, getFounderKeyId, loadFounderKeyPair, setDatabaseInstance, initializeFounderKeys } from '../src/auth/founder.js';
+import { verifyFounderOperationBeforeBootstrap, getFounderKeyId, loadFounderKeyPair, setDatabaseInstance, initializeFounderKeys } from '../src/auth/founder.js';
 import { validateSeedDatabasePath } from '../src/security/database-seeding-guard.js';
 
 const DATABASE_PATH = process.env.DATABASE_PATH || ':memory:';
@@ -24,6 +24,9 @@ async function bootstrapDatabase() {
   console.log('🔧 Starting Database Bootstrap...');
   console.log(`📁 Database path: ${DATABASE_PATH}`);
   console.log(`🔑 Founder Key ID: ${getFounderKeyId()}`);
+
+  // Declare db in outer scope for use after conditional blocks
+  let db: ReturnType<typeof createDatabase>;
 
   // SECURITY: Validate database path BEFORE any operations
   // This validates the path is safe but doesn't authorize production seeding
@@ -57,7 +60,7 @@ async function bootstrapDatabase() {
       process.exit(1);
     }
 
-    const verification = verifyFounderOperation(
+    const verification = verifyFounderOperationBeforeBootstrap(
       'bootstrap_database',
       { database_path: DATABASE_PATH },
       founderSignature,
@@ -71,18 +74,20 @@ async function bootstrapDatabase() {
       process.exit(1);
     }
     console.log('✅ Founder signature verified - authorization granted');
+
+    // Create database AFTER signature verification in production
+    db = createDatabase(DATABASE_PATH);
+    setDatabaseInstance(db);
+    db.stmt.insertFounderNonce.run(keyPair.key_id, 'bootstrap_database', founderNonce, Date.now());
+    console.log('   Nonce persisted to database');
   } else {
     console.log('⚠️  Running in development mode (no founder signature required)');
+
+    // Create database in dev/test mode
+    db = createDatabase(DATABASE_PATH);
+    setDatabaseInstance(db);
+    initializeFounderKeys();
   }
-
-  // Create database AFTER signature verification in production, or at start in dev/test
-  const db = createDatabase(DATABASE_PATH);
-
-  // Set database instance for founder operations (nonce store)
-  setDatabaseInstance(db);
-
-  // Ensure founder keys exist for initialization (needed for nonce store)
-  initializeFounderKeys();
 
   // Initialize council
   const council = initializeCouncil(db);

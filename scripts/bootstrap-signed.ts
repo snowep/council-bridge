@@ -4,7 +4,7 @@
 
 import { createDatabase, getDatabaseInstance } from '../src/database.js';
 import { initializeCouncil, createDefaultConstitution } from './seed/initialize-council.js';
-import { verifyFounderOperation, getFounderPublicKey, getFounderKeyId, setDatabaseInstance, loadFounderKeyPair } from '../src/auth/founder.js';
+import { verifyFounderOperationBeforeBootstrap, getFounderPublicKey, getFounderKeyId, setDatabaseInstance, loadFounderKeyPair } from '../src/auth/founder.js';
 import { getAuthConfig } from '../src/auth/index.js';
 import { validateSeedDatabasePath } from '../src/security/database-seeding-guard.js';
 import * as fs from 'fs';
@@ -50,6 +50,9 @@ async function bootstrapDatabaseWithSignature() {
     process.exit(1);
   }
 
+  // Declare db in outer scope for use after conditional blocks
+  let db: ReturnType<typeof createDatabase>;
+
   // Verify founder signature BEFORE database access in production
   // This prevents database modification without proper authorization
   if (isProduction && founderSignature && founderTimestamp && founderNonce) {
@@ -61,7 +64,7 @@ async function bootstrapDatabaseWithSignature() {
       process.exit(1);
     }
 
-    const result = verifyFounderOperation(
+    const result = verifyFounderOperationBeforeBootstrap(
       'bootstrap_database',
       { database_path: DATABASE_PATH },
       founderSignature,
@@ -75,17 +78,23 @@ async function bootstrapDatabaseWithSignature() {
       process.exit(1);
     }
     console.log('✅ Founder signature validated');
+
+    // Create database AFTER signature verification
+    db = createDatabase(DATABASE_PATH);
+    setDatabaseInstance(db);
+    db.stmt.insertFounderNonce.run(keyPair.key_id, 'bootstrap_database', founderNonce, Date.now());
+    console.log('   Nonce persisted to database');
   } else if (isProduction) {
     // Should not reach here - already checked at function start
     console.error('❌ PRODUCTION ERROR: Founder signature verification requires all three: signature, timestamp, nonce');
     process.exit(1);
   } else {
     console.log('⚠️  No founder signature provided - running in development mode');
-  }
 
-  // Create database AFTER signature verification (production) or at start (dev/test)
-  const db = createDatabase(DATABASE_PATH);
-  setDatabaseInstance(db);
+    // Create database - pass :memory: directly to createDatabase
+    db = createDatabase(DATABASE_PATH);
+    setDatabaseInstance(db);
+  }
 
   console.log('🔐 Initializing council...');
   const council = initializeCouncil(db);

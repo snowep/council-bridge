@@ -5,7 +5,12 @@
 
 import { createDatabase, getDatabaseInstance } from '../src/database.js';
 import { initializeCouncil, createDefaultConstitution } from './seed/initialize-council.js';
-import { signFounderRequest, loadFounderKeyPair, verifyFounderRequest } from '../src/auth/founder.js';
+import {
+  signFounderRequest,
+  loadFounderKeyPair,
+  verifyFounderRequest,
+  verifyFounderOperationBeforeBootstrap
+} from '../src/auth/founder.js';
 import { setDatabaseInstance } from '../src/auth/founder.js';
 import { guardDatabaseAccess, validateSeedDatabasePath } from '../src/security/database-seeding-guard.js';
 import * as fs from 'fs';
@@ -64,43 +69,46 @@ async function bootstrapDatabase(opts: BootstrapOptions) {
     process.exit(1);
   }
 
+  // Declare db variable in outer scope for use after conditional blocks
+  let db: ReturnType<typeof createDatabase>;
+
   // Validate founder signature if provided (production mode)
+  // Use file-based nonce store for replay protection BEFORE database initialization
   if (opts.signature && opts.timestamp && opts.nonce && opts.keyId) {
-    console.log('🔐 Validating founder signature...');
+    console.log('🔐 Validating founder signature (pre-bootstrap)...');
 
-    const keyPair = loadFounderKeyPair();
-    if (!keyPair) {
-      console.error('❌ Founder keys not found');
-      process.exit(1);
-    }
-
-    const valid = verifyFounderRequest(
+    const now = Date.now();
+    const result = verifyFounderOperationBeforeBootstrap(
       'bootstrap_database',
       { database_path: opts.database },
+      opts.signature,
       opts.timestamp,
       opts.nonce,
-      opts.signature,
-      keyPair.public_key,
       opts.keyId
     );
 
-    if (!valid) {
-      console.error('❌ Founder signature validation failed');
+    if (!result.valid) {
+      console.error(`❌ Founder signature validation failed: ${result.error}`);
       process.exit(1);
     }
     console.log('✅ Founder signature verified');
+
+    // Create database and persist nonce for continued replay protection
+    db = createDatabase(opts.database);
+    setDatabaseInstance(db);
+    db.stmt.insertFounderNonce.run(opts.keyId!, 'bootstrap_database', opts.nonce!, now);
+    console.log('   Nonce persisted to database');
   } else if (isProduction) {
     console.error('❌ PRODUCTION ERROR: Founder signature required for database seeding');
     console.error('   Provide: --signature <sig> --timestamp <ms> --nonce <64bytes> --key-id <id>');
     process.exit(1);
   } else {
     console.log('⚠️  Running in development mode (no founder signature required)');
-  }
 
-  // Create database - pass :memory: directly to createDatabase
-  const dbPath = opts.database;
-  const db = createDatabase(dbPath);
-  setDatabaseInstance(db);
+    // Create database - pass :memory: directly to createDatabase
+    db = createDatabase(opts.database);
+    setDatabaseInstance(db);
+  }
 
   console.log('🔐 Initializing council...');
   const council = initializeCouncil(db);

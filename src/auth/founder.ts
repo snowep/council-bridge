@@ -2,12 +2,24 @@
 // Phase 8: RSA-2048 signatures with operation binding and replay protection
 
 import crypto from 'crypto';
-import { readFileSync, writeFileSync, existsSync, mkdirSync, statSync, chmodSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, statSync, chmodSync, appendFileSync } from 'fs';
 import { join } from 'path';
 import { DatabaseInstance } from '../database.js';
 
 const DIR_MODE = 0o700;
 const FILE_MODE = 0o600;
+
+// File-based nonce store for pre-database nonce validation
+// Used during bootstrap before SQLite database is initialized
+const NONCE_STORE_DIR = join(process.cwd(), '.secrets', 'nonces');
+const NONCE_STORE_FILE = join(NONCE_STORE_DIR, 'used-nonces.jsonl');
+
+interface NonceRecord {
+  key_id: string;
+  operation: string;
+  nonce: string;
+  timestamp: number;
+}
 
 export interface FounderKeyPair {
   public_key: string;
@@ -60,6 +72,72 @@ let dbInstance: DatabaseInstance | null = null;
 
 export function setDatabaseInstance(db: DatabaseInstance): void {
   dbInstance = db;
+}
+
+// File-based nonce checking (used before database is available)
+let fileNonceStore: Set<string> | null = null;
+let fileNonceStoreLoaded = false;
+
+function initFileNonceStore(): void {
+  if (fileNonceStore !== null) return;
+
+  try {
+    if (!existsSync(NONCE_STORE_DIR)) {
+      mkdirSync(NONCE_STORE_DIR, { recursive: true, mode: DIR_MODE });
+    }
+    if (!existsSync(NONCE_STORE_FILE)) {
+      writeFileSync(NONCE_STORE_FILE, '', { mode: FILE_MODE });
+    }
+
+    // Load existing nonces from file
+    fileNonceStore = new Set<string>();
+    const content = readFileSync(NONCE_STORE_FILE, 'utf-8');
+    for (const line of content.trim().split('\n')) {
+      if (line.trim()) {
+        const record = JSON.parse(line) as NonceRecord;
+        fileNonceStore.add(`${record.key_id}:${record.operation}:${record.nonce}`);
+      }
+    }
+    fileNonceStoreLoaded = true;
+  } catch {
+    fileNonceStore = new Set<string>();
+    fileNonceStoreLoaded = true;
+  }
+}
+
+function persistNonceToFile(keyId: string, operation: string, nonce: string, timestamp: number): void {
+  try {
+    initFileNonceStore();
+    const record: NonceRecord = { key_id: keyId, operation, nonce, timestamp };
+    appendFileSync(NONCE_STORE_FILE, JSON.stringify(record) + '\n');
+    if (fileNonceStore) {
+      fileNonceStore.add(`${keyId}:${operation}:${nonce}`);
+    }
+  } catch {
+    // Write failed, but nonce will be checked in SQLite when DB is available
+  }
+}
+
+export function checkAndConsumeNonceFile(keyId: string, operation: string, nonce: string, now: number): boolean {
+  try {
+    initFileNonceStore();
+    if (fileNonceStore?.has(`${keyId}:${operation}:${nonce}`)) {
+      return false; // Nonce already consumed
+    }
+    persistNonceToFile(keyId, operation, nonce, now);
+    return true; // Successfully consumed
+  } catch {
+    return false;
+  }
+}
+
+// Clear file-based nonce store (for testing)
+export function clearFileNonceStore(): void {
+  if (existsSync(NONCE_STORE_FILE)) {
+    writeFileSync(NONCE_STORE_FILE, '');
+  }
+  fileNonceStore = new Set<string>();
+  fileNonceStoreLoaded = true;
 }
 
 function getKeyFileMtime(): number {
@@ -451,8 +529,89 @@ export function verifyFounderOperation(
     return { valid: false, error: 'VERIFICATION_ERROR' };
   }
 
-  // Signature valid - NOW atomically consume nonce via SQLite unique constraint
-  const nonceConsumed = checkAndConsumeNonce(keyId, operation, nonce, now);
+  // Signature valid - consume nonce via SQLite, with file-based fallback
+  let nonceConsumed = false;
+  try {
+    nonceConsumed = checkAndConsumeNonce(keyId, operation, nonce, now);
+  } catch {
+    // SQLite not available, fall back to file-based store
+    nonceConsumed = checkAndConsumeNonceFile(keyId, operation, nonce, now);
+  }
+
+  if (!nonceConsumed) {
+    return { valid: false, error: 'NONCE_REPLAY' };
+  }
+
+  return { valid: true, owner_type, owner_id, runtime };
+}
+
+// Verify signature and consume nonce BEFORE database initialization
+// Uses file-based nonce store for replay protection when SQLite is not available
+// Returns: { valid: boolean, error?: string; owner_type?; owner_id?; runtime? }
+export function verifyFounderOperationBeforeBootstrap(
+  operation: string,
+  body: any,
+  signature: string,
+  timestamp: number,
+  nonce: string,
+  keyId: string
+): { valid: boolean; error?: string; owner_type?: 'founder' | 'staff'; owner_id?: string; runtime?: 'claude' | 'hermes' } {
+  const keys = loadFounderKeyPair();
+  if (!keys) return { valid: false, error: 'NO_KEYS' };
+  if (keyId !== keys.key_id) return { valid: false, error: 'KEY_MISMATCH' };
+
+  // Validate timestamp freshness (replay protection)
+  const now = Date.now();
+  if (Math.abs(now - timestamp) > REQUEST_TIMESTAMP_TOLERANCE_MS) {
+    return { valid: false, error: 'TIMESTAMP_EXPIRED' };
+  }
+
+  // Validate nonce format
+  if (!nonce || typeof nonce !== 'string') {
+    return { valid: false, error: 'NONCE_MISSING' };
+  }
+  if (nonce.length > NONCE_MAX_LENGTH) {
+    return { valid: false, error: 'NONCE_TOO_LONG' };
+  }
+  if (!/^[A-Za-z0-9_-]+$/.test(nonce)) {
+    return { valid: false, error: 'NONCE_MALFORMED' };
+  }
+
+  // Extract ownership fields from body for verification
+  const owner_type = body.owner_type;
+  const owner_id = body.owner_id;
+  const runtime = body.runtime;
+
+  // Validate ownership fields if present (SEC-06: ownership verification)
+  if (owner_type !== undefined) {
+    if (!['founder', 'staff'].includes(owner_type)) {
+      return { valid: false, error: 'INVALID_OWNER_TYPE' };
+    }
+  }
+  if (owner_type === 'founder' && owner_id !== 'founder') {
+    return { valid: false, error: 'FOUNDER_OWNER_MISMATCH' };
+  }
+  if (runtime !== undefined && !['claude', 'hermes'].includes(runtime)) {
+    return { valid: false, error: 'INVALID_RUNTIME' };
+  }
+
+  // Canonicalize and verify signature BEFORE consuming nonce
+  try {
+    const data = canonicalizeForSigning(operation, body, timestamp, nonce, keyId);
+    const verifier = crypto.createVerify('RSA-SHA256');
+    verifier.update(data);
+    verifier.end();
+    const valid = verifier.verify(keys.public_key, signature, 'base64');
+
+    if (!valid) {
+      return { valid: false, error: 'INVALID_SIGNATURE' };
+    }
+  } catch (error) {
+    return { valid: false, error: 'VERIFICATION_ERROR' };
+  }
+
+  // Signature valid - consume nonce via file-based store (before DB available)
+  const nonceConsumed = checkAndConsumeNonceFile(keyId, operation, nonce, now);
   if (!nonceConsumed) {
     return { valid: false, error: 'NONCE_REPLAY' };
   }
