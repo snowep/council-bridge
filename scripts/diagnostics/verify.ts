@@ -1,5 +1,7 @@
 import { createDatabase } from '../../src/database.js';
+import { guardDatabaseAccess } from '../../src/security/database-seeding-guard.js';
 
+guardDatabaseAccess('data/council.db', { allowedDevPaths: ['data'] });
 const db = createDatabase('data/council.db');
 const divisions = db.query('SELECT division_id, name, head_staff_id FROM divisions');
 console.log('Divisions:', divisions);

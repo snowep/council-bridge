@@ -7,6 +7,7 @@ import { createDatabase, getDatabaseInstance } from '../src/database.js';
 import { initializeCouncil, createDefaultConstitution } from './seed/initialize-council.js';
 import { signFounderRequest, loadFounderKeyPair, verifyFounderRequest } from '../src/auth/founder.js';
 import { setDatabaseInstance } from '../src/auth/founder.js';
+import { guardDatabaseAccess } from '../src/security/database-seeding-guard.js';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -20,7 +21,8 @@ interface BootstrapOptions {
 
 function parseArgs(): BootstrapOptions {
   const args = process.argv.slice(2);
-  const opts: Partial<BootstrapOptions> = { database: ':memory:' };
+  // Prefer --database argument, then DATABASE_PATH env var, then default to :memory:
+  const opts: Partial<BootstrapOptions> = { database: process.env.DATABASE_PATH || ':memory:' };
 
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--database' && i + 1 < args.length) {
@@ -42,6 +44,11 @@ function parseArgs(): BootstrapOptions {
 async function bootstrapDatabase(opts: BootstrapOptions) {
   console.log('🔧 Starting Database Bootstrap...');
   console.log(`📁 Database path: ${opts.database === ':memory:' ? 'memory' : opts.database}`);
+
+  // Invoke centralized database seeding guard BEFORE any database access (including signature validation)
+  guardDatabaseAccess(opts.database, {
+    allowedDevPaths: opts.database === ':memory:' ? [] : ['data']
+  });
 
   // Validate founder signature if provided (production mode)
   if (opts.signature && opts.timestamp && opts.nonce && opts.keyId) {
@@ -76,8 +83,8 @@ async function bootstrapDatabase(opts: BootstrapOptions) {
     console.log('⚠️  Running in development mode (no founder signature required)');
   }
 
-  // Create database
-  const dbPath = opts.database === ':memory:' ? undefined : opts.database;
+  // Create database - pass :memory: directly to createDatabase
+  const dbPath = opts.database;
   const db = createDatabase(dbPath);
   setDatabaseInstance(db);
 

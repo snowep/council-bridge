@@ -1,6 +1,8 @@
 import { createDatabase } from '../../src/database.js';
+import { guardDatabaseAccess } from '../../src/security/database-seeding-guard.js';
 import { getStaffAgentById } from '../../src/council/divisions.js';
 
+guardDatabaseAccess('data/council.db', { allowedDevPaths: ['data'] });
 const db = createDatabase('data/council.db');
 const heads = ['staff-dev-head-001', 'staff-marketing-head-001', 'staff-finance-head-001', 'staff-creative-head-001', 'staff-research-head-001', 'staff-ops-head-001'];
 

@@ -1,6 +1,8 @@
 import { createDatabase } from '../src/database.js';
+import { guardDatabaseAccess } from '../src/security/database-seeding-guard.js';
 import { createDivision, registerStaffAgent, activateStaffAgent, getStaffAgentById } from '../../src/council/divisions.js';
 
+guardDatabaseAccess(':memory:');
 const db = createDatabase(':memory:');
 const founderCtx = { owner_type: 'founder', owner_id: 'founder' };
 

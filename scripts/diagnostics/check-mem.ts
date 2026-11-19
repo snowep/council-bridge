@@ -1,5 +1,7 @@
 import { createDatabase } from '../../src/database.js';
+import { guardDatabaseAccess } from '../../src/security/database-seeding-guard.js';
 
+guardDatabaseAccess('data/council.db', { allowedDevPaths: ['data'] });
 const db = createDatabase('data/council.db');
 
 const schema = db.query('PRAGMA table_info(memory_entries)');

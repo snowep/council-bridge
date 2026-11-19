@@ -1,5 +1,7 @@
 import { createDatabase } from '../../src/database.js';
+import { guardDatabaseAccess } from '../../src/security/database-seeding-guard.js';
 
+guardDatabaseAccess('data/council.db', { allowedDevPaths: ['data'] });
 const db = createDatabase('data/council.db');
 const headMembers = db.query("SELECT division_id, staff_id, role FROM division_members WHERE staff_id LIKE 'staff-%-head-%'");
 console.log('Division Head members:', headMembers.length);

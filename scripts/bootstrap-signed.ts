@@ -5,11 +5,17 @@ import { createDatabase, getDatabaseInstance } from '../src/database.js';
 import { initializeCouncil, createDefaultConstitution } from './seed/initialize-council.js';
 import { verifyFounderOperation, getFounderPublicKey, getFounderKeyId } from '../src/auth/founder.js';
 import { getAuthConfig } from '../src/auth/index.js';
+import { guardDatabaseAccess } from '../src/security/database-seeding-guard.js';
 import * as fs from 'fs';
 import * as path from 'path';
 
 const DATA_DIR = path.join(process.cwd(), '.secrets');
 const DATABASE_PATH = process.env.DATABASE_PATH || ':memory:';
+
+// Invoke centralized database seeding guard BEFORE any database access
+guardDatabaseAccess(DATABASE_PATH, {
+  allowedDevPaths: DATABASE_PATH === ':memory:' ? [] : ['data']
+});
 
 async function bootstrapDatabaseWithSignature() {
   console.log('🔧 Starting Database Bootstrap with Founder Signature...');
@@ -43,8 +49,8 @@ async function bootstrapDatabaseWithSignature() {
     console.log('   To run with founder authorization, set FOUNDER_SIGNATURE, FOUNDER_TIMESTAMP, and FOUNDER_NONCE');
   }
 
-  // Create database
-  const db = createDatabase(DATABASE_PATH === ':memory:' ? undefined : DATABASE_PATH);
+  // Create database - pass :memory: directly to createDatabase
+  const db = createDatabase(DATABASE_PATH);
 
   // Initialize council
   const council = initializeCouncil(db);
@@ -53,17 +59,21 @@ async function bootstrapDatabaseWithSignature() {
   const version = createDefaultConstitution(db);
   console.log(`📜 Constitution created: v${version}`);
 
-  // Count results
-  const seats = db.prepare('SELECT COUNT(*) as count FROM council_seats').get();
-  const personas = db.prepare('SELECT COUNT(*) as count FROM personas').get();
-  const runtimes = db.prepare('SELECT COUNT(*) as count FROM runtime_personas').get();
-  const constitutions = db.prepare('SELECT COUNT(*) as count FROM constitutions').get();
+  // Count results using database methods
+  const seatsResult = db.stmt.listSeats.all();
+  const personasResult = db.stmt.listAllPersonas.all();
+  const runtimesResult = db.stmt.getRuntimePersonas.all('claude').length + db.stmt.getRuntimePersonas.all('hermes').length;
+  const constitutionsResult = db.stmt.listConstitutions.all();
+
+  const seats = Array.isArray(seatsResult) ? seatsResult.length : 0;
+  const personas = Array.isArray(personasResult) ? personasResult.length : 0;
+  const constitutions = Array.isArray(constitutionsResult) ? constitutionsResult.length : 0;
 
   console.log('\n📊 Bootstrap Results:');
-  console.log(`   Council Seats: ${seats.count}`);
-  console.log(`   Personas: ${personas.count}`);
-  console.log(`   Runtime Personas: ${runtimes.count}`);
-  console.log(`   Constitutions: ${constitutions.count}`);
+  console.log(`   Council Seats: ${seats}`);
+  console.log(`   Personas: ${personas}`);
+  console.log(`   Runtime Personas: ${runtimesResult}`);
+  console.log(`   Constitutions: ${constitutions}`);
 
   db.close();
   console.log('\n✅ Database bootstrap complete!');

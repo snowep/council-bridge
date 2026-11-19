@@ -156,6 +156,7 @@ async function main() {
   console.log('Phase 9 Population Script - Council Bridge Roster');
   console.log('='.repeat(60));
 
+  guardDatabaseAccess('data/council.db');
   const dbInstance = createDatabase('data/council.db');
 
   try {

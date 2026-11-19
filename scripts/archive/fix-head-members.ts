@@ -1,6 +1,8 @@
 import { createDatabase } from '../src/database.js';
+import { guardDatabaseAccess } from '../src/security/database-seeding-guard.js';
 import { addDivisionMember } from '../../src/council/divisions.js';
 
+guardDatabaseAccess('data/council.db', { allowedDevPaths: ['data'] });
 const db = createDatabase('data/council.db');
 const heads = [
   { division_id: 'developer', staff_id: 'staff-dev-head-001' },

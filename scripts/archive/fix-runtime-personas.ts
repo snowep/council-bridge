@@ -1,7 +1,9 @@
 import { createDatabase } from '../src/database.js';
+import { guardDatabaseAccess } from '../src/security/database-seeding-guard.js';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
+guardDatabaseAccess('data/council.db', { allowedDevPaths: ['data'] });
 const db = createDatabase('data/council.db');
 
 // Backup database
