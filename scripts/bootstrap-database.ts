@@ -7,7 +7,7 @@ import { createDatabase, getDatabaseInstance } from '../src/database.js';
 import { initializeCouncil, createDefaultConstitution } from './seed/initialize-council.js';
 import { signFounderRequest, loadFounderKeyPair, verifyFounderRequest } from '../src/auth/founder.js';
 import { setDatabaseInstance } from '../src/auth/founder.js';
-import { guardDatabaseAccess } from '../src/security/database-seeding-guard.js';
+import { guardDatabaseAccess, validateSeedDatabasePath } from '../src/security/database-seeding-guard.js';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -45,10 +45,24 @@ async function bootstrapDatabase(opts: BootstrapOptions) {
   console.log('🔧 Starting Database Bootstrap...');
   console.log(`📁 Database path: ${opts.database === ':memory:' ? 'memory' : opts.database}`);
 
-  // Invoke centralized database seeding guard BEFORE any database access (including signature validation)
-  guardDatabaseAccess(opts.database, {
-    allowedDevPaths: opts.database === ':memory:' ? [] : ['data']
-  });
+  // Determine environment
+  const isProduction = process.env.NODE_ENV === 'production';
+  const isTest = process.env.NODE_ENV === 'test';
+
+  // SECURITY: Validate database path BEFORE any operations
+  // This validates the path is safe but doesn't authorize production seeding
+  try {
+    const canonicalPath = validateSeedDatabasePath(opts.database, {
+      allowedDevPaths: opts.database === ':memory:' || isTest ? [] : ['data'],
+      allowedProdPaths: isProduction ? (process.env.PROD_DATABASE_PATH ? [process.env.PROD_DATABASE_PATH] : []) : [],
+      allowedTestPaths: isTest ? ['test-dbs', 'test-dbs-e2e', 'test-data', 'test-dbs-guard', 'test-db'] : ['test-dbs', 'test-dbs-e2e', 'test-data', 'test-dbs-guard'],
+      environment: isProduction ? 'production' : (isTest ? 'test' : 'development')
+    });
+    console.log(`   Path validated: ${canonicalPath}`);
+  } catch (error: any) {
+    console.error('❌ Database path validation failed:', error.message);
+    process.exit(1);
+  }
 
   // Validate founder signature if provided (production mode)
   if (opts.signature && opts.timestamp && opts.nonce && opts.keyId) {
@@ -75,8 +89,8 @@ async function bootstrapDatabase(opts: BootstrapOptions) {
       process.exit(1);
     }
     console.log('✅ Founder signature verified');
-  } else if (process.env.NODE_ENV === 'production') {
-    console.error('⚠️  Production mode requires founder signature');
+  } else if (isProduction) {
+    console.error('❌ PRODUCTION ERROR: Founder signature required for database seeding');
     console.error('   Provide: --signature <sig> --timestamp <ms> --nonce <64bytes> --key-id <id>');
     process.exit(1);
   } else {

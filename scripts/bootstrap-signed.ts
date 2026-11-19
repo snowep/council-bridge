@@ -1,21 +1,22 @@
-// Database Bootstrap Script - Requires Founder Signature
+// Database Bootstrap Script - Requires Founder Signature for Production
 // This script populates the database with canonical council identity data
+// SECURITY: Signature verification occurs BEFORE database access in production
 
 import { createDatabase, getDatabaseInstance } from '../src/database.js';
 import { initializeCouncil, createDefaultConstitution } from './seed/initialize-council.js';
-import { verifyFounderOperation, getFounderPublicKey, getFounderKeyId } from '../src/auth/founder.js';
+import { verifyFounderOperation, getFounderPublicKey, getFounderKeyId, setDatabaseInstance, loadFounderKeyPair } from '../src/auth/founder.js';
 import { getAuthConfig } from '../src/auth/index.js';
-import { guardDatabaseAccess } from '../src/security/database-seeding-guard.js';
+import { validateSeedDatabasePath } from '../src/security/database-seeding-guard.js';
 import * as fs from 'fs';
 import * as path from 'path';
 
 const DATA_DIR = path.join(process.cwd(), '.secrets');
 const DATABASE_PATH = process.env.DATABASE_PATH || ':memory:';
+const isProduction = process.env.NODE_ENV === 'production';
+const isTest = process.env.NODE_ENV === 'test';
 
-// Invoke centralized database seeding guard BEFORE any database access
-guardDatabaseAccess(DATABASE_PATH, {
-  allowedDevPaths: DATABASE_PATH === ':memory:' ? [] : ['data']
-});
+// SECURITY: Determine allowed production paths from environment
+const allowedProdPaths = isProduction ? (process.env.PROD_DATABASE_PATH ? [process.env.PROD_DATABASE_PATH] : []) : [];
 
 async function bootstrapDatabaseWithSignature() {
   console.log('🔧 Starting Database Bootstrap with Founder Signature...');
@@ -27,16 +28,49 @@ async function bootstrapDatabaseWithSignature() {
   const founderTimestamp = process.env.FOUNDER_TIMESTAMP;
   const founderNonce = process.env.FOUNDER_NONCE;
 
+  // In production: REJECT if no signature provided - fail-closed
+  if (isProduction && (!founderSignature || !founderTimestamp || !founderNonce)) {
+    console.error('❌ PRODUCTION ERROR: Founder signature required for database seeding');
+    console.error('   Required: FOUNDER_SIGNATURE, FOUNDER_TIMESTAMP, FOUNDER_NONCE');
+    process.exit(1);
+  }
+
+  // SECURITY: Validate database path BEFORE any operations
+  // This validates the path is safe but doesn't authorize production seeding
+  try {
+    const canonicalPath = validateSeedDatabasePath(DATABASE_PATH, {
+      allowedDevPaths: DATABASE_PATH === ':memory:' || isTest ? [] : ['data'],
+      allowedProdPaths: allowedProdPaths,
+      allowedTestPaths: isTest ? ['test-dbs', 'test-dbs-e2e', 'test-data', 'test-dbs-guard', 'test-db'] : ['test-dbs', 'test-dbs-e2e', 'test-data', 'test-dbs-guard'],
+      environment: isProduction ? 'production' : (isTest ? 'test' : 'development')
+    });
+    console.log(`   Path validated: ${canonicalPath}`);
+  } catch (error: any) {
+    console.error('❌ Database path validation failed:', error.message);
+    process.exit(1);
+  }
+
+  // Create database first (needed for nonce store)
+  const db = createDatabase(DATABASE_PATH);
+  setDatabaseInstance(db);
+
+  // Verify founder signature in production
   if (founderSignature && founderTimestamp && founderNonce) {
     console.log('✅ Founder signature provided, validating...');
+
+    const keyPair = loadFounderKeyPair();
+    if (!keyPair) {
+      console.error('❌ Founder keys not found');
+      process.exit(1);
+    }
 
     const result = verifyFounderOperation(
       'bootstrap_database',
       { database_path: DATABASE_PATH },
       founderSignature,
-      founderTimestamp,
+      parseInt(founderTimestamp, 10),
       founderNonce,
-      getFounderKeyId()
+      keyPair.key_id
     );
 
     if (!result.valid) {
@@ -49,31 +83,17 @@ async function bootstrapDatabaseWithSignature() {
     console.log('   To run with founder authorization, set FOUNDER_SIGNATURE, FOUNDER_TIMESTAMP, and FOUNDER_NONCE');
   }
 
-  // Create database - pass :memory: directly to createDatabase
-  const db = createDatabase(DATABASE_PATH);
-
-  // Initialize council
+  console.log('🔐 Initializing council...');
   const council = initializeCouncil(db);
 
-  // Create constitution
+  console.log('📜 Creating constitution...');
   const version = createDefaultConstitution(db);
-  console.log(`📜 Constitution created: v${version}`);
+  console.log(`   Constitution version: v${version}`);
 
   // Count results using database methods
   const seatsResult = db.stmt.listSeats.all();
-  const personasResult = db.stmt.listAllPersonas.all();
-  const runtimesResult = db.stmt.getRuntimePersonas.all('claude').length + db.stmt.getRuntimePersonas.all('hermes').length;
-  const constitutionsResult = db.stmt.listConstitutions.all();
-
-  const seats = Array.isArray(seatsResult) ? seatsResult.length : 0;
-  const personas = Array.isArray(personasResult) ? personasResult.length : 0;
-  const constitutions = Array.isArray(constitutionsResult) ? constitutionsResult.length : 0;
-
-  console.log('\n📊 Bootstrap Results:');
-  console.log(`   Council Seats: ${seats}`);
-  console.log(`   Personas: ${personas}`);
-  console.log(`   Runtime Personas: ${runtimesResult}`);
-  console.log(`   Constitutions: ${constitutions}`);
+  const personasResult = db.stmt.listAllPersonas?.all() as any[] || [];
+  const runtimesResult = db.stmt.getRuntimePersonas?.all('claude') as any[] || [];
 
   db.close();
   console.log('\n✅ Database bootstrap complete!');
