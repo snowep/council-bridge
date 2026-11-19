@@ -6,168 +6,44 @@ import {
   TextField,
   Button,
   CircularProgress,
-  List,
-  ListItem,
-  ListItemButton,
-  ListItemText,
-  Avatar,
-  Chip,
-  IconButton,
   Alert,
   Drawer,
-  Divider,
   useMediaQuery,
   Tooltip,
-  Fab,
+  IconButton,
+  InputAdornment,
+  Avatar,
 } from '@mui/material';
 import {
   ChatOutlined,
   SendOutlined,
-  PersonOutlined,
-  AccountBalanceOutlined,
-  BusinessOutlined,
-  SearchOutlined,
   Menu as MenuIcon,
-  CloseOutlined,
-  RefreshOutlined,
   AddOutlined,
 } from '@mui/icons-material';
 import { apiClient } from '@shared/api/client';
-import type { Message as ApiMessage, Conversation } from '@shared/types/api';
+import type { Message as ApiMessage } from '@shared/types/api';
 import { useAppAuth } from '@app/use-app-auth';
 import { useTheme } from '@mui/material/styles';
 import { AgentSelectionDialog } from '../components/AgentSelectionDialog';
+import { ConversationList } from '../components/ConversationList';
+import { MessageBubble } from '../components/MessageBubble';
+import {
+  ParticipantIcon,
+  PARTICIPANT_COLORS,
+  getParticipantType,
+} from '../constants';
+import type { Message, Conversation } from '../types';
+import { transformMessage } from '../types';
 
-// Frontend Message type with message_id and status derived from read_at
-interface Message {
-  message_id: string;
-  sender_id: string;
-  recipient_id: string;
-  content: string;
-  status: 'pending' | 'sent' | 'delivered' | 'read' | 'failed' | 'replied';
-  created_at: string;
-  read_at: string | null;
-  reply_to?: string | null;
-}
-
-// Helper to derive status from read_at
-const getMessageStatus = (msg: ApiMessage, isOutgoing: boolean): Message['status'] => {
-  if (isOutgoing) {
-    if (!msg.read_at) return 'sent';
-    return 'delivered';
-  }
-  if (!msg.read_at) return 'replied';
-  return 'read';
-};
-
-// Transform API message to frontend Message type
-const transformMessage = (apiMsg: ApiMessage, currentOwnerId: string): Message => ({
-  message_id: apiMsg.id,
-  sender_id: apiMsg.sender_id,
-  recipient_id: apiMsg.recipient_id,
-  content: apiMsg.content,
-  status: getMessageStatus(apiMsg, apiMsg.sender_id === currentOwnerId),
-  created_at: apiMsg.created_at,
-  read_at: apiMsg.read_at,
-  reply_to: apiMsg.reply_to || null,
-});
-
-const ParticipantIcon = ({ type, size = 'small' }: { type: string; size?: 'small' | 'medium' | 'large' }) => {
-  switch (type) {
-    case 'founder':
-    case 'council':
-      return <AccountBalanceOutlined fontSize={size} />;
-    case 'staff':
-      return <PersonOutlined fontSize={size} />;
-    case 'division':
-      return <BusinessOutlined fontSize={size} />;
-    default:
-      return <PersonOutlined fontSize={size} />;
-  }
-};
-
-const PARTICIPANT_COLORS = {
-  founder: 'secondary',
-  council: 'primary',
-  staff: 'default',
-  division: 'success',
-};
-
-const getParticipantType = (id: string) => {
-  if (id === 'founder') return 'founder';
-  if (id.startsWith('seat-') || id.startsWith('council-')) return 'council';
-  if (id.startsWith('staff-')) return 'staff';
-  if (id.startsWith('division-')) return 'division';
-  return 'staff';
-};
-
-const formatTime = (dateString: string) => {
-  return new Date(dateString + 'Z').toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-};
-
-type ConversationListProps = {
-  conversations: Conversation[];
-  selectedConversation: Conversation | null;
-  onSelect: (conv: Conversation) => void;
-  fetchError: string | null;
-  onRetry: () => void;
-};
-
-const ConversationList = ({
-  conversations,
-  selectedConversation,
-  onSelect,
-  fetchError,
-  onRetry
-}: ConversationListProps) => {
-  if (conversations.length === 0) {
-    return (
-      <Box sx={{ p: 3, textAlign: 'center' }}>
-        <ChatOutlined sx={{ fontSize: 48, color: 'text.secondary', mb: 2 }} />
-        <Typography variant="body1" color="text.secondary">
-          {fetchError ? 'Failed to load conversations' : 'No conversations yet'}
-        </Typography>
-        {fetchError && (
-          <Button variant="outlined" startIcon={<RefreshOutlined />} onClick={onRetry} sx={{ mt: 2 }}>
-            Retry
-          </Button>
-        )}
-      </Box>
-    );
-  }
-
-  return (
-    <List>
-      {conversations.map((conv) => {
-        const type = getParticipantType(conv.participant_id);
-        return (
-          <ListItem key={conv.participant_id} sx={{ borderBottom: 1, borderColor: 'divider' }}>
-            <ListItemButton
-              selected={selectedConversation?.participant_id === conv.participant_id}
-              onClick={() => onSelect(conv)}
-            >
-              <Avatar sx={{ bgcolor: PARTICIPANT_COLORS[type] + '.main' }}>
-                <ParticipantIcon type={type} size="small" />
-              </Avatar>
-              <ListItemText
-                primary={conv.participant_name}
-                secondary={conv.last_message?.content || 'No messages yet'}
-              />
-              {conv.unread_count > 0 && (
-                <Chip label={conv.unread_count} size="small" color="primary" variant="outlined" />
-              )}
-            </ListItemButton>
-          </ListItem>
-        );
-      })}
-    </List>
-  );
-};
+// Polling configuration
+const POLLING_INTERVAL = 3000;
+const POLLING_BACKOFF_MAX = 30000;
 
 export default function ChatPage() {
   const { authContext } = useAppAuth();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
+
   const [filteredConversations, setFilteredConversations] = useState<Conversation[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
@@ -178,10 +54,27 @@ export default function ChatPage() {
   const [sendError, setSendError] = useState<string | null>(null);
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
   const [showNewConversationDialog, setShowNewConversationDialog] = useState(false);
-  const searchRef = useRef<HTMLInputElement>(null);
+  const [searchValue, setSearchValue] = useState('');
+  const [pollingActive, setPollingActive] = useState(true);
+  const [pollingErrorCount, setPollingErrorCount] = useState(0);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const conversationPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const conversationListPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const conversationPollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const conversationListPollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const currentOwnerId = authContext?.owner_id || 'founder';
+
+  // Debounced search
+  const handleSearch = useCallback((value: string) => {
+    setSearchValue(value);
+    if (searchDebounceRef.current) {
+      clearTimeout(searchDebounceRef.current);
+    }
+    searchDebounceRef.current = setTimeout(() => {
+      fetchConversations(value);
+    }, 300);
+  }, []);
 
   const fetchConversations = async (search?: string) => {
     try {
@@ -191,11 +84,13 @@ export default function ChatPage() {
       const response = await apiClient.get<{ conversations: Conversation[]; limit: number; offset: number }>(`/api/messages/conversations?${params.toString()}`);
       const list = Array.isArray(response?.conversations) ? response.conversations : [];
       setFilteredConversations(list);
+      setPollingErrorCount(0);
     } catch (err: any) {
       const msg = err?.response?.data?.error || err.message || 'Failed to fetch conversations';
       setFetchError(msg);
       console.error('Failed to fetch conversations:', err);
       setFilteredConversations([]);
+      setPollingErrorCount(prev => prev + 1);
     } finally {
       setLoading(false);
     }
@@ -207,22 +102,14 @@ export default function ChatPage() {
       const response = await apiClient.get<{ messages: ApiMessage[]; limit: number; offset: number }>(`/api/messages/${conversationId}?limit=50&offset=${offset}`);
       const apiMessages = Array.isArray(response?.messages) ? response.messages : [];
 
-      // Transform API messages to frontend Message type
-      const currentOwnerId = authContext?.owner_id || 'founder';
       const transformedMessages = apiMessages.map(m => transformMessage(m, currentOwnerId));
 
       if (offset === 0) {
-        // Initial load: replace all messages
-        // Backend returns ASC order (oldest first), which matches our display order
-        // Oldest at top, newest at bottom
         setMessages(transformedMessages);
-        // Scroll to bottom to show the latest/newest messages
         setTimeout(() => {
           messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
         }, 100);
       } else {
-        // Pagination: loading more messages from the API
-        // Backend returns ASC order, so we append new messages to the existing ones
         setMessages(prev => [...prev, ...transformedMessages]);
       }
     } catch (err: any) {
@@ -239,18 +126,12 @@ export default function ChatPage() {
     if (isMobile) setMobileDrawerOpen(false);
   };
 
-  const handleSearch = useCallback((value: string) => {
-    fetchConversations(value);
-  }, []);
-
   const handleNewConversation = (agent: { id: string; name: string; type: string }) => {
-    // Check if conversation already exists
     const existing = filteredConversations.find(c => c.participant_id === agent.id);
     if (existing) {
       handleSelectConversation(existing);
       return;
     }
-    // Create a new conversation entry optimistically
     const newConv: Conversation = {
       participant_id: agent.id,
       participant_name: agent.name,
@@ -266,11 +147,10 @@ export default function ChatPage() {
     const content = newMessage.trim();
     if (!content || !selectedConversation || sending) return;
 
-    // Optimistic update - use temp- prefixed ID that won't conflict with UUIDs
-    const tempId = `temp-${crypto.randomUUID().slice(0, 8)}`;
+    const tempId = `temp-${crypto.randomUUID()}`;
     const tempMessage: Message = {
       message_id: tempId,
-      sender_id: authContext?.owner_id || 'founder',
+      sender_id: currentOwnerId,
       recipient_id: selectedConversation.participant_id,
       content,
       status: 'pending',
@@ -288,11 +168,8 @@ export default function ChatPage() {
         recipient_id: selectedConversation.participant_id,
         content,
       });
-      // Transform response and replace temp message
-      const realMessage = transformMessage(response, authContext?.owner_id || 'founder');
+      const realMessage = transformMessage(response, currentOwnerId);
       setMessages(prev => prev.map(m => m.message_id === tempId ? realMessage : m));
-      // Update conversation list with new last message
-      // Use the API message for last_message since Conversation type expects it
       setFilteredConversations(prev => prev.map(conv =>
         conv.participant_id === selectedConversation.participant_id
           ? { ...conv, last_message: response, unread_count: 0 }
@@ -300,7 +177,6 @@ export default function ChatPage() {
       ));
       setPendingFailedMessage(null);
     } catch (err: any) {
-      // Revert optimistic update and store message for retry
       setMessages(prev => prev.filter(m => m.message_id !== tempId));
       const msg = err?.response?.data?.error || err.message || 'Failed to send message';
       setSendError(msg);
@@ -311,7 +187,6 @@ export default function ChatPage() {
     }
   };
 
-  // Track failed message for retry
   const [pendingFailedMessage, setPendingFailedMessage] = useState<string | null>(null);
 
   const retrySend = async () => {
@@ -323,10 +198,8 @@ export default function ChatPage() {
         recipient_id: selectedConversation.participant_id,
         content: pendingFailedMessage,
       });
-      // Transform response and replace temp messages
-      const realMessage = transformMessage(response, authContext?.owner_id || 'founder');
+      const realMessage = transformMessage(response, currentOwnerId);
       setMessages(prev => prev.map(m => m.message_id.startsWith('temp-') ? realMessage : m));
-      // Update conversation list with new last message
       setFilteredConversations(prev => prev.map(conv =>
         conv.participant_id === selectedConversation.participant_id
           ? { ...conv, last_message: response, unread_count: 0 }
@@ -343,57 +216,105 @@ export default function ChatPage() {
   useEffect(() => {
     return () => {
       if (conversationPollRef.current) {
-        clearInterval(conversationPollRef.current);
+        clearTimeout(conversationPollRef.current);
       }
       if (conversationListPollRef.current) {
-        clearInterval(conversationListPollRef.current);
+        clearTimeout(conversationListPollRef.current);
+      }
+      if (searchDebounceRef.current) {
+        clearTimeout(searchDebounceRef.current);
       }
     };
   }, []);
 
-  // Selected conversation polling
+  // Selected conversation polling with exponential backoff on errors
   useEffect(() => {
     if (conversationPollRef.current) {
-      clearInterval(conversationPollRef.current);
+      clearTimeout(conversationPollRef.current);
     }
-    if (selectedConversation) {
-      conversationPollRef.current = setInterval(() => {
+
+    const poll = () => {
+      if (selectedConversation && pollingActive) {
         fetchMessages(selectedConversation.participant_id);
-      }, 3000);
-    }
-    return () => {
-      if (conversationPollRef.current) {
-        clearInterval(conversationPollRef.current);
+        const delay = POLLING_INTERVAL * Math.min(Math.pow(2, pollingErrorCount), POLLING_BACKOFF_MAX / POLLING_INTERVAL);
+        conversationPollRef.current = setTimeout(poll, delay);
       }
     };
-  }, [selectedConversation]);
 
-  // Conversation list polling (every 3 seconds for unread counts - B2-T6)
+    if (selectedConversation) {
+      poll();
+    }
+
+    return () => {
+      if (conversationPollRef.current) {
+        clearTimeout(conversationPollRef.current);
+      }
+    };
+  }, [selectedConversation, pollingActive, pollingErrorCount]);
+
+  // Conversation list polling
   useEffect(() => {
     if (conversationListPollRef.current) {
-      clearInterval(conversationListPollRef.current);
+      clearTimeout(conversationListPollRef.current);
     }
-    conversationListPollRef.current = setInterval(() => {
-      if (!loading) {
-        fetchConversations();
+
+    const pollList = () => {
+      if (!loading && pollingActive) {
+        fetchConversations(searchValue);
+        conversationListPollRef.current = setTimeout(pollList, POLLING_INTERVAL);
       }
-    }, 3000);
+    };
+
+    conversationListPollRef.current = setTimeout(pollList, POLLING_INTERVAL);
 
     return () => {
       if (conversationListPollRef.current) {
-        clearInterval(conversationListPollRef.current);
+        clearTimeout(conversationListPollRef.current);
       }
     };
-  }, [loading]);
+  }, [loading, pollingActive, searchValue]);
+
+  // Pause polling when tab hidden (Page Visibility API)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      setPollingActive(!document.hidden);
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, []);
 
   // Initial fetch
   useEffect(() => {
     fetchConversations();
   }, []);
 
+  // Auto-scroll to bottom on new messages
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Cmd/Ctrl + K: Focus search
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        // Focus handled by search input ref in ConversationList
+      }
+      // Cmd/Ctrl + N: New conversation
+      if ((e.metaKey || e.ctrlKey) && e.key === 'n') {
+        e.preventDefault();
+        setShowNewConversationDialog(true);
+      }
+      // Escape: Close dialogs/drawer
+      if (e.key === 'Escape') {
+        setShowNewConversationDialog(false);
+        setMobileDrawerOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   if (loading) {
     return (
@@ -416,30 +337,20 @@ export default function ChatPage() {
           '& .MuiDrawer-paper': { width: 320, boxSizing: 'border-box' },
         }}
       >
-        <Box sx={{ p: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Typography variant="h6" sx={{ fontWeight: 600 }}>Conversations</Typography>
-          <IconButton onClick={() => setMobileDrawerOpen(false)}><CloseOutlined /></IconButton>
-        </Box>
-        <Box sx={{ p: 1 }}>
-          <TextField
-            placeholder="Search conversations..."
-            size="small"
-            fullWidth
-            inputRef={searchRef}
-            onChange={(e) => handleSearch(e.target.value)}
-            slotProps={{ input: { startAdornment: <SearchOutlined color="action" /> } }}
-          />
-        </Box>
-        <Divider />
-        <Box sx={{ flex: 1, overflow: 'auto' }}>
-          <ConversationList
-            conversations={filteredConversations}
-            selectedConversation={selectedConversation}
-            onSelect={handleSelectConversation}
-            fetchError={fetchError}
-            onRetry={fetchConversations}
-          />
-        </Box>
+        <ConversationList
+          conversations={filteredConversations}
+          selectedConversation={selectedConversation}
+          onSelect={handleSelectConversation}
+          fetchError={fetchError}
+          onRetry={() => fetchConversations(searchValue)}
+          onNewConversation={() => setShowNewConversationDialog(true)}
+          searchValue={searchValue}
+          onSearchChange={handleSearch}
+          loading={loading}
+          variant="drawer"
+          showHeader
+          showSearch
+        />
       </Drawer>
 
       {/* Desktop Conversation List */}
@@ -452,35 +363,29 @@ export default function ChatPage() {
           flexDirection: 'column',
         }}
       >
-        <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}>
-          <Typography variant="h6" sx={{ fontWeight: 600 }}>Conversations</Typography>
-        </Box>
-        <Box sx={{ p: 1, borderBottom: 1, borderColor: 'divider' }}>
-          <TextField
-            placeholder="Search conversations..."
-            size="small"
-            fullWidth
-            inputRef={searchRef}
-            onChange={(e) => handleSearch(e.target.value)}
-            slotProps={{ input: { startAdornment: <SearchOutlined color="action" /> } }}
-          />
-        </Box>
-        <Box sx={{ flex: 1, overflow: 'auto' }}>
-          <ConversationList
-            conversations={filteredConversations}
-            selectedConversation={selectedConversation}
-            onSelect={handleSelectConversation}
-            fetchError={fetchError}
-            onRetry={fetchConversations}
-          />
-        </Box>
+        <ConversationList
+          conversations={filteredConversations}
+          selectedConversation={selectedConversation}
+          onSelect={handleSelectConversation}
+          fetchError={fetchError}
+          onRetry={() => fetchConversations(searchValue)}
+          onNewConversation={() => setShowNewConversationDialog(true)}
+          searchValue={searchValue}
+          onSearchChange={handleSearch}
+          loading={loading}
+          variant="sidebar"
+          showHeader
+          showSearch
+        />
       </Box>
 
       {/* Mobile Toggle Button */}
       <Box sx={{ display: { xs: 'flex', md: 'none' }, position: 'fixed', top: 72, left: 16, zIndex: 1200 }}>
-        <IconButton onClick={() => setMobileDrawerOpen(true)} aria-label="Open conversations">
-          <MenuIcon />
-        </IconButton>
+        <Tooltip title="Conversations">
+          <IconButton onClick={() => setMobileDrawerOpen(true)} aria-label="Open conversations">
+            <MenuIcon />
+          </IconButton>
+        </Tooltip>
       </Box>
 
       {/* Message View */}
@@ -521,57 +426,18 @@ export default function ChatPage() {
               }}
             >
               {messages.length === 0 ? (
-                <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <Typography color="text.secondary">No messages yet. Start the conversation!</Typography>
+                <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 2 }}>
+                  <ChatOutlined sx={{ fontSize: 48, color: 'text.secondary' }} />
+                  <Typography color="text.secondary" variant="body1">No messages yet</Typography>
+                  <Typography color="text.secondary" variant="body2">Send a message to start the conversation</Typography>
                 </Box>
               ) : (
                 messages.map((msg) => (
-                  <Box
+                  <MessageBubble
                     key={msg.message_id}
-                    sx={{
-                      display: 'flex',
-                      justifyContent: msg.sender_id === authContext?.owner_id ? 'flex-end' : 'flex-start',
-                    }}
-                  >
-                    <Paper
-                      sx={{
-                        maxWidth: '70%',
-                        p: 1.5,
-                        borderRadius: 2,
-                        bgcolor: msg.sender_id === authContext?.owner_id ? 'primary.main' : 'background.paper',
-                        color: msg.sender_id === authContext?.owner_id ? 'primary.contrastText' : 'text.primary',
-                        boxShadow: 1,
-                        position: 'relative',
-                      }}
-                    >
-                      <Typography variant="body2">{msg.content}</Typography>
-                      <Typography variant="caption" sx={{ opacity: 0.7, display: 'block', mt: 0.5, textAlign: 'right' }}>
-                        {formatTime(msg.created_at)}
-                      </Typography>
-                      {/* Status indicator */}
-                      {msg.status === 'failed' && (
-                        <Chip
-                          label="Failed"
-                          size="small"
-                          color="error"
-                          sx={{ position: 'absolute', top: 4, right: 4 }}
-                        />
-                      )}
-                      {msg.status === 'pending' && (
-                        <Chip
-                          label="Pending"
-                          size="small"
-                          color="warning"
-                          sx={{ position: 'absolute', top: 4, right: 4 }}
-                        />
-                      )}
-                      {msg.status === 'read' && (
-                        <Typography variant="caption" sx={{ position: 'absolute', top: 4, right: 4, color: 'success.main', opacity: 0.6 }}>
-                          Read
-                        </Typography>
-                      )}
-                    </Paper>
-                  </Box>
+                    message={msg}
+                    isOutgoing={msg.sender_id === currentOwnerId}
+                  />
                 ))
               )}
               <div ref={messagesEndRef} />
@@ -592,7 +458,7 @@ export default function ChatPage() {
                     fullWidth
                     value={newMessage}
                     onChange={(e) => setNewMessage(e.target.value)}
-                    placeholder="Type a message..."
+                    placeholder="Type a message... (Enter to send, Shift+Enter for new line)"
                     multiline
                     rows={1}
                     maxRows={4}
@@ -604,7 +470,16 @@ export default function ChatPage() {
                         sendMessage(e);
                       }
                     }}
-                    slotProps={{ input: { 'aria-label': 'Message input' } }}
+                    slotProps={{
+                      input: {
+                        'aria-label': 'Message input',
+                        startAdornment: (
+                          <InputAdornment position="start" sx={{ pr: 1, opacity: 0.5 }}>
+                            <Typography variant="caption">⌘</Typography>
+                          </InputAdornment>
+                        ),
+                      },
+                    }}
                   />
                 </Tooltip>
                 <Button
@@ -612,6 +487,7 @@ export default function ChatPage() {
                   startIcon={<SendOutlined />}
                   disabled={!newMessage.trim() || sending}
                   onClick={sendMessage}
+                  size="large"
                 >
                   {sending ? <CircularProgress size={20} color="inherit" /> : 'Send'}
                 </Button>
@@ -619,23 +495,15 @@ export default function ChatPage() {
             </Paper>
           </>
         ) : (
-          <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 2 }}>
+            <ChatOutlined sx={{ fontSize: 64, color: 'text.secondary' }} />
             <Typography variant="h6" color="text.secondary">Select a conversation to start messaging</Typography>
+            <Typography variant="body2" color="text.secondary">Or start a new conversation</Typography>
+            <Button variant="contained" startIcon={<AddOutlined />} onClick={() => setShowNewConversationDialog(true)}>
+              New Conversation
+            </Button>
           </Box>
         )}
-      </Box>
-
-      {/* Floating Action Button for new conversation */}
-      <Box sx={{ position: 'fixed', bottom: { xs: 16, sm: 24 }, right: 16, zIndex: 1100 }}>
-        <Fab
-          color="primary"
-          size="medium"
-          onClick={() => setShowNewConversationDialog(true)}
-          aria-label="Start new conversation"
-          sx={{ boxShadow: 3 }}
-        >
-          <AddOutlined />
-        </Fab>
       </Box>
 
       {/* Agent Selection Dialog */}
@@ -643,7 +511,7 @@ export default function ChatPage() {
         open={showNewConversationDialog}
         onClose={() => setShowNewConversationDialog(false)}
         onSelect={handleNewConversation}
-        currentUserId={authContext?.owner_id || 'founder'}
+        currentUserId={currentOwnerId}
       />
     </Box>
   );

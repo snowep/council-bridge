@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import React from 'react';
 import {
   Box,
   Dialog,
@@ -17,37 +18,15 @@ import {
   CircularProgress,
   Divider,
   IconButton,
+  InputAdornment,
 } from '@mui/material';
 import {
   SearchOutlined,
   Close as CloseIcon,
-  AccountBalanceOutlined,
-  PersonOutlined,
-  BusinessOutlined,
 } from '@mui/icons-material';
 import { apiClient } from '@shared/api/client';
 import type { StaffAgent, Division } from '@shared/types/api';
-
-const PARTICIPANT_COLORS = {
-  founder: 'secondary',
-  council: 'primary',
-  staff: 'default',
-  division: 'success',
-};
-
-const ParticipantIcon = ({ type, size = 'small' }: { type: string; size?: 'small' | 'medium' | 'large' }) => {
-  switch (type) {
-    case 'founder':
-    case 'council':
-      return <AccountBalanceOutlined fontSize={size} />;
-    case 'staff':
-      return <PersonOutlined fontSize={size} />;
-    case 'division':
-      return <BusinessOutlined fontSize={size} />;
-    default:
-      return <PersonOutlined fontSize={size} />;
-  }
-};
+import { ParticipantIcon, PARTICIPANT_COLORS } from '../constants';
 
 interface AgentOption {
   id: string;
@@ -57,7 +36,7 @@ interface AgentOption {
   status?: string;
 }
 
-export interface AgentSelectionDialogProps {
+interface AgentSelectionDialogProps {
   open: boolean;
   onClose: () => void;
   onSelect: (agent: AgentOption) => void;
@@ -75,8 +54,54 @@ export function AgentSelectionDialog({
   const [searchValue, setSearchValue] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const searchRef = useRef<HTMLInputElement>(null);
-  const fetchAgentsRef = useRef<() => Promise<void> | undefined>(undefined);
+  const searchRef = React.useRef<HTMLInputElement>(null);
+
+  const fetchAgents = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      // Fetch staff agents
+      const staffResponse = await apiClient.get<{ staff: StaffAgent[] }>('/api/staff');
+      const staffAgents: AgentOption[] = (staffResponse?.staff || [])
+        .filter(s => s.status === 'active' && s.staff_id !== currentUserId)
+        .map(s => ({
+          id: s.staff_id,
+          name: s.name,
+          type: 'staff' as const,
+          runtime: Array.isArray(s.runtime_instances) ? s.runtime_instances.join(', ') : s.runtime_instances,
+          status: s.status,
+        }));
+
+      // Fetch divisions
+      const divResponse = await apiClient.get<{ divisions: Division[] }>('/api/divisions');
+      const divisionAgents: AgentOption[] = (divResponse?.divisions || []).map(d => ({
+        id: d.division_id,
+        name: d.name,
+        type: 'division' as const,
+      }));
+
+      // Add founder if not current user
+      const allAgents: AgentOption[] = [];
+      if (currentUserId !== 'founder') {
+        allAgents.push({
+          id: 'founder',
+          name: 'Founder',
+          type: 'founder',
+        });
+      }
+
+      const combined = [...allAgents, ...staffAgents, ...divisionAgents];
+      setAgents(combined);
+      setFilteredAgents(combined);
+    } catch (err: any) {
+      const msg = err?.response?.data?.error || err.message || 'Failed to load agents';
+      setError(msg);
+      console.error('Failed to fetch agents:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, [currentUserId]);
 
   useEffect(() => {
     if (open) {
@@ -85,58 +110,6 @@ export function AgentSelectionDialog({
       searchRef.current?.focus();
     }
   }, [open, agents]);
-
-  useEffect(() => {
-    const fetchAgents = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-
-        // Fetch staff agents
-        const staffResponse = await apiClient.get<{ staff: StaffAgent[] }>('/api/staff');
-        const staffAgents: AgentOption[] = (staffResponse?.staff || [])
-          .filter(s => s.status === 'active' && s.staff_id !== currentUserId)
-          .map(s => ({
-            id: s.staff_id,
-            name: s.name,
-            type: 'staff' as const,
-            runtime: Array.isArray(s.runtime_instances) ? s.runtime_instances.join(', ') : s.runtime_instances,
-            status: s.status,
-          }));
-
-        // Fetch divisions
-        const divResponse = await apiClient.get<{ divisions: Division[] }>('/api/divisions');
-        const divisionAgents: AgentOption[] = (divResponse?.divisions || []).map(d => ({
-          id: d.division_id,
-          name: d.name,
-          type: 'division' as const,
-        }));
-
-        // Add founder if not current user
-        const allAgents: AgentOption[] = [];
-        if (currentUserId !== 'founder') {
-          allAgents.push({
-            id: 'founder',
-            name: 'Founder',
-            type: 'founder',
-          });
-        }
-
-        const combined = [...allAgents, ...staffAgents, ...divisionAgents];
-        setAgents(combined);
-        setFilteredAgents(combined);
-      } catch (err: any) {
-        const msg = err?.response?.data?.error || err.message || 'Failed to load agents';
-        setError(msg);
-        console.error('Failed to fetch agents:', err);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchAgentsRef.current = fetchAgents;
-    fetchAgents();
-  }, [currentUserId]);
 
   const handleSearch = (value: string) => {
     setSearchValue(value);
@@ -178,13 +151,15 @@ export function AgentSelectionDialog({
             value={searchValue}
             onChange={(e) => handleSearch(e.target.value)}
             inputRef={searchRef}
-            slotProps={{ input: { startAdornment: <SearchOutlined color="action" /> } }}
+            slotProps={{
+              input: { startAdornment: <InputAdornment position="start"><SearchOutlined color="action" sx={{ mr: 1 }} /></InputAdornment> }
+            }}
           />
         </Box>
         {error && (
           <Box sx={{ p: 2, color: 'error.main' }}>
             <Typography variant="body2">{error}</Typography>
-            <Button variant="outlined" size="small" onClick={() => fetchAgentsRef.current?.()}>
+            <Button variant="outlined" size="small" onClick={fetchAgents}>
               Retry
             </Button>
           </Box>
