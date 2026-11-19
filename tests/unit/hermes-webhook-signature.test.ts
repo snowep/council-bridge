@@ -96,6 +96,8 @@ describe('Hermes Webhook Signature Verification', () => {
   before(() => {
     app = createTestApp();
     originalEnv = process.env.HERMES_WEBHOOK_SECRET;
+    // Unset env var so test uses TEST_SECRET constant
+    delete process.env.HERMES_WEBHOOK_SECRET;
   });
 
   after(() => {

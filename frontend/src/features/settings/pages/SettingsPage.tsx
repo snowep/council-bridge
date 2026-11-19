@@ -119,6 +119,7 @@ export default function SettingsPage() {
                   setSnackbarSeverity('success');
                   setSnackbarOpen(true);
                 }}
+                aria-label="Dark Mode"
               />
             }
             label="Dark Mode"

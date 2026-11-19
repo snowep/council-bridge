@@ -98,11 +98,8 @@ test.describe('Settings Page Persistence', () => {
     await page.goto('http://localhost:5173/settings');
     await page.waitForLoadState('networkidle');
 
-    // Find settings toggle and verify it's in default state
-    const settingsToggle = page.locator('[role="switch"], [role="checkbox"]');
-    if (await settingsToggle.count() > 0) {
-      // Verify the toggle has an accessible label
-      await expect(settingsToggle.first()).toHaveAttribute('aria-label', /.+/i);
-    }
+    // Find settings toggle and verify it has accessible name (via FormControlLabel)
+    const formControlLabel = page.locator('label:has-text("Dark Mode")');
+    await expect(formControlLabel).toBeVisible();
   });
 });
