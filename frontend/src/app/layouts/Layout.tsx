@@ -130,7 +130,11 @@ export default function Layout() {
             Council Bridge
           </Typography>
           <Tooltip title={themeStore.mode === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}>
-            <IconButton onClick={handleThemeToggle} color="inherit">
+            <IconButton
+              onClick={handleThemeToggle}
+              color="inherit"
+              aria-label={themeStore.mode === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+            >
               {themeStore.mode === 'dark' ? <LightModeOutlined /> : <DarkModeOutlined />}
             </IconButton>
           </Tooltip>

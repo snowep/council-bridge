@@ -161,62 +161,120 @@ test.describe('E2E Functional Tests - User Journeys', () => {
     await page.goto(`${BASE_URL}/non-existent-route-${Date.now()}`);
     await page.waitForLoadState('networkidle');
 
-    // Check for 404 page elements
-    await expect(page.locator('role=heading')).toBeVisible({ timeout: 10000 });
-    await expect(page.locator('text=404')).toBeVisible({ timeout: 10000 });
+    // Check for 404 page heading - must be exact match for 404 - Page Not Found
+    await expect(page.locator('text="404 - Page Not Found"')).toBeVisible({ timeout: 10000 });
+
+    // Check for navigation buttons
+    await expect(page.locator('role=button[name="Go to Dashboard"]')).toBeVisible();
+    await expect(page.locator('role=button[name="Go Back"]')).toBeVisible();
 
     console.log('404 page verified successfully');
   });
 
-  test('8. No JavaScript errors or 500 errors on page load', async ({ page }) => {
+  test('8. No JavaScript errors or server errors on page load', async ({ page }) => {
     const errors: string[] = [];
     const failedRequests: string[] = [];
+    const unhandledRejections: string[] = [];
 
-    // Track console errors
+    // Track console errors comprehensively
     page.on('console', msg => {
       if (msg.type() === 'error') {
-        errors.push(msg.text());
+        const errorText = msg.text();
+        errors.push(errorText);
+        // Also track network errors, deprecation warnings, etc.
+        if (errorText.includes('Warning') || errorText.includes('Error')) {
+          console.log(`Console ${msg.type()}: ${errorText}`);
+        }
       }
     });
 
-    // Track failed responses
+    // Track unhandled promise rejections
+    page.on('pageerror', error => {
+      unhandledRejections.push(error.message);
+    });
+
+    // Track failed responses - only track unexpected 4xx, not expected ones
+    // Expected 4xx patterns: favicon, assets, manifest, robots.txt
+    const isExpected4xx = (status: number, url: string): boolean => {
+      // Expected 404s for common static assets that may not exist
+      const expectedPatterns = [
+        '/favicon.ico',
+        '/manifest.json',
+        '/robots.txt',
+        '/.well-known',
+        '/assets/',
+      ];
+      return status === 404 && expectedPatterns.some(p => url.includes(p));
+    };
+
     page.on('response', response => {
-      if (response.status() >= 400) {
-        failedRequests.push(`${response.status()} ${response.url()}`);
+      const status = response.status();
+      const url = response.url();
+      // Track 5xx and unexpected 4xx (not the expected 404s)
+      if (status >= 400 && !isExpected4xx(status, url)) {
+        failedRequests.push(`${status} ${url}`);
       }
     });
 
-    // Navigate to each major page
-    const pages = ['/', '/dashboard', '/chat', '/memory', '/tasks', '/approvals'];
+    // Navigate to all configured routes
+    const routes = ['/', '/dashboard', '/activity', '/chat', '/council', '/meetings', '/memory', '/organization', '/tasks', '/executions', '/deliverables', '/approvals'];
 
-    for (const pagePath of pages) {
-      await page.goto(`${BASE_URL}${pagePath}`);
+    for (const route of routes) {
+      await page.goto(`${BASE_URL}${route}`);
       await page.waitForLoadState('networkidle');
-      await page.waitForTimeout(1000); // Wait for any async operations
+      await page.waitForTimeout(500); // Wait for async operations
     }
 
-    // Filter for React-specific errors
-    const reactErrors = errors.filter(e =>
+    // Filter comprehensive console errors - all errors, not just a subset
+    const criticalErrors = errors.filter(e =>
       e.includes('Objects are not valid as React child') ||
       e.includes('map is not a function') ||
       e.includes('Cannot read properties of undefined') ||
-      e.includes('TypeError')
+      e.includes('TypeError') ||
+      e.includes('Uncaught') ||
+      e.includes('Failed to load') ||
+      e.includes('NetworkError')
     );
 
-    // Report results
-    if (reactErrors.length > 0) {
-      console.log('React errors found:', reactErrors);
+    // Report ALL console errors for visibility
+    if (errors.length > 0) {
+      console.log('All console errors:', errors);
     }
 
-    const serverErrors = failedRequests.filter(r => r.startsWith('5'));
-    const notFoundErrors = failedRequests.filter(r => r.startsWith('404'));
+    const warningErrors = errors.filter(e => e.includes('Warning'));
+
+    // Report results
+    if (criticalErrors.length > 0) {
+      console.log('Critical errors found:', criticalErrors);
+    }
+
+    if (unhandledRejections.length > 0) {
+      console.log('Unhandled rejections:', unhandledRejections);
+    }
+
+    const serverErrors = failedRequests.filter(r => {
+      const status = parseInt(r.split(' ')[0]);
+      return status >= 500;
+    });
+
+    const allClientErrors = failedRequests.filter(r => {
+      const status = parseInt(r.split(' ')[0]);
+      return status >= 400 && status < 500;
+    });
 
     console.log(`Console errors: ${errors.length}`);
+    console.log(`Unhandled rejections: ${unhandledRejections.length}`);
     console.log(`Server errors (5xx): ${serverErrors.length}`);
-    console.log(`Not found errors (404): ${notFoundErrors.length}`);
+    console.log(`Unexpected client errors (4xx): ${allClientErrors.length}`);
+    if (allClientErrors.length > 0) {
+      console.log('Unexpected 4xx errors:', allClientErrors);
+    }
 
-    // We expect no server errors, but some 404s are normal for missing assets
+    // We expect no server errors, unhandled rejections, or unexpected client errors
     expect(serverErrors.length).toBe(0);
+    expect(unhandledRejections.length).toBe(0);
+    expect(criticalErrors.length).toBe(0);
+    expect(allClientErrors.length).toBe(0);
   });
 
   test('9. AppBar navigation is persistent across pages', async ({ page }) => {

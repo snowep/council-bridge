@@ -2,19 +2,19 @@
 // Database Bootstrap Script - Requires Founder Signature for Production
 // Usage: npx tsx scripts/bootstrap-database.ts --database <path> --signature <sig> --timestamp <ts> --nonce <nonce>
 // In dev mode, just runs without signature validation
+//
+// SECURITY: Production seeding requires external founder signature via environment variables.
+// The signature is verified BEFORE any database access.
 
-import { createDatabase, getDatabaseInstance } from '../src/database.js';
+import { createDatabase } from '../src/database.js';
 import { initializeCouncil, createDefaultConstitution } from './seed/initialize-council.js';
 import {
-  signFounderRequest,
-  loadFounderKeyPair,
   verifyFounderRequest,
-  verifyFounderOperationBeforeBootstrap
+  loadFounderPublicKey,
+  setDatabaseInstance,
+  checkAndConsumeNonceFile
 } from '../src/auth/founder.js';
-import { setDatabaseInstance } from '../src/auth/founder.js';
-import { guardDatabaseAccess, validateSeedDatabasePath } from '../src/security/database-seeding-guard.js';
-import * as fs from 'fs';
-import * as path from 'path';
+import { validateSeedDatabasePath } from '../src/security/database-seeding-guard.js';
 
 interface BootstrapOptions {
   database: string;
@@ -47,8 +47,8 @@ function parseArgs(): BootstrapOptions {
 }
 
 async function bootstrapDatabase(opts: BootstrapOptions) {
-  console.log('🔧 Starting Database Bootstrap...');
-  console.log(`📁 Database path: ${opts.database === ':memory:' ? 'memory' : opts.database}`);
+  console.log('Starting Database Bootstrap...');
+  console.log(`Database path: ${opts.database === ':memory:' ? 'memory' : opts.database}`);
 
   // Determine environment
   const isProduction = process.env.NODE_ENV === 'production';
@@ -65,7 +65,7 @@ async function bootstrapDatabase(opts: BootstrapOptions) {
     });
     console.log(`   Path validated: ${canonicalPath}`);
   } catch (error: any) {
-    console.error('❌ Database path validation failed:', error.message);
+    console.error('Database path validation failed:', error.message);
     process.exit(1);
   }
 
@@ -75,47 +75,69 @@ async function bootstrapDatabase(opts: BootstrapOptions) {
   // Validate founder signature if provided (production mode)
   // Use file-based nonce store for replay protection BEFORE database initialization
   if (opts.signature && opts.timestamp && opts.nonce && opts.keyId) {
-    console.log('🔐 Validating founder signature (pre-bootstrap)...');
+    console.log('Validating founder signature (pre-bootstrap)...');
 
-    const now = Date.now();
-    const result = verifyFounderOperationBeforeBootstrap(
+    // SECURITY: Load public key only - never private key for verification
+    const publicKeyInfo = loadFounderPublicKey();
+    if (!publicKeyInfo) {
+      console.error('Founder public key not found');
+      process.exit(1);
+    }
+
+    // Verify key ID matches
+    if (opts.keyId !== publicKeyInfo.key_id) {
+      console.error('Key ID mismatch');
+      process.exit(1);
+    }
+
+    // SECURITY: Verify signature BEFORE any database operations
+    const signatureValid = verifyFounderRequest(
       'bootstrap_database',
       { database_path: opts.database },
-      opts.signature,
-      opts.timestamp,
-      opts.nonce,
+      opts.timestamp!,
+      opts.nonce!,
+      opts.signature!,
+      publicKeyInfo.public_key,
       opts.keyId
     );
 
-    if (!result.valid) {
-      console.error(`❌ Founder signature validation failed: ${result.error}`);
+    if (!signatureValid) {
+      console.error('Founder signature validation failed');
       process.exit(1);
     }
-    console.log('✅ Founder signature verified');
 
-    // Create database and persist nonce for continued replay protection
+    // SECURITY: Consume nonce for replay protection BEFORE database creation
+    // This ensures the nonce is reserved in the file-based store
+    const nonceConsumed = checkAndConsumeNonceFile(opts.keyId, 'bootstrap_database', opts.nonce!, Date.now());
+    if (!nonceConsumed) {
+      console.error('Nonce already consumed or invalid');
+      process.exit(1);
+    }
+
+    console.log('Founder signature verified and nonce reserved');
+
+    // Create database AFTER signature verification and nonce reservation
     db = createDatabase(opts.database);
     setDatabaseInstance(db);
-    db.stmt.insertFounderNonce.run(opts.keyId!, 'bootstrap_database', opts.nonce!, now);
-    console.log('   Nonce persisted to database');
+    console.log('Database created after authorization');
   } else if (isProduction) {
-    console.error('❌ PRODUCTION ERROR: Founder signature required for database seeding');
+    console.error('PRODUCTION ERROR: Founder signature required for database seeding');
     console.error('   Provide: --signature <sig> --timestamp <ms> --nonce <64bytes> --key-id <id>');
     process.exit(1);
   } else {
-    console.log('⚠️  Running in development mode (no founder signature required)');
+    console.log('Running in development mode (no founder signature required)');
 
-    // Create database - pass :memory: directly to createDatabase
+    // Create database in dev/test mode
     db = createDatabase(opts.database);
     setDatabaseInstance(db);
   }
 
-  console.log('🔐 Initializing council...');
+  console.log('Initializing council...');
   const council = initializeCouncil(db);
 
-  console.log('📜 Creating constitution...');
+  console.log('Creating constitution...');
   const version = createDefaultConstitution(db);
-  console.log(`   Constitution version: v${version}`);
+  console.log(`Constitution created: v${version}`);
 
   // Count results using database methods
   const seats = db.stmt.listSeats.all() as any[];
@@ -124,16 +146,16 @@ async function bootstrapDatabase(opts: BootstrapOptions) {
   const hermesPersonas = db.stmt.getRuntimePersonas?.all('hermes') as any[] || [];
   const totalRuntimePersonas = claudePersonas.length + hermesPersonas.length;
 
-  console.log('\n📊 Bootstrap Results:');
+  console.log('\nBootstrap Results:');
   console.log(`   Council Seats: ${seats.length}`);
   console.log(`   Personas: ${personas.length}`);
   console.log(`   Runtime Personas: ${totalRuntimePersonas} (Claude: ${claudePersonas.length}, Hermes: ${hermesPersonas.length})`);
 
   db.close();
-  console.log('\n✅ Database bootstrap complete!');
+  console.log('\nDatabase bootstrap complete!');
 }
 
 bootstrapDatabase(parseArgs()).catch(error => {
-  console.error('❌ Bootstrap failed:', error);
+  console.error('Bootstrap failed:', error);
   process.exit(1);
 });

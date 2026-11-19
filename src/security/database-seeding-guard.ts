@@ -52,8 +52,29 @@ export function checkEnvVarConflicts(): string | null {
 }
 
 /**
+ * Normalizes path for comparison, handling Windows-specific behavior.
+ * On Windows, paths are case-insensitive and use backslashes.
+ * On Unix, paths are case-sensitive and use forward slashes.
+ */
+function normalizePathForComparison(pathStr: string): string {
+  // Normalize separators
+  let normalized = pathStr.replace(/\\/g, '/');
+  // Windows case-insensitive comparison
+  if (process.platform === 'win32') {
+    normalized = normalized.toLowerCase();
+  }
+  return normalized;
+}
+
+/**
  * Resolves a database path to its canonical form, handling symlinks, relative paths,
  * and platform-specific behavior.
+ *
+ * Requirements from M3-004:
+ * - Canonicalize existing path components
+ * - Resolve symlinked ancestors
+ * - Correctly handle nonexistent nested target directories
+ * - Reject traversal
  */
 export function resolveCanonicalPath(dbPath: string, baseDir: string = process.cwd()): string {
   if (!dbPath || dbPath.trim() === '') {
@@ -78,14 +99,28 @@ export function resolveCanonicalPath(dbPath: string, baseDir: string = process.c
     if (existsSync(absolutePath)) {
       return realpathSync(absolutePath);
     }
-    // If file doesn't exist yet, resolve parent directory symlinks
+
+    // If file doesn't exist, resolve parent directory symlinks
+    // and append the remaining path segments
     const parentDir = dirname(absolutePath);
     if (existsSync(parentDir)) {
       const canonicalParent = realpathSync(parentDir);
-      return resolve(canonicalParent, absolutePath.slice(parentDir.length + 1));
+      const remainingPath = absolutePath.slice(parentDir.length + 1);
+      // Ensure the remaining path doesn't contain traversal
+      if (remainingPath.startsWith('..') || remainingPath.includes('/../')) {
+        throw new Error('Path traversal detected in target path');
+      }
+      return resolve(canonicalParent, remainingPath);
     }
+
+    // Parent doesn't exist either - return the resolved but unverified path
+    // This handles the case of creating a new database in a non-existent nested directory
     return absolutePath;
-  } catch {
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('traversal')) {
+      throw error;
+    }
+    // Return absolute path as fallback
     return absolutePath;
   }
 }
@@ -95,8 +130,8 @@ export function resolveCanonicalPath(dbPath: string, baseDir: string = process.c
  * Used for classifying paths like /project/test-dbs/db.db or test-dbs/db.db
  */
 function hasPathSegment(pathStr: string, segment: string): boolean {
-  const normPath = pathStr.replace(/\\/g, '/');
-  const normSegment = segment.replace(/\\/g, '/');
+  const normPath = normalizePathForComparison(pathStr);
+  const normSegment = normalizePathForComparison(segment);
 
   // Check if the segment appears in the path as a directory
   const segments = normPath.split('/');
@@ -201,9 +236,9 @@ export function validateSeedDatabasePath(
   // In production: check against explicitly authorized production paths
   // Requirement 9: Exact path or explicitly authorized descendants only, no parent-directory authorization
   if (environment === 'production') {
-    const normalizedCanonical = canonicalPath.replace(/\\/g, '/').toLowerCase();
+    const normalizedCanonical = normalizePathForComparison(canonicalPath);
     const isProdPathAuthorized = allowedProdPaths.some(allowedPath => {
-      const normalizedAllowed = allowedPath.replace(/\\/g, '/').toLowerCase();
+      const normalizedAllowed = normalizePathForComparison(allowedPath);
       // Exact match or descendant (canonical must start with allowed + /)
       // No parent-directory authorization: do NOT check if allowed starts with canonical
       return normalizedCanonical === normalizedAllowed ||
@@ -291,7 +326,7 @@ export function validateDatabaseTarget(
     } else if (environment === 'test') {
       targetType = 'test';
     } else {
-      const normPath = canonicalPath.replace(/\\/g, '/');
+      const normPath = normalizePathForComparison(canonicalPath);
       for (const devPath of (options.allowedDevPaths ?? [])) {
         if (hasPathSegment(normPath, devPath)) {
           targetType = 'development';

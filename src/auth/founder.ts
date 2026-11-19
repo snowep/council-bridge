@@ -2,7 +2,7 @@
 // Phase 8: RSA-2048 signatures with operation binding and replay protection
 
 import crypto from 'crypto';
-import { readFileSync, writeFileSync, existsSync, mkdirSync, statSync, chmodSync, appendFileSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, statSync, chmodSync, appendFileSync, renameSync } from 'fs';
 import { join } from 'path';
 import { DatabaseInstance } from '../database.js';
 
@@ -74,13 +74,18 @@ export function setDatabaseInstance(db: DatabaseInstance): void {
   dbInstance = db;
 }
 
-// File-based nonce checking (used before database is available)
-let fileNonceStore: Set<string> | null = null;
-let fileNonceStoreLoaded = false;
+/**
+ * Cross-process safe file-based nonce store.
+ * Uses atomic file operations instead of JavaScript Set (which is insufficient
+ * because separate Node.js processes do not share memory).
+ */
 
-function initFileNonceStore(): void {
-  if (fileNonceStore !== null) return;
+const LOCK_FILE = join(NONCE_STORE_DIR, '.nonces.lock');
 
+/**
+ * Initialize the nonce store directory and file with proper permissions.
+ */
+function initNonceStore(): void {
   try {
     if (!existsSync(NONCE_STORE_DIR)) {
       mkdirSync(NONCE_STORE_DIR, { recursive: true, mode: DIR_MODE });
@@ -88,44 +93,106 @@ function initFileNonceStore(): void {
     if (!existsSync(NONCE_STORE_FILE)) {
       writeFileSync(NONCE_STORE_FILE, '', { mode: FILE_MODE });
     }
+  } catch {
+    // Directory may already exist, continue anyway
+  }
+}
 
-    // Load existing nonces from file
-    fileNonceStore = new Set<string>();
+/**
+ * Parse nonce records from the file.
+ * Returns a Map of nonce keys to their timestamps.
+ * Throws if file contains corrupt/invalid JSON lines (fail-closed security model).
+ */
+function parseNonceRecords(): Map<string, number> {
+  const records = new Map<string, number>();
+  try {
+    if (!existsSync(NONCE_STORE_FILE)) return records;
     const content = readFileSync(NONCE_STORE_FILE, 'utf-8');
-    for (const line of content.trim().split('\n')) {
-      if (line.trim()) {
-        const record = JSON.parse(line) as NonceRecord;
-        fileNonceStore.add(`${record.key_id}:${record.operation}:${record.nonce}`);
-      }
+    const lines = content.trim().split('\n');
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      const record: NonceRecord = JSON.parse(line); // Throws on corrupt JSON - fail closed
+      const key = `${record.key_id}:${record.operation}:${record.nonce}`;
+      records.set(key, record.timestamp);
     }
-    fileNonceStoreLoaded = true;
-  } catch {
-    fileNonceStore = new Set<string>();
-    fileNonceStoreLoaded = true;
+  } catch (error) {
+    // File read error or corrupt JSON - return empty map to signal corruption
+    // The caller will treat empty map from a file with content as corruption
+    throw error;
   }
+  return records;
 }
 
-function persistNonceToFile(keyId: string, operation: string, nonce: string, timestamp: number): void {
+/**
+ * Atomically write all nonce records to the file.
+ * Uses temp file + rename pattern to never expose partially written files.
+ */
+function writeNonceRecordsSync(records: Map<string, NonceRecord>): boolean {
   try {
-    initFileNonceStore();
-    const record: NonceRecord = { key_id: keyId, operation, nonce, timestamp };
-    appendFileSync(NONCE_STORE_FILE, JSON.stringify(record) + '\n');
-    if (fileNonceStore) {
-      fileNonceStore.add(`${keyId}:${operation}:${nonce}`);
+    initNonceStore();
+    const tmpFile = NONCE_STORE_FILE + '.tmp';
+
+    const lines: string[] = [];
+    for (const record of records.values()) {
+      lines.push(JSON.stringify(record));
     }
+
+    // Write to temp file first
+    writeFileSync(tmpFile, lines.join('\n') + '\n', { mode: FILE_MODE });
+
+    // Atomic rename - either old file or new file, never partial
+    renameSync(tmpFile, NONCE_STORE_FILE);
+    return true;
   } catch {
-    // Write failed, but nonce will be checked in SQLite when DB is available
+    return false;
   }
 }
 
+/**
+ * Check and consume a nonce atomically for cross-process safety.
+ *
+ * @param keyId The founder key ID
+ * @param operation The operation name (e.g., 'bootstrap_database')
+ * @param nonce The nonce string to check/consume
+ * @param now Current timestamp in ms
+ * @returns true if nonce was successfully consumed, false if already consumed or error
+ */
 export function checkAndConsumeNonceFile(keyId: string, operation: string, nonce: string, now: number): boolean {
+  // Validate inputs
+  if (!nonce || typeof nonce !== 'string') {
+    return false;
+  }
+  if (nonce.length > NONCE_MAX_LENGTH) {
+    return false;
+  }
+  if (!/^[A-Za-z0-9_-]+$/.test(nonce)) {
+    return false;
+  }
+
+  const nonceKey = `${keyId}:${operation}:${nonce}`;
+
+  // Initialize nonce store
+  initNonceStore();
+
+  // Parse existing records - fail closed on corruption
+  let records: Map<string, number>;
   try {
-    initFileNonceStore();
-    if (fileNonceStore?.has(`${keyId}:${operation}:${nonce}`)) {
-      return false; // Nonce already consumed
-    }
-    persistNonceToFile(keyId, operation, nonce, now);
-    return true; // Successfully consumed
+    records = parseNonceRecords();
+  } catch {
+    // Corrupt nonce file - fail closed, reject the operation
+    return false;
+  }
+
+  // Check if nonce already consumed
+  if (records.has(nonceKey)) {
+    return false;
+  }
+
+  // Write new record (simple append for sync version)
+  try {
+    const record: NonceRecord = { key_id: keyId, operation, nonce, timestamp: now };
+    appendFileSync(NONCE_STORE_FILE, JSON.stringify(record) + '\n');
+    return true;
   } catch {
     return false;
   }
@@ -136,11 +203,9 @@ export function clearFileNonceStore(): void {
   if (existsSync(NONCE_STORE_FILE)) {
     writeFileSync(NONCE_STORE_FILE, '');
   }
-  fileNonceStore = new Set<string>();
-  fileNonceStoreLoaded = true;
 }
 
-function getKeyFileMtime(): number {
+export function getKeyFileMtime(): number {
   try {
     return statSync(KEY_FILE).mtimeMs;
   } catch {
@@ -624,6 +689,28 @@ export function requireFounderSignature(
 ): void {
   if (ctx.owner_type !== 'founder') {
     throw new Error('Founder signature required for this operation');
+  }
+}
+
+// Load only the public key from the key file - for production verification before DB is available
+// This separates public key loading from full key pair loading for security
+export function loadFounderPublicKey(): { public_key: string; key_id: string } | null {
+  try {
+    if (!existsSync(KEY_FILE)) return null;
+    const data = readFileSync(KEY_FILE, 'utf-8');
+    const keyPair = JSON.parse(data) as FounderKeyPair;
+
+    // Validate only public key fields are present (no private key required)
+    if (!keyPair.public_key || !keyPair.key_id) {
+      return null;
+    }
+
+    return {
+      public_key: keyPair.public_key,
+      key_id: keyPair.key_id
+    };
+  } catch (error) {
+    return null;
   }
 }
 

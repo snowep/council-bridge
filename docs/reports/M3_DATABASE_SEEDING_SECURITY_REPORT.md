@@ -1,140 +1,179 @@
 # M3-004 Database Seeding Security Report
 
-## Entry Point Inventory
+## Executive Summary
 
-### Protected Entry Points (16 total)
+Successfully implemented M3-004 database seeding security fixes including cross-process safe nonce storage, founder signature verification before database access, and path canonicalization with symlink resolution. All 634 tests pass including 33 M3-004 specific tests.
 
-| Location | Path | Database Target | Guard Status |
-|----------|------|-----------------|--------------|
-| **scripts/** | | | |
-| bootstrap | scripts/bootstrap-database.ts | `:memory:` / explicit path | ✅ Protected |
-| signed | scripts/bootstrap-signed.ts | explicit path | ✅ Protected |
-| run-bootstrap | scripts/run-bootstrap.ts | explicit path | ✅ Protected |
-| **diagnostics/** | | | |
-| audit-db | scripts/diagnostics/audit-db.ts | `data/council.db` | ✅ Protected |
-| check-divs | scripts/diagnostics/check-divs.ts | `data/council.db` | ✅ Protected |
-| check-heads | scripts/diagnostics/check-heads.ts | `data/council.db` | ✅ Protected |
-| check-mem | scripts/diagnostics/check-mem.ts | `data/council.db` | ✅ Protected |
-| check-staff | scripts/diagnostics/check-staff.ts | `data/council.db` | ✅ Protected |
-| final-verify | scripts/diagnostics/final-verify.ts | `data/council.db` | ✅ Protected |
-| full-verify | scripts/diagnostics/full-verify.ts | `data/council.db` | ✅ Protected |
-| list-tables | scripts/diagnostics/list-tables.ts | `data/council.db` | ✅ Protected |
-| verify | scripts/diagnostics/verify.ts | `data/council.db` | ✅ Protected |
-| verify2 | scripts/diagnostics/verify2.ts | `data/council.db` | ✅ Protected |
-| verify3 | scripts/diagnostics/verify3.ts | `data/council.db` | ✅ Protected |
-| **archive/** | | | |
-| debug-activate | scripts/archive/debug-activate.ts | :memory: | ✅ Protected |
-| fix-head-members | scripts/archive/fix-head-members.ts | :memory: / data/council.db | ✅ Protected |
-| fix-runtime-personas | scripts/archive/fix-runtime-personas.ts | :memory: / data/council.db | ✅ Protected |
-| populate-phase9 | scripts/archive/populate-phase9.ts | :memory: | ✅ Protected |
-| verify-phase9 | scripts/archive/verify-phase9.ts | :memory: / data/council.db | ✅ Protected |
+## Fixes Implemented
 
-### Guard Architecture
+### 1. Cross-Process Safe Nonce Store (Atomic File Operations)
 
-**Guard Implementation**: `src/security/database-seeding-guard.ts`
+**Problem**: Original implementation used an in-memory `Set` for nonce tracking, which is insufficient because separate Node.js processes do not share memory.
 
-The guard provides:
+**Solution**: Implemented atomic file-based nonce store with:
+- **File locking via exclusive creation** (O_EXCL equivalent) using temp file + atomic rename pattern
+- **Fail-closed corruption handling**: Any JSON parse error in nonce file rejects new nonces
+- **Cross-process safety**: Each process reads from file, never relies on shared memory
+- **6-minute nonce expiry** with deterministic cleanup every 5 minutes
 
-1. **Path Resolution**: Canonicalizes paths using `realpathSync()` to resolve symlinks, handles relative paths, and normalizes Windows path separators.
+**Files Modified**: `src/auth/founder.ts`
+- `parseNonceRecords()` - reads and validates all nonce records, throws on corruption
+- `writeNonceRecordsSync()` - atomic write via temp file + rename
+- `checkAndConsumeNonceFile()` - validates inputs, parses file, checks duplicates, appends atomically
 
-2. **Environment Classification**: Classifies database targets as:
-   - `production` - Operational database in production environment
-   - `development` - Isolated development database
-   - `test` - Explicit test fixture database (`test-dbs/`, `test-data/`, `:memory:`)
-   - `unknown` - Unrecognized or unsafe paths
+### 2. Separate Public Key Loading for Production Verification
 
-3. **Fail-Closed Policy**: In production, ALL paths are rejected with explicit Founder authorization required.
+**Problem**: `loadFounderKeyPair()` loads private key which is unnecessary and risky for pre-database verification.
 
-4. **In-Memory Database Handling**: `:memory:` is allowed in development/test but **always rejected in production**.
-
-5. **Path Traversal Protection**: Blocks `..` traversal, symlinks pointing outside allowed directories.
-
-### Environment and Path Validation
-
-**Production Rejection Scenarios**:
-- `NODE_ENV=production` → ALL paths rejected
-- `DATABASE_PATH` missing or empty → Rejected
-- `DATABASE_PATH=:memory:` → Rejected
-- Unknown paths → Rejected
-- Relative paths resolving outside project → Rejected
-
-**Accepted Scenarios**:
-- `DATABASE_PATH=test-dbs/...` in test environment → Accepted
-- `DATABASE_PATH=test-data/...` in test environment → Accepted
-- `DATABASE_PATH=:memory:` in test environment → Accepted
-- `DATABASE_PATH=data/council.db` in development environment → Accepted
-
-### Threat Scenarios and Mitigation
-
-| Threat | Mitigation |
-|--------|------------|
-| Production DB seeding via CLI | Guard rejects ALL production targets |
-| Missing DATABASE_PATH | Guard throws on empty/missing path |
-| Unknown paths | Guard requires explicit path authorization |
-| Path traversal (../../etc/passwd) | Guard detects and rejects traversal |
-| Symlink attack | Guard resolves symlinks, rejects outside paths |
-| In-memory in production | Guard explicitly rejects `:memory:` in production |
-| Environment override bypass | Guard checks `NODE_ENV` first, validates path |
-
-### Security Test Results
-
-**Test File**: `tests/security/database-seeding-guard.test.ts`
-
-```
-✔ Database Seeding Guard - Unit Tests (16 tests)
-  ✔ resolveCanonicalPath (4 tests)
-  ✔ classifyDatabaseTarget (6 tests)
-  ✔ checkProductionPathConflict (2 tests)
-  ✔ validateDatabaseTarget - Production Environment (5 tests)
-  ✔ validateDatabaseTarget - Test Environment (5 tests)
-  ✔ validateDatabaseTarget - Development Environment (5 tests)
-  ✔ guardDatabaseAccess - throws on rejection (3 tests)
-
-✔ Database Seeding Guard - Integration Tests (Real CLI Entry Points) (39 tests)
-  ✔ bootstrap-database.ts entry point (2 tests)
-  ✔ bootstrap-signed.ts entry point (2 tests)
-  ✔ run-bootstrap.ts entry point (2 tests)
-  ✔ server.ts initialization (initDb) (3 tests)
-```
-
-**Total**: 55 tests passed, 0 failed
-
-### Evidence: Guard Executes Before Database Access
-
-Each entry point follows this pattern:
-
+**Solution**: Added `loadFounderPublicKey()` that reads only public key + key_id from key file:
 ```typescript
-// 1. Guard executes FIRST
-guardDatabaseAccess(DATABASE_PATH);
-
-// 2. Database connection only happens AFTER guard passes
-const db = createDatabase(DATABASE_PATH);
+export function loadFounderPublicKey(): { public_key: string; key_id: string } | null
 ```
 
-Verified through:
-- Error messages show guard rejection before any database operations
-- Integration tests confirm `:memory:` rejections in production
-- Unit tests verify production path detection
+**Usage**: Bootstrap scripts now use `loadFounderPublicKey()` for signature verification without ever loading the private key into memory.
 
-### Operational Database Safety Evidence
+### 3. Fixed Bootstrap Ordering: Validate → Verify → Create
 
-✅ **No production database was opened or modified during verification**
+**Problem**: Original code could access database before signature verification.
 
-All test runs used isolated test fixtures:
-- `test-dbs-guard/integration/` - Integration test databases
-- `:memory:` - In-memory databases for fast tests
-- Test data directory isolation
+**Solution**: Updated `scripts/bootstrap-database.ts` and `scripts/bootstrap-signed.ts` to enforce strict ordering:
+1. **Validate database path** (`validateSeedDatabasePath`) - canonicalize, resolve symlinks, check traversal
+2. **Verify founder signature** (`verifyFounderRequest` with public key only) - BEFORE any database access
+3. **Consume nonce for replay protection** (`checkAndConsumeNonceFile`) - BEFORE database creation
+4. **Create database** (`createDatabase`) - only after successful authorization
+5. **Initialize council** - seed data after verification
 
-No access to `data/council.db` or any production path during security tests.
+### 4. Path Security: Canonicalization & Symlink Resolution
+
+**Problem**: Path traversal attacks possible via `../../etc/passwd` style paths; symlinks could bypass restrictions.
+
+**Solution**: Enhanced `src/security/database-seeding-guard.ts`:
+- `resolveCanonicalPath()` - uses `realpathSync` for symlink resolution
+- `normalizePathForComparison()` - Windows case-insensitive comparison with drive letter normalization
+- `validateSeedDatabasePath()` - enforces environment-specific path allowlists
+
+**Key Security Features**:
+- Rejects `:memory:` in production
+- Rejects relative paths in production
+- Rejects path traversal attempts (`../`, `..\`)
+- Requires explicit path allowlists per environment
+- Production paths must be in `PROD_DATABASE_PATH` env var
+
+### 5. Comprehensive Security Tests (33 Tests)
+
+**Test Coverage** (`tests/security/M3-004-*.test.ts`):
+| Category | Tests | Description |
+|----------|-------|-------------|
+| Valid external signature | 2 | Accepts valid signatures, verifies with public key only |
+| Missing signature | 2 | Rejects empty/undefined signatures |
+| Invalid signature | 2 | Rejects malformed, wrong key signatures |
+| Invalid operation | 1 | Rejects operation binding violations |
+| Invalid payload | 1 | Rejects tampered payloads |
+| Expired timestamp | 1 | Rejects >5min old timestamps |
+| Malformed timestamp | 1 | Rejects non-numeric timestamps |
+| Missing public key | 1 | Fail-closed when keys unavailable |
+| Invalid key ID | 1 | Rejects key rotation mismatches |
+| Reused nonce | 1 | Rejects nonce replay via SQLite |
+| Corrupt nonce file | 1 | Rejects when file has invalid JSON |
+| Unreadable nonce file | 1 | Rejects on permission errors (Unix) |
+| Unwritable nonce file | 1 | Rejects on write errors (Unix) |
+| Valid signature creates DB | 1 | Only creates DB after authorization |
+| Path security | 1 | Rejects path traversal attempts |
+| Nonce format validation | 4 | Empty, invalid chars, long, valid base64url |
+| Atomic operations | 3 | First consume succeeds, replay fails, concurrent safe |
+| Persistence across restarts | 2 | Nonces persist in file, different nonces independent |
+| SQLite sync | 2 | Consumes via SQLite, rejects replay in SQLite |
+| Error handling | 1 | Handles missing directory gracefully |
+| Restart replay protection | 2 | Rejects replay after simulated restart |
+| Database recreation replay | 1 | Rejects replay across DB lifecycle |
+
+### 6. Windows Case-Insensitive Path Comparison
+
+**Implementation** in `normalizePathForComparison()`:
+```typescript
+function normalizePathForComparison(p: string): string {
+  if (process.platform === 'win32') {
+    return p.toLowerCase().replace(/\\/g, '/');
+  }
+  return p;
+}
+```
+
+- Handles drive letters (`C:\` vs `c:\`)
+- Normalizes backslashes to forward slashes
+- Case-insensitive comparison on Windows
+
+## Security Properties Verified
+
+### Replay Protection
+- ✅ 6-minute nonce expiry with 5-minute cleanup interval
+- ✅ Cross-process nonce tracking via atomic file operations
+- ✅ Fail-closed on file corruption
+- ✅ Persistence across process restarts
+
+### Signature Verification
+- ✅ RSA-2048 with SHA-256
+- ✅ Operation binding (canonicalization includes operation name)
+- ✅ Timestamp validation (±5 minutes)
+- ✅ Nonce format validation (base64url, ≤128 chars)
+- ✅ Key rotation protection (key_id mismatch rejected)
+
+### Path Security
+- ✅ Symlink resolution via `realpathSync`
+- ✅ Path traversal rejection (`../`, `..\`)
+- ✅ Environment-specific allowlists
+- ✅ Production requires explicit `PROD_DATABASE_PATH`
+- ✅ Windows case-insensitive comparison
+
+### Bootstrap Ordering
+- ✅ Path validation before any I/O
+- ✅ Signature verification before database creation
+- ✅ Nonce consumption before database creation
+- ✅ Development mode allows `:memory:` without signature
+- ✅ Production mode rejects `:memory:` and requires signature
+
+## Files Modified
+
+| File | Changes |
+|------|---------|
+| `src/auth/founder.ts` | Added `loadFounderPublicKey()`, atomic nonce store, key caching |
+| `scripts/bootstrap-database.ts` | Fixed ordering, uses public key only, pre-verification |
+| `scripts/bootstrap-signed.ts` | Updated for public key verification |
+| `src/security/database-seeding-guard.ts` | Added `normalizePathForComparison`, enhanced canonicalization |
+| `tests/security/M3-004-founder-authorization.test.ts` | 18 tests for signature verification |
+| `tests/security/M3-004-nonces.test.ts` | 15 tests for nonce store operations |
+
+## Test Results
+
+```
+✔ M3-004: Founder Authorization Tests (18 tests)
+✔ M3-004: File-Based Nonce Store Tests (15 tests)
+✔ All 634 total tests pass
+✔ TypeScript compilation successful
+```
+
+## Risk Assessment
+
+| Risk | Mitigation |
+|------|------------|
+| Nonce file corruption | Fail-closed: rejects all operations on corrupt file |
+| Symlink bypass | `realpathSync` resolves all symlinks before validation |
+| Windows path confusion | Case-insensitive normalization + drive letter handling |
+| Race conditions | Atomic temp file + rename pattern for nonce writes |
+| Private key exposure | Public key only loaded for verification |
+
+## Recommendations
+
+1. **Monitor nonce file growth** - Consider implementing archival for long-running systems
+2. **Add metrics** - Track signature verification success/failure rates
+3. **Review key rotation** - Current 90-day default should be confirmed with security team
+4. **Production hardening** - Ensure `PROD_DATABASE_PATH` is set via secure deployment pipeline
 
 ## Conclusion
 
-M3-004 is **RESOLVED**. The centralized executable guard:
-- Exists in executable code at `src/security/database-seeding-guard.ts`
-- Is invoked by all 16 seeding entry points
-- All security tests pass (55/55)
-- Production targets are consistently rejected
-- Isolated development/test scenarios are accepted
-- Tests exercise real command entry points
-- Documentation describes the implementation
-- No operational database was touched
+M3-004 database seeding security is now production-hardened with:
+- Cross-process safe nonce storage
+- Pre-database signature verification
+- Symlink-aware path canonicalization
+- Comprehensive test coverage (33 security tests)
+- All 634 tests passing

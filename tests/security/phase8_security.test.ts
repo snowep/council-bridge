@@ -4,6 +4,8 @@
 import { describe, it, before, after, beforeEach, mock } from 'node:test';
 import assert from 'node:assert';
 import { createDatabase, DatabaseInstance } from '../../src/database.js';
+import { rmSync, existsSync } from 'fs';
+import { KEY_FILE } from '../../src/auth/founder.js';
 import {
   generateSessionToken,
   validateSessionToken,
@@ -18,6 +20,7 @@ import {
 import {
   generateFounderKeyPair,
   loadFounderKeyPair,
+  loadFounderPublicKey,
   initializeFounderKeys,
   signFounderRequest,
   verifyFounderRequest,
@@ -27,7 +30,8 @@ import {
   getFounderKeyId,
   rotateFounderKeys,
   isKeyRotationNeeded,
-  canonicalizeForSigning
+  canonicalizeForSigning,
+  clearFounderKeyCache
 } from '../../src/auth/founder.js';
 import { requirePermission, requireFounder, requireDivisionHead, validateSessionOwnership, getAuthConfig, isProductionMode, isDevelopmentMode, validateAuthMode, AuthContext } from '../../src/auth/index.js';
 import crypto from 'crypto';
@@ -211,6 +215,18 @@ describe('Phase 8: Founder Signature Security', () => {
 
   before(() => {
     keyPair = generateFounderKeyPair();
+  });
+
+  after(() => {
+    // Clean up key file after tests complete
+    try {
+      if (existsSync(KEY_FILE)) {
+        rmSync(KEY_FILE, { force: true });
+      }
+    } catch {
+      // Cleanup best effort
+    }
+    clearFounderKeyCache();
   });
 
   it('should generate founder key pair with key_id', () => {
@@ -400,6 +416,7 @@ describe('Phase 8: Founder Signature Security', () => {
   });
 
   it('should rotate founder keys', () => {
+    // Save current key ID for this test
     const oldKeyId = keyPair.key_id;
     const newKeyPair = rotateFounderKeys();
 
@@ -411,6 +428,9 @@ describe('Phase 8: Founder Signature Security', () => {
     // New keys should be loaded
     const loaded = loadFounderKeyPair();
     assert.strictEqual(loaded?.key_id, newKeyPair.key_id);
+
+    // Update keyPair to the new keys for subsequent tests
+    keyPair = newKeyPair;
   });
 
   it('should verify operation-bound signature via middleware', () => {

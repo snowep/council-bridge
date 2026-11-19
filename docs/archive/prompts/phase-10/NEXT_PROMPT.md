@@ -1,865 +1,1037 @@
-# Claude Code — Council Bridge M3 Remaining Remediation & Final Verification
+# COUNCIL BRIDGE — COMPLETE M3 FINAL REMEDIATION
+## M3-004 + M3-007 + M3-008 + M3-009
+### Implementation, Security Hardening, Testing, Documentation and Final Acceptance Preparation
 
 **Repository:** `C:\Projects\council-bridge`  
-**GitHub:** `https://github.com/snowep/council-bridge`  
+**GitHub:** `snowep/council-bridge`  
 **Branch:** `refactor/repository-structure`  
-**Expected starting commit:** `ad96464f0f13303d1695777f99d5e7e7f1f3d81f`  
-**Scope:** Remaining M3 findings only  
-**Objective:** Correct the outstanding database-seeding security defects, complete reliable test verification, resolve accessibility violations, verify all responsive page/viewport combinations, and produce an accurate final M3 audit report.
+**Starting reference commit:** `1dc512de3f6c7a02a23e69b49e353f012d572098`  
+**Scope:** M3 remediation only.  
+**Goal:** Complete all remaining M3 requirements so the Founder can perform the final M3 acceptance and authorize M4.
 
 ---
 
-# 1. Execution mandate
+# 0. YOUR MISSION
 
-Execute the remaining remediation and verification. Do not return another plan instead of implementing the work.
+You are implementing the remaining M3 corrections in Council Bridge.
 
-The previous audit of `ad96464` identified unresolved issues in:
+Do not produce another theoretical roadmap.
 
-- M3-004 — Database-seeding security.
-- M3-007 — Test reliability and incomplete full-suite verification.
-- M3-009 — Responsive and accessibility verification.
-- M3-008 — Documentation and commit/evidence reconciliation.
+Inspect the actual repository, identify the current code, edit the necessary files, implement the fixes, run the tests, fix failures, and produce accurate verification reports.
 
-Perform a regression check of M3-001 through M3-006 as well.
+The four work areas are:
 
-The audit findings are evidence to investigate, not permission to blindly modify code. Verify each issue against the current HEAD first.
+1. M3-004: Database seeding security and Founder authorization.
+2. M3-007: Test reliability and regression verification.
+3. M3-008: Final documentation and evidence reconciliation.
+4. M3-009: Responsive design and accessibility verification.
 
-## Initial inspection — mandatory
+**The objective is a working, verified M3 implementation—not merely documentation claiming completion.**
 
-Before making changes:
-
-1. Run `git status --short --branch`.
-2. Record the current HEAD SHA.
-3. Confirm `ad96464f0f13303d1695777f99d5e7e7f1f3d81f` is an ancestor of HEAD.
-4. Inspect staged, unstaged, and untracked changes.
-5. Preserve every existing user modification.
-6. Inspect the complete relevant source, reports, scripts, tests, package scripts, and CI workflows.
-7. Reconcile the previous audit observations against current source.
-8. Record the baseline state and any existing failures.
-
-If the expected commit is not an ancestor of HEAD, stop and report the discrepancy. Do not reset or rewrite history.
-
-Do not delete, clean, stash, overwrite, or revert user work.
+Do not begin M4.
 
 ---
 
-# 2. M3-004 — Fix database-seeding security
+# 1. MANDATORY INITIAL INSPECTION
 
-## 2.1 Centralized guard
+Before modifying anything:
+
+1. Open the repository.
+2. Run `git status --short`.
+3. Run `git branch --show-current`.
+4. Run `git log -5 --oneline --decorate`.
+5. Record the actual HEAD commit.
+6. Compare the current HEAD with `1dc512de3f6c7a02a23e69b49e353f012d572098`.
+7. Inspect all uncommitted modifications.
+8. Identify files modified by the Founder or other developers.
+9. Preserve all existing user changes.
+10. Never reset, discard, overwrite or clean unrelated changes.
+
+If the current branch or commit differs from the reference commit, do not switch branches or reset history. Work from the actual current HEAD and explain the difference in the final report.
+
+Create an initial inventory of:
+
+- Founder authentication implementation.
+- Nonce storage implementation.
+- Database seeding guard.
+- Every bootstrap entry point.
+- Existing security tests.
+- Backend test configuration.
+- Frontend test configuration.
+- Playwright configuration.
+- Existing accessibility tests.
+- Existing M3 reports.
+
+Do not assume paths in previous audit reports are correct. Find the actual files.
+
+---
+
+# 2. M3-004 — DATABASE SEEDING SECURITY
+
+## 2.1 Fix the two-stage Founder authorization architecture
+
+Relevant files to inspect:
+
+- `src/auth/founder.ts`
+- `src/security/database-seeding-guard.ts`
+- `scripts/bootstrap-signed.ts`
+- `scripts/run-bootstrap.ts`
+- `scripts/bootstrap-database.ts`
+- Every other script that invokes Founder authorization or seeds the database.
+
+First locate these functions:
+
+- `verifyFounderOperation()`
+- `verifyFounderOperationBeforeBootstrap()`
+- `checkAndConsumeNonce()`
+- File-based nonce storage functions.
+- SQLite nonce persistence functions.
+- `loadFounderKeyPair()`
+- `setDatabaseInstance()`
+
+Do not create duplicate authorization implementations.
+
+Maintain a single authoritative Founder signature verification implementation.
+
+### Required authorization sequence
+
+Production bootstrap must follow this exact sequence:
+
+1. Read the requested database path.
+2. Validate the database path.
+3. Load the Founder public verification key.
+4. Validate required signature environment variables.
+5. Validate the operation identifier.
+6. Validate the signed payload.
+7. Validate the timestamp.
+8. Verify the cryptographic signature.
+9. Atomically reserve and persist the nonce in the pre-bootstrap nonce store.
+10. Only after all preceding steps succeed, create/open the target database.
+11. Initialize the SQLite database instance.
+12. Persist or reconcile nonce state into SQLite if required by the existing architecture.
+13. Execute the authorized bootstrap operation.
+14. Record the operation result.
+
+Never open the target database before successful authorization.
+
+Never generate a Founder signature inside a bootstrap script.
+
+Never load the Founder's private key just to verify a signature.
+
+Use the public verification key for verification.
+
+Preserve the existing signature format and canonical payload contract unless an interoperability defect is demonstrated.
+
+## 2.2 Harden the file-based nonce store
+
+Find the existing file-based nonce store in `src/auth/founder.ts`.
+
+Modify that implementation rather than introducing a second competing store.
+
+The nonce store must satisfy all requirements below.
+
+### A. Missing nonce file
+
+When the nonce file does not exist:
+
+- Initialize a valid empty nonce store.
+- Create its parent directory if necessary.
+- Use restrictive file permissions.
+- Ensure the directory and file are not writable by unrelated users where the platform supports permission controls.
+
+### B. Corrupt nonce file
+
+When the file exists but contains invalid JSON or invalid structure:
+
+- Reject authorization.
+- Do not treat the store as empty.
+- Do not automatically delete the file.
+- Do not overwrite the file.
+- Produce an explicit security error.
+- Require an explicit recovery procedure.
+
+### C. File read errors
+
+If the file cannot be read:
+
+- Reject authorization.
+- Do not continue without replay protection.
+- Report the underlying filesystem error without exposing secrets.
+
+### D. File write errors
+
+If nonce persistence fails:
+
+- Reject authorization.
+- Do not continue to database creation.
+- Do not return successful authorization.
+- Do not silently ignore the error.
+
+### E. Atomic persistence
+
+Implement safe atomic writes:
+
+1. Write the new state to a temporary file in the same directory.
+2. Flush the temporary file where supported.
+3. Close the file.
+4. Atomically rename it over the target file.
+5. Verify the resulting state where practical.
+
+Never expose a partially written nonce file.
+
+### F. Cross-process concurrency
+
+A JavaScript `Set` is insufficient because separate Node.js processes do not share memory.
+
+Implement an atomic cross-process reservation mechanism.
+
+Use one of:
+
+- A reliable filesystem lock with exclusive creation and stale-lock recovery; or
+- A transactional durable store that is independent of the target database.
+
+The mechanism must:
+
+- Prevent two concurrent processes from consuming the same nonce.
+- Avoid deleting a lock owned by another process.
+- Handle process crashes.
+- Detect stale locks safely.
+- Use bounded waiting and explicit timeout errors.
+- Never fall back to an unlocked write.
+
+Prefer a well-maintained existing dependency if one is already installed.
+
+Do not add Redis or another external infrastructure dependency.
+
+### G. Nonce persistence across restarts
+
+The file-based nonce store must survive:
+
+- Application restarts.
+- Bootstrap process restarts.
+- Database recreation.
+- SQLite deletion or restoration.
+
+Do not clear the file-based nonce history during ordinary bootstrap.
+
+Keep nonce expiration behavior consistent with the existing security policy.
+
+If expired nonce cleanup exists, ensure it cannot accidentally remove active reservations or weaken replay protection.
+
+### H. File location
+
+Inspect how the nonce-store path is currently determined.
+
+Use one documented, deterministic location.
+
+Do not place the production nonce store inside a database directory that may be recreated or deleted.
+
+Reject unsafe path configurations.
+
+Do not expose the nonce file path through browser APIs.
+
+## 2.3 Correct SQLite nonce reconciliation
+
+Inspect the current SQLite nonce table and persistence logic.
+
+Preserve existing schema compatibility.
+
+Requirements:
+
+- No duplicate nonce acceptance.
+- No race conditions.
+- No silent write failures.
+- No clearing the durable file store after SQLite synchronization.
+- No accepting a nonce simply because SQLite is unavailable.
+- No bypassing replay protection during database initialization.
+
+Use transactional insertion and unique constraints where supported.
+
+If SQLite synchronization fails, do not continue to seed.
+
+Ensure that recovery does not accidentally permit replay.
+
+## 2.4 Fix Founder key-loading and global state
+
+Inspect `loadFounderKeyPair()` and all module-level Founder key state.
+
+Production signature verification must not require the Founder private key.
+
+Separate verification-key loading from signing-key loading.
+
+Recommended separation:
+
+- `loadFounderPublicKey()` — verification only.
+- `loadFounderPrivateKey()` — signing only, restricted to explicitly authorized signing workflows.
+- `verifyFounderSignature()` — pure cryptographic verification.
+- `reserveFounderNonce()` — durable replay protection.
+
+Do not rename public functions unnecessarily if other modules depend on them.
+
+Ensure missing public keys fail closed.
+
+Ensure an invalid key ID cannot silently fall back to another identity.
+
+## 2.5 Update bootstrap entry points
+
+### File: `scripts/bootstrap-signed.ts`
+
+Find the existing `verifyFounderOperationBeforeBootstrap()` call.
+
+Confirm that it executes before any target database operation.
+
+Expected logical structure:
+
+```ts
+const databasePath = validateDatabasePath();
+
+const authorization = await verifyFounderOperationBeforeBootstrap({
+  operation: 'bootstrap',
+  signature: process.env.FOUNDER_SIGNATURE,
+  timestamp: process.env.FOUNDER_TIMESTAMP,
+  nonce: process.env.FOUNDER_NONCE,
+});
+
+const db = createDatabase(databasePath);
+setDatabaseInstance(db);
+
+await synchronizeFounderNonce(authorization);
+
+await executeBootstrap(db);
+```
+
+This is illustrative. Adapt to the real interfaces and existing architecture.
+
+Do not blindly paste code with incompatible function signatures.
+
+### File: `scripts/run-bootstrap.ts`
+
+Apply the same authorization order.
+
+Specifically remove any code that:
+
+- Opens the database before authorization.
+- Generates a signature internally.
+- Initializes a Founder private key for verification.
+- Continues when signature variables are missing.
+- Ignores nonce persistence errors.
+
+### File: `scripts/bootstrap-database.ts`
+
+Determine whether this script performs seeding or only ordinary database initialization.
+
+Keep ordinary database initialization separate from production seeding authorization.
+
+Do not accidentally require a Founder seeding signature for normal server startup.
+
+Production server startup must still support its explicitly authorized persistent database path.
+
+Production seeding must require the additional Founder authorization.
+
+## 2.6 Path security
+
+File: `src/security/database-seeding-guard.ts`
 
 Inspect:
 
-`src/security/database-seeding-guard.ts`
+- `resolveCanonicalPath()`
+- `validateDatabaseTarget()`
+- `validateSeedDatabasePath()`
+- Production allowlist matching.
+- Symlink resolution.
+- Environment variable conflict checks.
 
-The previous audit identified five specific weaknesses:
+Required behavior:
 
-1. In-memory databases are permitted in development/test.
-2. Path authorization uses substring matching.
-3. The default development allowlist includes `data/council.db` without proving isolation.
-4. Conflicting environment variables and overrides are not adequately validated.
-5. Symlink validation is incomplete.
+- Exact allowlist match or descendant match only.
+- Never allow an authorized parent directory to authorize its parent.
+- Case-insensitive comparison on Windows.
+- Canonicalize existing path components.
+- Resolve symlinked ancestors.
+- Correctly handle nonexistent nested target directories.
+- Reject traversal.
+- Reject ambiguous paths.
+- Reject missing production paths.
+- Reject `:memory:` in production seeding.
+- Keep development and test allowlists explicit.
+- Do not introduce permissive default development paths.
+- Detect conflicting database path environment variables.
 
-Fix all five.
+The canonicalization algorithm must resolve the nearest existing ancestor using real filesystem resolution and safely append the remaining nonexistent path segments.
 
-## 2.2 In-memory database rejection
-
-Reject `:memory:` and all implicit or unsupported in-memory database targets for seeding.
-
-Do not allow a development or test environment to bypass this rule.
-
-If an existing test legitimately requires an in-memory database for a non-seeding operation, preserve that behavior outside the seeding guard. Do not weaken unrelated database functionality.
-
-Add tests proving the seeding guard rejects:
-
-- `:memory:`
-- Equivalent URI-based in-memory targets.
-- Empty or implicit targets.
-- Unsupported temporary database targets.
-
-## 2.3 Canonical path and directory-boundary validation
-
-Remove substring-based path authorization.
-
-Do not authorize paths with logic equivalent to:
-
-`canonicalPath.includes(allowedPath)`
-
-Instead:
-
-- Resolve the target to a canonical absolute path.
-- Resolve the approved directory independently.
-- Compare actual path components.
-- Require the target to be a descendant of the approved directory, or an explicitly approved exact file.
-- Prevent prefix collisions such as `/safe/dev` versus `/safe/dev-backup`.
-- Handle Windows drive letters, path separators, case behavior, relative paths, and traversal.
-- Reject paths that cannot be canonicalized safely.
-- Verify the final target and relevant parent directories.
-
-A path being named `dev`, `test`, or containing those words is not proof that it is safe.
-
-## 2.4 Remove unsafe default allowlists
-
-Inspect the current default allowlist, including:
-
-`data/council.db`
-
-Do not assume that a default development database path is isolated.
-
-Remove ambiguous operational defaults from the seeding authorization policy.
-
-Require an explicit approved development/test target with a verified canonical location.
-
-Do not authorize a database merely because `NODE_ENV` is `development` or `test`.
-
-The guard must positively establish both:
-
-1. The environment is explicitly authorized.
-2. The canonical database target belongs to an approved isolated development/test location.
-
-Unknown or ambiguous targets must be rejected.
-
-## 2.5 Environment-variable and override conflicts
-
-Inventory every database-path configuration source:
-
-- `DATABASE_PATH`
-- `DB_PATH`
-- `SQLITE_PATH`
-- Project-specific database variables.
-- CLI arguments.
-- Script-specific overrides.
-- Configuration files.
-- Environment-specific defaults.
-
-Use the actual names discovered in the repository.
-
-If multiple configuration sources are supplied and conflict, reject the operation.
-
-Do not silently prefer one variable or CLI argument when another points elsewhere.
-
-Ensure command-line arguments cannot override a rejected operational target.
-
-Ensure the guard evaluates the effective target used by the actual database connection, not merely a separate validation variable.
+Do not rely on string normalization alone to claim symlink protection.
 
 Add tests for:
 
-- Missing variables.
-- Empty variables.
-- Conflicting variables.
-- Conflicting CLI and environment values.
-- Unsupported overrides.
-- Explicitly authorized isolated targets.
+- Existing symlink.
+- Symlinked parent.
+- Nonexistent nested directory beneath a symlink.
+- Parent-directory authorization attempt.
+- Exact allowed path.
+- Allowed descendant.
+- Sibling directory rejection.
+- Windows drive-letter casing.
+- Windows separator variations.
+- Relative traversal.
+- Conflicting environment variables.
 
-## 2.6 Symlink and path traversal protection
+## 2.7 Required M3-004 tests
 
-Use filesystem-aware canonical resolution.
+Add tests to the existing security test locations. Do not invent a duplicate test framework.
 
-Verify all relevant path components, including:
+Test the following:
 
-- Existing parent directories.
-- Existing database files.
-- Symbolic links.
-- Relative path components.
-- Traversal sequences.
-- Canonical aliases.
-
-Do not rely on checking only the immediate parent directory.
-
-If the target does not exist yet, validate the nearest existing ancestor and ensure that the eventual target remains within the approved directory.
-
-Prevent symlink-based escape from the approved directory.
-
-Where race conditions between validation and file creation are relevant, use appropriate safe filesystem operations and revalidation. Do not claim complete race protection if the implementation does not provide it.
-
-## 2.7 Guard every actual seeding entry point
-
-The previous remediation reported sixteen protected entry points and modified twenty-three scripts.
-
-Re-inventory the current repository and verify every real entry point.
-
-The guard must run before:
-
-- Opening a database connection.
-- Creating a database file.
-- Creating directories.
-- Running migrations.
-- Creating tables.
-- Inserting or replacing records.
-- Updating or deleting records.
-- Running cleanup/reset operations.
-
-Test actual command entry points, not only the guard module.
-
-A test that directly invokes the guard function is insufficient to prove that every CLI script enforces it.
-
-For every entry point, document:
-
-| Entry point | Effective DB target | Guard imported | Guard runs before DB access | Tests |
-|---|---|---|---|---|
-
-If an entry point cannot safely be classified, reject it rather than guessing.
-
-## 2.8 Security test matrix
-
-Add or update tests for:
-
-| Scenario | Expected result |
+| Test | Expected |
 |---|---|
-| Production environment | Reject |
-| Missing path | Reject |
-| Empty path | Reject |
-| Unknown path | Reject |
-| `:memory:` | Reject |
-| URI in-memory target | Reject |
-| Conflicting environment variables | Reject |
-| Conflicting CLI/environment targets | Reject |
-| Operational database path | Reject |
-| Relative path to operational database | Reject |
-| Path traversal | Reject |
-| Prefix collision | Reject |
-| Symlink to operational database | Reject |
-| Symlink escaping approved directory | Reject |
-| Canonical path alias | Reject |
-| Unapproved development path | Reject |
-| Explicit isolated development path | Accept |
-| Explicit isolated test path | Accept |
-| Repeated safe seed | Deterministic and idempotent |
+| Valid external signature | Accepted |
+| Missing signature | Rejected |
+| Invalid signature | Rejected |
+| Invalid operation | Rejected |
+| Invalid payload | Rejected |
+| Expired timestamp | Rejected |
+| Malformed timestamp | Rejected |
+| Missing public key | Rejected |
+| Invalid key ID | Rejected |
+| Reused nonce | Rejected |
+| Corrupt nonce file | Rejected |
+| Unreadable nonce file | Rejected |
+| Unwritable nonce file | Rejected |
+| Concurrent identical requests | Exactly one succeeds |
+| Restart and replay | Rejected |
+| Database recreation and replay | Rejected |
+| Invalid signature creates database | No |
+| Missing signature creates database | No |
+| Nonce write failure creates database | No |
+| Valid signature creates database | Yes, only after authorization |
 
-Also prove:
+Use isolated temporary directories for tests.
 
-- Rejected targets are not opened.
-- Rejected targets are not modified.
-- No database file is created for rejected targets.
-- No directory is created for rejected targets.
-- Every real seeding entry point invokes the guard before database access.
-- Errors are actionable and do not disclose secrets.
+Never use the real production database in security tests.
 
-Use disposable directories and temporary databases.
-
-Never use the real production database for these tests.
-
-## 2.9 M3-004 acceptance
-
-Mark RESOLVED only when:
-
-- All five audited weaknesses are corrected.
-- Every actual seeding entry point is guarded.
-- The guard validates the effective database target.
-- The complete security test matrix passes.
-- Real entry-point tests pass.
-- Documentation matches executable behavior.
-- No operational database was accessed or modified during verification.
+Do not weaken assertions to make tests pass.
 
 ---
 
-# 3. M3-007 — Complete test reliability verification
+# 3. M3-007 — TEST RELIABILITY AND COMPLETE REGRESSION
 
-## 3.1 Distinguish historical totals from current results
+## 3.1 Fix Founder key global-state isolation
 
-The previous report lists:
+Investigate the reported failing test:
 
-- 373 core tests.
-- 39 security tests.
-- 15 webhook tests.
-- 427 reported test executions.
+`should get founder key id`
 
-Do not assume these represent 427 distinct tests. Inspect the configured test globs and determine whether test groups overlap.
+Find its actual location using repository search.
 
-The earlier report also states that the complete 560-test suite was not completed.
+Trace all tests that modify:
 
-This task must establish the actual configured suite and its actual result.
+- Founder public key.
+- Founder private key.
+- Founder key ID.
+- Founder configuration.
+- Nonce storage path.
+- Database instance.
 
-## 3.2 Audit package scripts and test discovery
+Do not simply classify the failure as pre-existing.
 
-Inspect:
+Implement reliable isolation.
 
-- Root `package.json`.
-- Backend package scripts.
-- Frontend package scripts.
-- Test configuration.
-- Test file globs.
-- CI workflows.
-- Shell scripts.
-- TypeScript test runners.
-- Playwright configuration.
+Preferred approach:
 
-Determine:
+1. Remove mutable global state where practical.
+2. Use dependency injection for key configuration and nonce storage.
+3. Otherwise expose an explicit test-only reset function.
+4. Restore original state in `afterEach`.
+5. Ensure tests cannot run concurrently when they share mutable module state.
+6. Keep production behavior unchanged.
 
-1. Which tests are included in `npm run test`.
-2. Which test files are excluded.
-3. Whether integration tests are accidentally omitted.
-4. Whether security and webhook tests are counted more than once.
-5. Whether frontend tests are part of the root test command.
-6. Whether test failures propagate to the process exit code.
+Do not skip the failing test.
 
-The configured full suite must be the authoritative test target.
+Do not change its assertion to make it pass.
 
-Do not change the test command to obtain a smaller passing number.
+Do not globally disable test concurrency unless the affected suite genuinely requires isolation.
 
-## 3.3 Resolve duration limitations correctly
+## 3.2 Fix Playwright runtime monitoring
 
-The previous full-suite execution stopped because integration tests required approximately thirty seconds each.
+File:
 
-Do not solve this by:
+`frontend/tests/e2e/phase10-verification.spec.ts`
 
-- Removing integration tests.
-- Reducing assertions.
-- Increasing timeouts without investigating.
-- Reporting a partial run as a full run.
-- Marking unfinished tests as passed.
-- Running only the core suite and claiming full completion.
+Inspect every test and shared hook.
 
-Inspect whether integration tests are unnecessarily serial, leaking resources, or waiting for unnecessary delays.
+Register listeners before the first navigation.
 
-Where safe, improve test execution efficiency through:
+Collect:
 
-- Proper test isolation.
-- Parallel execution where tests are independent.
-- Reliable temporary databases.
-- Proper server and connection cleanup.
-- Removal of unnecessary fixed waits.
-- Efficient fixture setup and teardown.
+- Uncaught page exceptions.
+- Console errors.
+- Failed network requests.
+- Unexpected HTTP 4xx responses.
+- Unexpected HTTP 5xx responses.
 
-Do not introduce concurrency into tests that share mutable state unless they are isolated first.
+Do not ignore all errors.
 
-If the complete suite cannot be completed within the available environment, report the exact limitation and retain M3-007 as PARTIALLY RESOLVED.
+Do not use `.catch(() => {})` around assertions.
 
-## 3.4 Webhook environment isolation
+Do not suppress errors simply because they are inconvenient.
 
-Recheck:
+Expected errors must be explicitly listed by exact route, HTTP status and reason.
 
-`hermes-webhook-signature.test.ts`
+Use exact pathname comparisons rather than broad `startsWith()` checks.
 
-Verify:
+Avoid treating every third-party or intentionally aborted request as an application failure, but document every exception.
 
-- Environment variables are isolated.
-- Original values are restored even if a test fails.
-- Tests do not depend on execution order.
-- Tests do not depend on `.secrets/archive`.
-- Signature verification behavior remains secure.
-- Invalid signatures remain rejected.
-- Malformed inputs remain rejected.
-- Timing-safe comparison is still used appropriately.
+## 3.3 Route coverage
 
-Run the webhook tests independently, repeatedly, and as part of the configured full suite.
+Test the actual application routes.
 
-Do not weaken cryptographic checks.
-
-Do not delete or modify `.secrets/archive`.
-
-Use isolated temporary fixtures when investigating environment interactions.
-
-## 3.5 Exit-code verification
-
-Verify actual test-runner behavior.
-
-Test that:
-
-- A successful test run exits with code `0`.
-- A deliberately failing disposable test exits nonzero.
-- Unhandled exceptions exit nonzero.
-- Rejected promises exit nonzero.
-- Shell pipelines preserve the test process exit code.
-- CI cannot silently ignore failures.
-- Timeouts cannot become successful results.
-- Skipped and pending tests are reported accurately.
-
-Remove any temporary deliberate-failure test after verification.
-
-Do not introduce permanent failing fixtures.
-
-## 3.6 Required test execution
-
-Run:
-
-1. Complete configured backend test suite.
-2. Backend unit tests.
-3. Backend integration tests.
-4. Database and migration tests.
-5. Authentication and authorization tests.
-6. Database-seeding security tests.
-7. Hermes webhook tests.
-8. Messaging/MCP E2E tests.
-9. Frontend unit/component tests.
-10. Frontend Playwright E2E tests.
-11. Responsive tests.
-12. Accessibility tests.
-13. TypeScript.
-14. ESLint.
-15. Formatting check.
-16. Production frontend build.
-17. Relevant CI-equivalent checks.
-
-Record exact commands, working directories, durations, counts, skipped tests, failures, and actual exit codes.
-
-Separate overlapping test runs. Never add overlapping counts and call them unique tests.
-
-## 3.7 M3-007 acceptance
-
-Mark RESOLVED only when:
-
-- The configured complete suite has actually completed.
-- All required tests pass.
-- No tests were silently excluded or weakened.
-- Webhook isolation is reproducible.
-- Success and failure exit codes are verified.
-- TypeScript, lint, formatting, and build pass.
-- The report includes reproducible evidence.
-
-If the complete suite remains incomplete, mark PARTIALLY RESOLVED.
-
----
-
-# 4. M3-009 — Fix accessibility and responsive verification
-
-## 4.1 Resolve four serious color-contrast violations
-
-The previous report documented serious color-contrast violations on:
-
-- Organization.
-- Tasks.
-- Deliverables.
-- Approvals.
-
-Do not accept these as an unavoidable MUI system constraint without demonstrating that they cannot be corrected.
-
-Inspect the actual rendered foreground/background combinations in both light and dark themes.
-
-Determine whether the source is:
-
-- MUI default colors.
-- Custom theme tokens.
-- Disabled-state styling.
-- Secondary text.
-- Status labels.
-- Table cells.
-- Buttons.
-- Background surfaces.
-- Component-level overrides.
-
-Correct the underlying token or component configuration while preserving the established design system.
-
-Use the existing theme architecture and MUI 9 conventions.
-
-Do not hide violations by excluding rules, suppressing selectors, or reducing test coverage.
-
-If a violation genuinely cannot be corrected without an unacceptable architectural change, document the exact technical reason and retain it as an unresolved issue requiring Founder review.
-
-## 4.2 Correct the accessibility test criteria
-
-Inspect the axe-core configuration.
-
-Ensure the tests:
-
-- Execute against actual rendered pages.
-- Include applicable WCAG 2.2 AA tags.
-- Fail for unresolved critical and serious violations.
-- Record moderate and minor violations.
-- Do not silently ignore color contrast.
-- Do not report success merely because violations were logged.
-
-Do not claim full WCAG 2.2 AA compliance solely from automated axe-core results.
-
-Clearly distinguish automated checks from manual verification.
-
-## 4.3 Verify all thirteen routes
-
-Test these actual application routes:
+The current target set is:
 
 1. Dashboard.
-2. Activity.
-3. Chat.
-4. Council.
-5. Meetings.
-6. Memory.
-7. Organization.
-8. Tasks.
-9. Executions.
-10. Deliverables.
-11. Approvals.
+2. Chat.
+3. Council.
+4. Meetings.
+5. Memory.
+6. Organization.
+7. Tasks.
+8. Executions.
+9. Deliverables.
+10. Approvals.
+11. Activity.
 12. Profile.
 13. Settings.
 
-Verify the route definitions in the current application before writing the tests.
+Verify these against the actual router before writing tests.
 
-Each test must:
+For every route:
 
-- Navigate to the actual route.
-- Wait for the page to render.
-- Verify expected page-specific content.
-- Check for application errors.
-- Check horizontal overflow.
-- Check clipping and overlapping content.
-- Check navigation behavior.
-- Check page-specific interactive controls.
-- Capture failure screenshots or traces where useful.
+- Navigate directly.
+- Confirm the exact pathname.
+- Confirm the expected page heading or unique page landmark.
+- Confirm the page is not blank.
+- Confirm loading indicators settle.
+- Confirm no unexpected browser exceptions.
+- Confirm no unexpected server errors.
+- Confirm no broken primary navigation.
 
-A test that navigates to `/` does not count as testing another page.
+Do not use generic assertions that only prove some heading exists.
 
-## 4.4 Test all five viewport widths
+Do not accept a 404 as a successful route test.
 
-Use:
+## 3.4 Required regression suites
 
-- 375px.
-- 768px.
-- 1024px.
-- 1440px.
-- 1920px.
+Run the existing project scripts for:
 
-Required coverage:
+- Backend unit tests.
+- Backend integration tests.
+- Security tests.
+- Database migration tests.
+- Frontend unit tests.
+- Frontend integration tests.
+- MCP integration tests.
+- Playwright browser E2E.
+- Responsive tests.
+- Accessibility tests.
+- TypeScript.
+- ESLint.
+- Prettier.
+- Production build.
 
-**13 routes × 5 widths = 65 actual page/viewport combinations.**
+Inspect `package.json` and workspace scripts before choosing commands.
 
-The test output must identify each route and width.
+Do not invent commands.
 
-Do not use a small number of generic root-page tests to claim 65 combinations.
+Do not claim a suite passed when it did not execute.
 
-## 4.5 Interactive states
+Do not report a successful test run if the process timed out or returned a nonzero exit code.
 
-Test relevant application states:
+Record:
 
-- Main navigation.
-- Responsive drawer.
-- User menu.
-- Theme toggle.
-- Create Division dialog.
-- Invite Staff dialog.
-- New Task workflow.
-- Forms.
-- Validation errors.
-- Settings.
-- Profile.
-- Tables.
-- Empty states.
-- Loading states.
-- Error states.
+- Exact command.
+- Start and end status.
+- Exit code.
+- Passed count.
+- Failed count.
+- Skipped count.
+- Duration.
+- Relevant error output.
 
-Test actual behavior rather than checking only whether elements exist.
-
-## 4.6 Keyboard verification
-
-Test real keyboard interactions:
-
-- Tab.
-- Shift+Tab.
-- Enter.
-- Space.
-- Escape.
-- Arrow keys where appropriate.
-
-Verify:
-
-- Logical focus order.
-- Visible focus indicators.
-- Accessible control activation.
-- Dialog focus trapping.
-- Dialog focus restoration.
-- Menu and drawer operation.
-- Form navigation.
-- No keyboard traps.
-- No inaccessible interactive elements.
-
-Assertions must verify expected targets and resulting application state, not merely that `document.activeElement` exists.
-
-## 4.7 M3-009 acceptance
-
-Mark RESOLVED only when:
-
-- All 65 page/viewport combinations are actually executed.
-- Relevant interactive states are tested.
-- Serious and critical axe-core violations are resolved.
-- The four contrast issues are corrected or explicitly remain blockers.
-- Keyboard behavior is verified.
-- Test results accurately reflect actual execution.
-- No unsupported WCAG compliance claim remains.
+If SQLite locking occurs under parallel execution, isolate test databases and correct the shared-resource problem. Use serial execution for the affected database suite only when necessary and document why.
 
 ---
 
-# 5. M3-008 — Reconcile reports and Git evidence
+# 4. M3-008 — FINAL DOCUMENTATION RECONCILIATION
 
-The previous report contained contradictory statements:
+## 4.1 Inspect all existing M3 documentation
 
-- It identified `110cfeb` as the final HEAD.
-- It also described the remediation as uncommitted.
-- The actual remediation commit under audit is `ad96464`.
+Find and inspect:
 
-Correct these inconsistencies.
+- M3 roadmap.
+- M3 acceptance criteria.
+- Wave 0 report.
+- Wave 1–6 reports.
+- M3 remediation reports.
+- Database seeding security report.
+- Test reliability report.
+- Accessibility report.
+- Previous final acceptance reports.
+- `NEXT_PROMPT.md` and archived prompts.
 
-The authoritative report must distinguish:
+Do not delete historical reports.
 
-- Starting commit.
-- Current HEAD.
-- Branch.
-- Working-tree state.
-- Files modified.
-- User-reported historical test results.
-- Tests actually executed during this remediation.
-- Tests not executed.
-- Partial results.
-- Confirmed limitations.
+Do not rewrite history.
 
-Preserve historical reports and their original conclusions where appropriate.
+## 4.2 Create one authoritative final report
 
-Do not rewrite history or erase evidence of earlier failures.
+Create:
 
-Update all M3 reports so their claims agree with the current source and actual test outputs.
+`docs/reports/M3_FINAL_ACCEPTANCE_AUDIT.md`
 
-Required reports:
+Required sections:
+
+1. Executive summary.
+2. Actual repository HEAD.
+3. Actual branch.
+4. Working tree status.
+5. Scope and exclusions.
+6. M3-001 through M3-009 findings matrix.
+7. M3-004 security architecture.
+8. Database seeding entry-point inventory.
+9. Founder authorization sequence.
+10. Nonce replay protection design.
+11. M3-007 test inventory.
+12. Exact test commands and results.
+13. Frontend E2E route coverage.
+14. M3-009 viewport coverage.
+15. Accessibility results.
+16. Known exceptions and limitations.
+17. Regression results.
+18. Security regression results.
+19. Unresolved issues.
+20. Final recommendation to Founder.
+
+For every test result, include actual evidence.
+
+Never copy old test counts into the new report.
+
+Never claim independent verification for tests that were only reported by someone else.
+
+## 4.3 Reconcile the old reports
+
+Correct:
+
+- Stale commit hashes.
+- Incorrect test counts.
+- Contradictory completion statements.
+- Incorrect route counts.
+- Claims of WCAG compliance unsupported by actual evidence.
+- Claims that invitations were delivered when only pending records were created.
+- Reports that describe uncommitted changes as committed.
+
+Mark superseded reports as historical where appropriate.
+
+Keep one authoritative final M3 report.
+
+---
+
+# 5. M3-009 — RESPONSIVE AND ACCESSIBILITY VERIFICATION
+
+## 5.1 Mandatory visual-design boundary
+
+This is a strict restriction.
+
+Do not modify:
+
+- Existing colors.
+- Color palette.
+- Theme definitions.
+- Design tokens.
+- Typography.
+- Approved font configuration.
+- Impeccable-approved visual styling.
+
+You may modify:
+
+- Layout.
+- Component arrangement.
+- Spacing.
+- Responsive breakpoints.
+- Navigation behavior.
+- Overflow handling.
+- Component sizing.
+- Keyboard interaction.
+- Focus behavior.
+- Semantic HTML.
+- Accessible labels.
+- Form behavior.
+
+Use existing MUI 9 components.
+
+Do not replace the existing design system.
+
+Do not introduce generic AI dashboard styling.
+
+## 5.2 Required routes and viewport matrix
+
+Verify all 13 routes:
+
+- Dashboard.
+- Chat.
+- Council.
+- Meetings.
+- Memory.
+- Organization.
+- Tasks.
+- Executions.
+- Deliverables.
+- Approvals.
+- Activity.
+- Profile.
+- Settings.
+
+At these five viewport widths:
+
+| Viewport | Width |
+|---|---:|
+| Mobile | 375 |
+| Tablet | 768 |
+| Small desktop | 1024 |
+| Desktop | 1440 |
+| Wide desktop | 1920 |
+
+Total required route/viewport combinations: 65.
+
+Do not navigate to the root page and claim all routes were tested.
+
+Each combination must navigate to the actual route.
+
+## 5.3 Responsive assertions
+
+For every route and viewport:
+
+- Verify page content is visible.
+- Verify the main page container is visible.
+- Verify no horizontal document overflow.
+- Verify no clipped primary actions.
+- Verify navigation remains usable.
+- Verify dialogs fit within the viewport.
+- Verify tables and long content remain accessible.
+- Verify forms remain usable.
+- Verify the page does not become blank.
+- Verify there are no uncaught runtime exceptions.
+
+Use real browser measurements.
+
+Do not use arbitrary fixed-width assertions that reject valid responsive layouts.
+
+## 5.4 Keyboard testing
+
+Test:
+
+- Tab navigation.
+- Shift+Tab navigation.
+- Visible focus.
+- Enter activation.
+- Space activation.
+- Escape dismissal.
+- Dialog focus entry.
+- Dialog focus containment.
+- Focus restoration after dialog close.
+- Menu keyboard operation.
+- Form field access.
+- Switch operation.
+- Disabled control behavior.
+
+Do not merely assert that `document.activeElement` exists.
+
+Assert that focus moves to the expected element and that keyboard interactions produce the expected behavior.
+
+## 5.5 axe-core accessibility tests
+
+Use the existing Playwright setup.
+
+If axe-core is already installed, reuse it.
+
+Otherwise install only the minimum necessary compatible development dependency.
+
+Run accessibility scans on all 13 routes.
+
+Also scan important interactive states:
+
+- Dashboard dialogs.
+- Navigation menus.
+- Settings controls.
+- Profile page.
+- Forms.
+- Other modal interactions.
+
+Record:
+
+- Violation ID.
+- Impact.
+- Affected selector.
+- Description.
+- Number of occurrences.
+- Resolution or exception.
+
+Fix critical and serious violations where possible without changing approved visual styling.
+
+The four previously documented serious color-contrast exceptions must remain documented if resolving them requires changing approved colors.
+
+Do not silently suppress them.
+
+Do not claim complete WCAG 2.2 AA compliance while serious violations remain.
+
+## 5.6 Fix functional accessibility problems
+
+Explicitly inspect:
+
+- Settings switches and accessible names.
+- Profile read-only fields.
+- Buttons without accessible names.
+- Icon-only controls.
+- Dialog labels.
+- Form labels.
+- Input descriptions.
+- Error announcements.
+- Focus visibility.
+- Navigation landmarks.
+- Heading hierarchy.
+
+Use MUI-supported accessibility props.
+
+Do not create custom CSS unless necessary for functional accessibility or layout behavior.
+
+---
+
+# 6. PRESERVE EXISTING FUNCTIONALITY
+
+Run regression tests for the already completed M3 work:
+
+- Dashboard Create Division action.
+- Dashboard Invite Staff action.
+- New Task action.
+- Activity page.
+- Activity API integration.
+- Profile read-only behavior.
+- Settings persistence.
+- Settings Cancel behavior.
+- Authorization errors returning 403.
+- Database seeding safety instructions.
+
+Do not regress previously implemented M3 functionality.
+
+Do not claim a staff invitation was delivered unless an actual delivery mechanism exists.
+
+Do not introduce unrelated feature work.
+
+---
+
+# 7. STRICT M4 BOUNDARY
+
+M4 is NOT authorized during this task.
+
+Do not implement:
+
+- Organization bootstrap.
+- Six-division population.
+- Six Division Heads.
+- Forty-five specialists.
+- Fifty-one logical division staff identities.
+- One hundred and two runtime instances.
+- Council seat changes.
+- Persona changes.
+- New agent provisioning.
+- Cross-division integration.
+- M4 orchestration.
+- M4 reliability architecture.
+- New production integrations.
+
+Do not modify production database records.
+
+Do not execute production migrations.
+
+Do not seed the production database.
+
+Do not modify Council membership.
+
+Do not modify Founder identity or governance rules.
+
+M3 is strictly a completion and verification task.
+
+---
+
+# 8. GIT AND PRODUCTION SAFETY
+
+You are authorized to edit files locally for M3 remediation.
+
+You are NOT authorized to:
+
+- Commit.
+- Push.
+- Merge.
+- Deploy.
+- Force-push.
+- Rewrite Git history.
+- Delete branches.
+- Delete user files.
+- Reset the working tree.
+- Modify production database records.
+- Run production migrations.
+- Run production seeding.
+- Delete `.secrets/archive`.
+- Remove historical evidence.
+
+Preserve all uncommitted user changes.
+
+Do not run destructive cleanup commands.
+
+Do not expose secrets in logs or reports.
+
+---
+
+# 9. IMPLEMENTATION ORDER
+
+Execute in this order.
+
+### Stage 1 — M3-004
+
+1. Fix public-key verification.
+2. Fix durable file nonce storage.
+3. Fix cross-process nonce locking.
+4. Fix fail-closed error handling.
+5. Fix nonce synchronization.
+6. Fix bootstrap ordering.
+7. Fix path canonicalization.
+8. Add security tests.
+9. Run all security tests.
+
+Do not proceed to claim M3-004 complete until all security tests pass.
+
+### Stage 2 — M3-007
+
+1. Fix Founder global-state test isolation.
+2. Fix Playwright monitoring.
+3. Fix route assertions.
+4. Fix HTTP response classification.
+5. Run backend tests.
+6. Run frontend tests.
+7. Run MCP E2E.
+8. Run browser E2E.
+9. Run TypeScript, lint, formatting and production build.
+
+### Stage 3 — M3-009
+
+1. Implement actual 13-route × 5-viewport tests.
+2. Fix responsive layout failures.
+3. Implement meaningful keyboard tests.
+4. Run axe-core.
+5. Fix functional accessibility violations.
+6. Document approved contrast exceptions.
+7. Produce the final verification report.
+
+### Stage 4 — M3-008
+
+1. Reconcile all findings.
+2. Reconcile test counts.
+3. Reconcile current Git state.
+4. Update historical reports.
+5. Create `M3_FINAL_ACCEPTANCE_AUDIT.md`.
+6. Verify every report matches the actual code and test results.
+
+### Stage 5 — Final quality gate
+
+Run all required tests again after the final code changes.
+
+Do not rely on results from before the last modification.
+
+Check the Git working tree.
+
+Confirm no M4 implementation occurred.
+
+---
+
+# 10. REQUIRED DELIVERABLES
+
+Produce these reports:
 
 1. `docs/reports/M3_DATABASE_SEEDING_SECURITY_REPORT.md`
 2. `docs/reports/M3_TEST_RELIABILITY_REPORT.md`
 3. `docs/reports/M3_ACCESSIBILITY_RESPONSIVE_REPORT.md`
-4. `docs/reports/M3_FINAL_REMEDIATION_VERIFICATION_REPORT.md`
+4. `docs/reports/M3_FINAL_ACCEPTANCE_AUDIT.md`
 
-The final report must contain a complete M3-001 through M3-009 findings matrix.
+Also maintain the relevant test files and actual implementation.
 
-Use only these finding statuses:
-
-- RESOLVED
-- PARTIALLY RESOLVED
-- BLOCKED
-
-Do not mark a finding resolved because a report says it is resolved.
+The reports must reflect actual evidence, not intended behavior.
 
 ---
 
-# 6. Regression verification — M3-001 through M3-006
+# 11. FINAL ACCEPTANCE CONDITIONS
 
-Recheck these findings against current source and relevant tests.
+M3 may be recommended for Founder acceptance only when:
 
-| Finding | Verification requirement |
-|---|---|
-| M3-001 | Dashboard actions execute real workflows. Pending staff registration must not be described as a delivered invitation. |
-| M3-002 | Activity route, page, API integration, loading, empty, and error states work. |
-| M3-003 | Profile accurately represents read-only or genuinely persisted editing behavior. No fake save. |
-| M3-004 | All seeding entry points enforce the executable guard. |
-| M3-005 | Correct authorization status codes and fail-closed authentication remain intact. |
-| M3-006 | Settings persist correctly, cancellation restores saved values, and controls describe actual functionality. |
+- M3-001 is verified.
+- M3-002 is verified.
+- M3-003 is verified.
+- M3-004 security implementation and tests pass.
+- M3-005 is verified.
+- M3-006 is verified.
+- M3-007 regression and test reliability are verified.
+- M3-008 documentation is reconciled.
+- M3-009 responsive and accessibility verification is complete.
+- No critical security defect remains.
+- No unexplained failing required test remains.
+- TypeScript passes.
+- Production build passes.
+- Git state is accurately documented.
+- No M4 implementation occurred.
 
-Do not refactor these areas unless the audit identifies a concrete regression or defect.
+A known pre-existing failure is not automatically acceptable. Investigate it, isolate it, establish its cause and prove it does not invalidate the required test coverage.
 
----
-
-# 7. Architecture and design constraints
-
-Preserve the existing architecture:
-
-- React 19.
-- Vite.
-- TypeScript.
-- MUI 9.
-- Google's Material Design system.
-- Vanilla MUI components.
-- Express.
-- SQLite.
-- Existing authentication and authorization.
-- Existing migration architecture.
-
-UI constraints:
-
-- Prefer official MUI components.
-- Avoid unnecessary custom components.
-- Custom CSS only when genuinely necessary.
-- Preserve established theme tokens.
-- No generic AI-generated dashboard patterns.
-- No unnecessary infrastructure dependencies.
-- Do not add Redis.
-
-Do not introduce broad refactors unrelated to the remaining M3 findings.
+Do not declare a milestone accepted on the Founder's behalf.
 
 ---
 
-# 8. Absolute M4 prohibition
+# 12. FINAL RESPONSE FORMAT
 
-**Do not start M4.**
+When finished, provide:
 
-This authorization covers M3 remediation only.
+## A. Implementation summary
+List every file changed and what changed.
 
-Do not:
+## B. Security results
+Explain the exact Founder verification and nonce lifecycle.
 
-- Bootstrap six organizational divisions.
-- Create six Division Heads.
-- Create 45 specialists.
-- Create 51 logical division staff identities.
-- Create 102 runtime instances.
-- Modify Council membership.
-- Modify Council voting structure.
-- Modify founding or replaceable Council personas.
-- Change organizational identity records.
-- Implement M4 integration workflows.
-- Create M4 migrations.
-- Modify production organizational data.
-- Begin M4 planning or implementation.
+## C. Test results
+Provide a table:
 
-Use isolated test fixtures and disposable databases only.
+| Suite | Passed | Failed | Skipped | Exit code |
+|---|---:|---:|---:|---:|
 
-Do not interpret the existence of seed scripts as permission to execute organizational bootstrap operations.
+## D. Responsive results
+Report the actual number of route/viewport combinations executed and passed.
 
----
+## E. Accessibility results
+Report axe-core violations by impact and list approved exceptions.
 
-# 9. Production and Git safety
+## F. Documentation
+List the four completed reports.
 
-The following actions are prohibited without separate explicit Founder authorization:
+## G. Git state
+Report actual branch, HEAD, changed files and uncommitted changes.
 
-- Accessing or modifying the production database for remediation.
-- Running production migrations.
-- Running production seeding.
-- Deleting production records.
-- Running production cleanup or reset operations.
-- Modifying `.secrets/archive`.
-- Deleting user files or data.
-- Rewriting Git history.
-- Force-pushing.
-- Deleting branches.
-- Committing.
-- Pushing.
-- Merging.
-- Deploying.
+## H. Remaining issues
+List only genuine unresolved issues.
 
-Preserve the current branch and all user changes.
-
-All test databases must be isolated and disposable.
-
-Verify database paths before executing any test or seed command.
-
-If a command might target an operational database, do not execute it.
-
----
-
-# 10. Final verification sequence
-
-Before finishing:
-
-1. Review the complete diff.
-2. Confirm user modifications remain intact.
-3. Confirm no secrets were introduced.
-4. Confirm all seeding entry points are guarded.
-5. Run actual seeding-entry-point security tests.
-6. Verify production and operational paths are rejected.
-7. Verify rejected targets are not opened or modified.
-8. Run the webhook tests independently and within the full suite.
-9. Run the complete configured backend test suite.
-10. Run the complete frontend test suite.
-11. Run all 65 route/viewport combinations.
-12. Run axe-core accessibility tests.
-13. Run manual keyboard verification.
-14. Verify all four contrast issues.
-15. Run TypeScript.
-16. Run lint.
-17. Run formatting checks.
-18. Run production build.
-19. Record exact exit codes and durations.
-20. Verify production database safety.
-21. Verify M4 was not started.
-22. Verify no Git commit or push occurred.
-23. Reconcile all reports with actual evidence.
-24. Record final HEAD and working-tree status.
-
-If a test cannot be completed, record it as incomplete. Do not infer a passing result.
-
----
-
-# 11. Required final response
-
-Return the final results in this structure.
-
-## Execution Summary
-- Starting HEAD.
-- Final HEAD.
-- Branch.
-- Working-tree status.
-- Files changed.
-- User-change preservation.
-
-## M3 Findings Matrix
-
-| Finding | Status | Implementation | Actual verification |
-|---|---|---|---|
-
-Include all M3-001 through M3-009.
-
-## M3-004 — Database-Seeding Security
-- Total entry points discovered.
-- Total entry points protected.
-- Guard implementation.
-- Canonical path validation.
-- Environment validation.
-- Symlink handling.
-- Security test totals.
-- Real entry-point test results.
-- Evidence rejected targets were not opened or modified.
-
-## M3-007 — Test Reliability
-- Webhook root cause and correction.
-- Core test results.
-- Security test results.
-- Integration test results.
-- Full configured backend suite.
-- Frontend suite.
-- E2E suite.
-- Test overlap and unique totals.
-- Exit-code verification.
-- TypeScript.
-- Lint.
-- Formatting.
-- Build.
-- Skipped, pending, and failed tests.
-
-## M3-009 — Accessibility and Responsive
-- Thirteen-route verification.
-- Five viewport widths.
-- All 65 combinations.
-- Interactive-state coverage.
-- Axe-core results.
-- WCAG tags.
-- Four contrast violations and final disposition.
-- Keyboard results.
-- Manual verification.
-- Remaining exceptions.
-
-## M3-008 — Documentation
-- Reports updated.
-- Commit references reconciled.
-- Test evidence reconciled.
-- Remaining documentation limitations.
-
-## Regression Results
-Evidence for M3-001 through M3-006.
-
-## Production and Scope Safety
-Explicit confirmation of:
-
-- Production database untouched.
-- No production migrations.
-- No production seeding.
-- No production cleanup.
-- No M4 implementation or planning.
-- No organizational bootstrap.
-- No Council membership or identity changes.
-- No secrets or user data deleted.
-- No Git commit or push.
-- No history rewriting or branch deletion.
-
-## Final Disposition
+## I. Final disposition
 
 Choose exactly one:
 
-- **READY FOR FINAL FOUNDER AUDIT**
-- **PARTIALLY COMPLETE — CORRECTIONS REMAIN**
-- **BLOCKED**
+- READY FOR FINAL FOUNDER ACCEPTANCE
+- PARTIALLY COMPLETE — SPECIFIC CORRECTIONS REMAIN
+- BLOCKED — SECURITY OR RELIABILITY DEFECTS REMAIN
 
-Do not formally accept M3. Founder acceptance is separate and requires explicit approval.
+Do not claim M3 acceptance.
 
----
+Do not begin M4.
 
-# Final instruction
-
-Execute the remaining M3 remediation now.
-
-Prioritize correctness over obtaining a green test summary.
-
-Do not weaken security checks, remove tests, suppress accessibility rules, fabricate coverage, or report incomplete tests as passing.
-
-If a requirement cannot be completed safely or within the available execution environment, report the exact blocker and retain the affected finding as unresolved.
-
-**M3 only. No M4. No production database operations. No commits or pushes.**
+**Execute the implementation now. Do not stop after producing an audit or another plan.**

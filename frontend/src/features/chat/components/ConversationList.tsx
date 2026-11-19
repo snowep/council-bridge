@@ -72,8 +72,8 @@ export const ConversationList: React.FC<ConversationListProps> = ({
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <Typography variant="h6" sx={{ fontWeight: 600 }}>Conversations</Typography>
             {variant === 'drawer' && (
-              <IconButton onClick={onNewConversation} aria-label="Close">
-                <CloseOutlined />
+              <IconButton onClick={onNewConversation} aria-label="Start new conversation">
+                <AddOutlined />
               </IconButton>
             )}
           </Box>

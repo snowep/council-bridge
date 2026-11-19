@@ -4,7 +4,7 @@
 
 import { createDatabase, getDatabaseInstance } from '../src/database.js';
 import { initializeCouncil, createDefaultConstitution } from './seed/initialize-council.js';
-import { verifyFounderOperationBeforeBootstrap, getFounderPublicKey, getFounderKeyId, setDatabaseInstance, loadFounderKeyPair } from '../src/auth/founder.js';
+import { verifyFounderOperationBeforeBootstrap, setDatabaseInstance, loadFounderPublicKey } from '../src/auth/founder.js';
 import { getAuthConfig } from '../src/auth/index.js';
 import { validateSeedDatabasePath } from '../src/security/database-seeding-guard.js';
 import * as fs from 'fs';
@@ -19,19 +19,19 @@ const isTest = process.env.NODE_ENV === 'test';
 const allowedProdPaths = isProduction ? (process.env.PROD_DATABASE_PATH ? [process.env.PROD_DATABASE_PATH] : []) : [];
 
 async function bootstrapDatabaseWithSignature() {
-  console.log('🔧 Starting Database Bootstrap with Founder Signature...');
-  console.log(`📁 Database path: ${DATABASE_PATH}`);
-  console.log(`🔑 Founder Key ID: ${getFounderKeyId()}`);
+  console.log('Starting Database Bootstrap with Founder Signature...');
+  console.log(`Database path: ${DATABASE_PATH}`);
 
   // Check for founder signature in environment or arguments
   const founderSignature = process.env.FOUNDER_SIGNATURE;
   const founderTimestamp = process.env.FOUNDER_TIMESTAMP;
   const founderNonce = process.env.FOUNDER_NONCE;
+  const founderKeyId = process.env.FOUNDER_KEY_ID;
 
   // In production: REJECT if no signature provided - fail-closed
-  if (isProduction && (!founderSignature || !founderTimestamp || !founderNonce)) {
-    console.error('❌ PRODUCTION ERROR: Founder signature required for database seeding');
-    console.error('   Required: FOUNDER_SIGNATURE, FOUNDER_TIMESTAMP, FOUNDER_NONCE');
+  if (isProduction && (!founderSignature || !founderTimestamp || !founderNonce || !founderKeyId)) {
+    console.error('PRODUCTION ERROR: Founder signature required for database seeding');
+    console.error('   Required: FOUNDER_SIGNATURE, FOUNDER_TIMESTAMP, FOUNDER_NONCE, FOUNDER_KEY_ID');
     process.exit(1);
   }
 
@@ -46,7 +46,7 @@ async function bootstrapDatabaseWithSignature() {
     });
     console.log(`   Path validated: ${canonicalPath}`);
   } catch (error: any) {
-    console.error('❌ Database path validation failed:', error.message);
+    console.error('Database path validation failed:', error.message);
     process.exit(1);
   }
 
@@ -55,12 +55,13 @@ async function bootstrapDatabaseWithSignature() {
 
   // Verify founder signature BEFORE database access in production
   // This prevents database modification without proper authorization
-  if (isProduction && founderSignature && founderTimestamp && founderNonce) {
-    console.log('✅ Founder signature provided, validating BEFORE database access...');
+  if (isProduction && founderSignature && founderTimestamp && founderNonce && founderKeyId) {
+    console.log('Founder signature provided, validating BEFORE database access...');
 
-    const keyPair = loadFounderKeyPair();
-    if (!keyPair) {
-      console.error('❌ Founder keys not found');
+    // SECURITY: Load public key only - never private key for verification
+    const publicKeyInfo = loadFounderPublicKey();
+    if (!publicKeyInfo) {
+      console.error('Founder public key not found');
       process.exit(1);
     }
 
@@ -70,36 +71,35 @@ async function bootstrapDatabaseWithSignature() {
       founderSignature,
       parseInt(founderTimestamp, 10),
       founderNonce,
-      keyPair.key_id
+      founderKeyId
     );
 
     if (!result.valid) {
-      console.error('❌ Founder signature validation failed:', result.error);
+      console.error('Founder signature validation failed:', result.error);
       process.exit(1);
     }
-    console.log('✅ Founder signature validated');
+    console.log('Founder signature validated');
 
     // Create database AFTER signature verification
     db = createDatabase(DATABASE_PATH);
     setDatabaseInstance(db);
-    db.stmt.insertFounderNonce.run(keyPair.key_id, 'bootstrap_database', founderNonce, Date.now());
-    console.log('   Nonce persisted to database');
+    console.log('Database created after authorization');
   } else if (isProduction) {
     // Should not reach here - already checked at function start
-    console.error('❌ PRODUCTION ERROR: Founder signature verification requires all three: signature, timestamp, nonce');
+    console.error('PRODUCTION ERROR: Founder signature verification requires all three: signature, timestamp, nonce');
     process.exit(1);
   } else {
-    console.log('⚠️  No founder signature provided - running in development mode');
+    console.log('No founder signature provided - running in development mode');
 
     // Create database - pass :memory: directly to createDatabase
     db = createDatabase(DATABASE_PATH);
     setDatabaseInstance(db);
   }
 
-  console.log('🔐 Initializing council...');
+  console.log('Initializing council...');
   const council = initializeCouncil(db);
 
-  console.log('📜 Creating constitution...');
+  console.log('Creating constitution...');
   const version = createDefaultConstitution(db);
   console.log(`   Constitution version: v${version}`);
 
@@ -109,7 +109,7 @@ async function bootstrapDatabaseWithSignature() {
   const runtimesResult = db.stmt.getRuntimePersonas?.all('claude') as any[] || [];
 
   db.close();
-  console.log('\n✅ Database bootstrap complete!');
+  console.log('\nDatabase bootstrap complete!');
 }
 
 // Run if called directly
