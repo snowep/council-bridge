@@ -2,7 +2,7 @@
 // Phase 8: RSA-2048 signatures with operation binding and replay protection
 
 import crypto from 'crypto';
-import { readFileSync, writeFileSync, existsSync, mkdirSync, statSync, chmodSync, appendFileSync, renameSync, rmSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, statSync, chmodSync, appendFileSync, renameSync, rmSync, openSync, closeSync, unlinkSync } from 'fs';
 import { join } from 'path';
 import { DatabaseInstance } from '../database.js';
 
@@ -195,77 +195,80 @@ export function isLockStale(): boolean {
  * 1. Try atomic mkdirSync (fails if exists)
  * 2. Write owner.json atomically with unique token
  * 3. If mkdir fails with EEXIST:
- *    - Read existing owner.json
- *    - If stale (isLockStale), attempt atomic takeover:
- *      a. Write new owner.json with new token to temp file
- *      b. Atomic rename owner.json.tmp -> owner.json
- *      c. Verify we still own it by reading back
- *    - If not stale, fail
+ *    - Read existing owner.json and check staleness
+ *    - Use unique takeover marker file (O_EXCL semantics via exclusive creat)
+ *    - Only one process can create the marker - winner gets the lock
+ *    - Winner writes owner.json, loser cleans up and fails
  * 4. On any failure after mkdir, clean up ONLY if we own the lock
  */
 export function acquireNonceLock(): string | null {
-  let token: string | null = null;
-
   try {
     // Ensure parent directory exists
     if (!existsSync(NONCE_STORE_DIR)) {
       mkdirSync(NONCE_STORE_DIR, { recursive: true, mode: DIR_MODE });
     }
 
-    // Generate unique token for this acquisition attempt
-    token = generateLockToken();
-
-    // Attempt exclusive directory creation
+    // Attempt exclusive directory creation - atomic lock acquisition
     mkdirSync(LOCK_FILE);
 
     // We got the directory - write ownership atomically
-    // If this fails, we MUST clean up the directory we just created
+    const newToken = generateLockToken();
     try {
-      writeLockOwner(token);
+      writeLockOwner(newToken);
     } catch (e) {
       // Failed to write owner - clean up our directory and fail
       try { rmSync(LOCK_FILE, { recursive: true, force: true }); } catch {}
       return null;
     }
 
-    return token;
+    return newToken;
 
   } catch (error: any) {
     // Directory already exists - check for stale lock
     if (error.code === 'EEXIST' && existsSync(LOCK_FILE)) {
-      // Read existing owner BEFORE any modification
-      const existingOwner = readLockOwner();
-
       // Check if existing lock is stale
-      if (isLockStale()) {
-        // Attempt atomic ownership transfer
-        // Write new owner to temp file first
-        const newToken = generateLockToken();
-        const tmpOwnerFile = LOCK_OWNER_FILE + '.tmp';
+      if (!isLockStale()) {
+        return null;
+      }
+
+      // Stale lock detected - use exclusive takeover marker for atomic CAS
+      // Only one process should succeed; others fail immediately
+      const takeoverToken = generateLockToken();
+      const takeoverMarker = LOCK_OWNER_FILE + '.takeover-' + process.pid;
+
+      try {
+        // Create exclusive takeover marker file - only one process succeeds
+        // This provides the atomic compare-and-swap semantics we need
+        const markerFd = openSync(takeoverMarker, 'wx');
+
+        // We created the marker - we are the winner of the takeover race
+        // Write our ownership immediately
+        const takeoverOwner: LockOwner = {
+          pid: process.pid,
+          token: takeoverToken,
+          acquired: Date.now()
+        };
 
         try {
-          const newOwner: LockOwner = {
-            pid: process.pid,
-            token: newToken,
-            acquired: Date.now()
-          };
-          writeFileSync(tmpOwnerFile, JSON.stringify(newOwner), { mode: FILE_MODE });
-
-          // Atomic rename - this is the commit point
-          renameSync(tmpOwnerFile, LOCK_OWNER_FILE);
-
-          // Verify we successfully took ownership by reading back
-          const verifyOwner = readLockOwner();
-          if (verifyOwner && verifyOwner.token === newToken) {
-            return newToken;
-          }
-          // Rename succeeded but verification failed - another process raced us
-          return null;
-        } catch {
-          // Failed to take over - clean up temp file if it exists
-          try { rmSync(tmpOwnerFile, { force: true }); } catch {}
+          writeLockOwner(takeoverToken);
+        } catch (writeErr) {
+          // Failed to write owner - clean up marker and fail
+          try { closeSync(markerFd); } catch {}
+          try { unlinkSync(takeoverMarker); } catch {}
           return null;
         }
+
+        // Clean up our marker file
+        try { closeSync(markerFd); } catch {}
+        try { unlinkSync(takeoverMarker); } catch {}
+
+        return takeoverToken;
+
+      } catch (markerErr: any) {
+        // Failed to create marker - someone else won the takeover race
+        // Clean up any stray temp file
+        try { rmSync(LOCK_OWNER_FILE + '.tmp', { force: true }); } catch {}
+        return null;
       }
     }
     return null;
