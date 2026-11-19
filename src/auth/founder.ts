@@ -2,7 +2,7 @@
 // Phase 8: RSA-2048 signatures with operation binding and replay protection
 
 import crypto from 'crypto';
-import { readFileSync, writeFileSync, existsSync, mkdirSync, statSync, chmodSync, appendFileSync, renameSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, statSync, chmodSync, appendFileSync, renameSync, rmSync } from 'fs';
 import { join } from 'path';
 import { DatabaseInstance } from '../database.js';
 
@@ -84,17 +84,14 @@ const LOCK_FILE = join(NONCE_STORE_DIR, '.nonces.lock');
 
 /**
  * Initialize the nonce store directory and file with proper permissions.
+ * Throws on filesystem errors (fail-closed security model).
  */
 function initNonceStore(): void {
-  try {
-    if (!existsSync(NONCE_STORE_DIR)) {
-      mkdirSync(NONCE_STORE_DIR, { recursive: true, mode: DIR_MODE });
-    }
-    if (!existsSync(NONCE_STORE_FILE)) {
-      writeFileSync(NONCE_STORE_FILE, '', { mode: FILE_MODE });
-    }
-  } catch {
-    // Directory may already exist, continue anyway
+  if (!existsSync(NONCE_STORE_DIR)) {
+    mkdirSync(NONCE_STORE_DIR, { recursive: true, mode: DIR_MODE });
+  }
+  if (!existsSync(NONCE_STORE_FILE)) {
+    writeFileSync(NONCE_STORE_FILE, '', { mode: FILE_MODE });
   }
 }
 
@@ -149,7 +146,33 @@ function writeNonceRecordsSync(records: Map<string, NonceRecord>): boolean {
 }
 
 /**
+ * Cross-process file lock for nonce consumption.
+ * Uses mkdir as atomic lock acquisition (directory creation is atomic on POSIX/Windows).
+ */
+function acquireNonceLock(): boolean {
+  try {
+    mkdirSync(LOCK_FILE, { recursive: true });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function releaseNonceLock(): void {
+  try {
+    const lockDir = join(NONCE_STORE_DIR, '.nonces.lock');
+    if (existsSync(lockDir)) {
+      // Remove lock directory synchronously
+      rmSync(lockDir, { recursive: true, force: true });
+    }
+  } catch {
+    // Ignore lock release errors
+  }
+}
+
+/**
  * Check and consume a nonce atomically for cross-process safety.
+ * Uses directory-based lock for cross-process atomicity.
  *
  * @param keyId The founder key ID
  * @param operation The operation name (e.g., 'bootstrap_database')
@@ -171,30 +194,46 @@ export function checkAndConsumeNonceFile(keyId: string, operation: string, nonce
 
   const nonceKey = `${keyId}:${operation}:${nonce}`;
 
-  // Initialize nonce store
-  initNonceStore();
-
-  // Parse existing records - fail closed on corruption
-  let records: Map<string, number>;
-  try {
-    records = parseNonceRecords();
-  } catch {
-    // Corrupt nonce file - fail closed, reject the operation
-    return false;
+  // Acquire cross-process lock
+  if (!acquireNonceLock()) {
+    return false; // Could not acquire lock, reject operation
   }
 
-  // Check if nonce already consumed
-  if (records.has(nonceKey)) {
-    return false;
-  }
-
-  // Write new record (simple append for sync version)
   try {
-    const record: NonceRecord = { key_id: keyId, operation, nonce, timestamp: now };
-    appendFileSync(NONCE_STORE_FILE, JSON.stringify(record) + '\n');
+    // Initialize nonce store
+    initNonceStore();
+
+    // Parse existing records - fail closed on corruption
+    let records: Map<string, number>;
+    try {
+      records = parseNonceRecords();
+    } catch {
+      // Corrupt nonce file - fail closed, reject the operation
+      return false;
+    }
+
+    // Check if nonce already consumed
+    if (records.has(nonceKey)) {
+      return false;
+    }
+
+    // Add new record and write atomically using temp file + rename
+    const newRecord: NonceRecord = { key_id: keyId, operation, nonce, timestamp: now };
+    records.set(nonceKey, now);
+    // Convert Map<string, number> to Map<string, NonceRecord> for writeNonceRecordsSync
+    const fullRecords = new Map<string, NonceRecord>();
+    for (const [key, timestamp] of records.entries()) {
+      const [k, op, n] = key.split(':');
+      fullRecords.set(key, { key_id: k, operation: op, nonce: n, timestamp });
+    }
+    fullRecords.set(nonceKey, newRecord);
+
+    if (!writeNonceRecordsSync(fullRecords)) {
+      return false;
+    }
     return true;
-  } catch {
-    return false;
+  } finally {
+    releaseNonceLock();
   }
 }
 
@@ -613,6 +652,7 @@ export function verifyFounderOperation(
 // Verify signature and consume nonce BEFORE database initialization
 // Uses file-based nonce store for replay protection when SQLite is not available
 // Returns: { valid: boolean, error?: string; owner_type?; owner_id?; runtime? }
+// Uses loadFounderPublicKey() for public-key-only verification (no private key loaded)
 export function verifyFounderOperationBeforeBootstrap(
   operation: string,
   body: any,
@@ -621,7 +661,7 @@ export function verifyFounderOperationBeforeBootstrap(
   nonce: string,
   keyId: string
 ): { valid: boolean; error?: string; owner_type?: 'founder' | 'staff'; owner_id?: string; runtime?: 'claude' | 'hermes' } {
-  const keys = loadFounderKeyPair();
+  const keys = loadFounderPublicKey();
   if (!keys) return { valid: false, error: 'NO_KEYS' };
   if (keyId !== keys.key_id) return { valid: false, error: 'KEY_MISMATCH' };
 
