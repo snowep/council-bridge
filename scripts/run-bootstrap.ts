@@ -1,10 +1,11 @@
 // Database Bootstrap Script - Runs with founder authorization
 // This script populates the database with canonical council identity data
-// SECURITY: Signature verification occurs BEFORE database access
+// SECURITY: Signature verification occurs BEFORE database access in production
+// In production, an EXTERNAL founder signature must be provided via environment variables
 
 import { createDatabase } from '../src/database.js';
 import { initializeCouncil, createDefaultConstitution } from './seed/initialize-council.js';
-import { signFounderRequest, verifyFounderOperation, getFounderKeyId, loadFounderKeyPair, setDatabaseInstance, initializeFounderKeys } from '../src/auth/founder.js';
+import { verifyFounderOperation, getFounderKeyId, loadFounderKeyPair, setDatabaseInstance, initializeFounderKeys } from '../src/auth/founder.js';
 import { validateSeedDatabasePath } from '../src/security/database-seeding-guard.js';
 
 const DATABASE_PATH = process.env.DATABASE_PATH || ':memory:';
@@ -13,6 +14,11 @@ const isTest = process.env.NODE_ENV === 'test';
 
 // SECURITY: Determine allowed production paths from environment
 const allowedProdPaths = isProduction ? (process.env.PROD_DATABASE_PATH ? [process.env.PROD_DATABASE_PATH] : []) : [];
+
+// Founder signature from external source (required in production)
+const founderSignature = process.env.FOUNDER_SIGNATURE;
+const founderTimestamp = process.env.FOUNDER_TIMESTAMP ? parseInt(process.env.FOUNDER_TIMESTAMP, 10) : undefined;
+const founderNonce = process.env.FOUNDER_NONCE;
 
 async function bootstrapDatabase() {
   console.log('🔧 Starting Database Bootstrap...');
@@ -23,7 +29,7 @@ async function bootstrapDatabase() {
   // This validates the path is safe but doesn't authorize production seeding
   try {
     const canonicalPath = validateSeedDatabasePath(DATABASE_PATH, {
-      allowedDevPaths: DATABASE_PATH === ':memory:' || isTest ? [] : ['data'],
+      allowedDevPaths: ['data'],
       allowedProdPaths: allowedProdPaths,
       allowedTestPaths: isTest ? ['test-dbs', 'test-dbs-e2e', 'test-data', 'test-dbs-guard', 'test-db'] : ['test-dbs', 'test-dbs-e2e', 'test-data', 'test-dbs-guard'],
       environment: isProduction ? 'production' : (isTest ? 'test' : 'development')
@@ -34,50 +40,49 @@ async function bootstrapDatabase() {
     process.exit(1);
   }
 
-  // Ensure founder keys exist and can be loaded (needed for signature operations)
-  initializeFounderKeys();
+  // SECURITY: In production, verify founder signature BEFORE database access
+  // Validate external founder signature BEFORE opening, creating, migrating, or writing to database
+  if (isProduction) {
+    if (!founderSignature || !founderTimestamp || !founderNonce) {
+      console.error('❌ PRODUCTION ERROR: External founder signature required for database seeding');
+      console.error('   Required: FOUNDER_SIGNATURE, FOUNDER_TIMESTAMP, FOUNDER_NONCE');
+      process.exit(1);
+    }
 
-  // Create founder signature for bootstrap_database operation
-  console.log('\n🔐 Generating founder signature for bootstrap_database operation...');
+    console.log('\n🔐 Verifying founder signature BEFORE database access in production...');
 
-  const keyPair = loadFounderKeyPair();
-  if (!keyPair) {
-    console.error('❌ Founder keys not found');
-    process.exit(1);
+    const keyPair = loadFounderKeyPair();
+    if (!keyPair) {
+      console.error('❌ Founder keys not found');
+      process.exit(1);
+    }
+
+    const verification = verifyFounderOperation(
+      'bootstrap_database',
+      { database_path: DATABASE_PATH },
+      founderSignature,
+      founderTimestamp,
+      founderNonce,
+      keyPair.key_id
+    );
+
+    if (!verification.valid) {
+      console.error('❌ Founder signature verification failed:', verification.error);
+      process.exit(1);
+    }
+    console.log('✅ Founder signature verified - authorization granted');
+  } else {
+    console.log('⚠️  Running in development mode (no founder signature required)');
   }
 
-  const signature = signFounderRequest(
-    'bootstrap_database',
-    { database_path: DATABASE_PATH },
-    keyPair.private_key_pem,
-    keyPair.key_id
-  );
-
-  console.log(`   Signature: ${signature.signature.substring(0, 50)}...`);
-  console.log(`   Timestamp: ${signature.timestamp}`);
-  console.log(`   Nonce: ${signature.nonce}`);
-
-  // Create database - pass :memory: directly to createDatabase
+  // Create database AFTER signature verification in production, or at start in dev/test
   const db = createDatabase(DATABASE_PATH);
 
   // Set database instance for founder operations (nonce store)
   setDatabaseInstance(db);
 
-  // Verify the signature
-  const verification = verifyFounderOperation(
-    'bootstrap_database',
-    { database_path: DATABASE_PATH },
-    signature.signature,
-    signature.timestamp,
-    signature.nonce,
-    signature.key_id
-  );
-
-  if (!verification.valid) {
-    console.error('❌ Signature verification failed:', verification.error);
-    process.exit(1);
-  }
-  console.log('✅ Signature verified');
+  // Ensure founder keys exist for initialization (needed for nonce store)
+  initializeFounderKeys();
 
   // Initialize council
   const council = initializeCouncil(db);
@@ -96,4 +101,7 @@ async function bootstrapDatabase() {
 }
 
 // Run
-bootstrapDatabase().catch(console.error);
+bootstrapDatabase().catch(error => {
+  console.error(error);
+  process.exit(1);
+});

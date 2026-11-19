@@ -50,13 +50,10 @@ async function bootstrapDatabaseWithSignature() {
     process.exit(1);
   }
 
-  // Create database first (needed for nonce store)
-  const db = createDatabase(DATABASE_PATH);
-  setDatabaseInstance(db);
-
-  // Verify founder signature in production
-  if (founderSignature && founderTimestamp && founderNonce) {
-    console.log('✅ Founder signature provided, validating...');
+  // Verify founder signature BEFORE database access in production
+  // This prevents database modification without proper authorization
+  if (isProduction && founderSignature && founderTimestamp && founderNonce) {
+    console.log('✅ Founder signature provided, validating BEFORE database access...');
 
     const keyPair = loadFounderKeyPair();
     if (!keyPair) {
@@ -78,10 +75,17 @@ async function bootstrapDatabaseWithSignature() {
       process.exit(1);
     }
     console.log('✅ Founder signature validated');
+  } else if (isProduction) {
+    // Should not reach here - already checked at function start
+    console.error('❌ PRODUCTION ERROR: Founder signature verification requires all three: signature, timestamp, nonce');
+    process.exit(1);
   } else {
     console.log('⚠️  No founder signature provided - running in development mode');
-    console.log('   To run with founder authorization, set FOUNDER_SIGNATURE, FOUNDER_TIMESTAMP, and FOUNDER_NONCE');
   }
+
+  // Create database AFTER signature verification (production) or at start (dev/test)
+  const db = createDatabase(DATABASE_PATH);
+  setDatabaseInstance(db);
 
   console.log('🔐 Initializing council...');
   const council = initializeCouncil(db);

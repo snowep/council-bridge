@@ -199,13 +199,15 @@ export function validateSeedDatabasePath(
   }
 
   // In production: check against explicitly authorized production paths
+  // Requirement 9: Exact path or explicitly authorized descendants only, no parent-directory authorization
   if (environment === 'production') {
-    const normalizedCanonical = canonicalPath.replace(/\\/g, '/');
+    const normalizedCanonical = canonicalPath.replace(/\\/g, '/').toLowerCase();
     const isProdPathAuthorized = allowedProdPaths.some(allowedPath => {
-      const normalizedAllowed = allowedPath.replace(/\\/g, '/');
+      const normalizedAllowed = allowedPath.replace(/\\/g, '/').toLowerCase();
+      // Exact match or descendant (canonical must start with allowed + /)
+      // No parent-directory authorization: do NOT check if allowed starts with canonical
       return normalizedCanonical === normalizedAllowed ||
-             normalizedCanonical.startsWith(normalizedAllowed + '/') ||
-             normalizedAllowed.startsWith(normalizedCanonical.replace(/\\/g, '/') + '/');
+             normalizedCanonical.startsWith(normalizedAllowed + '/');
     });
 
     if (!isProdPathAuthorized) {

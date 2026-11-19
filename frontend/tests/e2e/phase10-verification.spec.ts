@@ -4,13 +4,16 @@ const BASE_URL = 'http://localhost:5173';
 
 // Known single-user-mode endpoints that return 404 (not actual errors)
 // These are expected because features are not yet implemented in single-user mode
+// LIMITATION: Test runs in LOCAL_SINGLE_USER_MODE - login/authentication is NOT tested
 const EXPECTED_404_PATHS = [
   '/api/founders',
 ];
 
+// All 13 unique application routes (based on App.tsx)
+// Note: '/' redirects to '/dashboard', so we only test the unique routes
 const PAGES = [
-  { path: '/', name: 'Dashboard', waitFor: 'h6:has-text("Recent Activity")' },
   { path: '/dashboard', name: 'Dashboard', waitFor: 'h6:has-text("Recent Activity")' },
+  { path: '/activity', name: 'Activity', waitFor: 'h5,h6' },
   { path: '/chat', name: 'Chat', waitFor: 'h6:has-text("Conversations")' },
   { path: '/council', name: 'Council', waitFor: '.MuiTabs-root' },
   { path: '/meetings', name: 'Meetings', waitFor: 'h5:has-text("Meetings")' },
@@ -25,9 +28,42 @@ const PAGES = [
 ];
 
 test.describe('Phase 10 - All Pages Verification', () => {
+  // Register console, page-error, and failed-response listeners BEFORE any navigation
+  // This ensures we catch all errors from the first navigation
+  let consoleErrors: string[] = [];
+  let pageErrors: string[] = [];
+  let failedRequests: { status: number; url: string }[] = [];
+
   test.beforeEach(async ({ page }) => {
-    // Local single-user mode - already authenticated as Founder
-    // Register console and error listeners BEFORE navigation to catch all errors
+    // LOCAL_SINGLE_USER_MODE: Test runs in local single-user mode
+    // The server auto-authenticates as Founder on loopback connections
+    // Login/authentication flow is NOT tested - this is a known limitation
+
+    // Track all console errors from the start
+    consoleErrors = [];
+    pageErrors = [];
+    failedRequests = [];
+
+    page.on('console', msg => {
+      if (msg.type() === 'error') {
+        consoleErrors.push(msg.text());
+      }
+    });
+
+    page.on('pageerror', error => {
+      pageErrors.push(error.message);
+    });
+
+    page.on('response', response => {
+      if (response.status() >= 400) {
+        failedRequests.push({
+          status: response.status(),
+          url: response.url()
+        });
+      }
+    });
+
+    // Navigate to base URL first to establish the page
     await page.goto(BASE_URL);
     await page.waitForLoadState('networkidle');
   });
@@ -36,20 +72,6 @@ test.describe('Phase 10 - All Pages Verification', () => {
     test(`${pageInfo.name} page loads without errors`, async ({ page }) => {
       test.setTimeout(90000);
       console.log(`Testing ${pageInfo.name} at ${BASE_URL}${pageInfo.path}`);
-
-      // Track all console errors from the start
-      const consoleErrors: string[] = [];
-      const pageErrors: string[] = [];
-
-      page.on('console', msg => {
-        if (msg.type() === 'error') {
-          consoleErrors.push(msg.text());
-        }
-      });
-
-      page.on('pageerror', error => {
-        pageErrors.push(error.message);
-      });
 
       // Navigate to the page
       await page.goto(BASE_URL + pageInfo.path);
@@ -70,6 +92,7 @@ test.describe('Phase 10 - All Pages Verification', () => {
         e.includes('TypeError')
       );
 
+      // FAIL on unexpected console errors and uncaught page errors
       if (reactErrors.length > 0) {
         console.log(`React errors on ${pageInfo.name}:`, reactErrors);
       }
@@ -89,31 +112,6 @@ test.describe('Phase 10 - All Pages Verification', () => {
 
   test('All pages - no 500 or unexpected 404 errors', async ({ page }) => {
     test.setTimeout(180000);
-
-    // Track console errors from the start
-    const consoleErrors: string[] = [];
-    const pageErrors: string[] = [];
-
-    page.on('console', msg => {
-      if (msg.type() === 'error') {
-        consoleErrors.push(msg.text());
-      }
-    });
-
-    page.on('pageerror', error => {
-      pageErrors.push(error.message);
-    });
-
-    const failedRequests: { status: number; url: string }[] = [];
-
-    page.on('response', response => {
-      if (response.status() >= 400) {
-        failedRequests.push({
-          status: response.status(),
-          url: response.url()
-        });
-      }
-    });
 
     for (const pageInfo of PAGES) {
       await page.goto(BASE_URL + pageInfo.path);
