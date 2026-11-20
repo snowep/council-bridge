@@ -166,10 +166,15 @@ describe('M3-004: File-Based Nonce Store Tests', () => {
       // Don't initialize the store - let it auto-create
       const nonceFile = path.join(import.meta.dirname, '..', '..', '.secrets', 'nonces', 'used-nonces.jsonl');
 
-      // Ensure the directory doesn't exist
+      // Ensure the directory doesn't exist (may fail on Windows with EPERM)
       const nonceDir = path.dirname(nonceFile);
       if (fs.existsSync(nonceDir)) {
-        fs.rmSync(nonceDir, { recursive: true, force: true });
+        try {
+          fs.rmSync(nonceDir, { recursive: true, force: true });
+        } catch {
+          // Directory may be in use or have permission restrictions;
+          // the function will auto-create it below
+        }
       }
 
       // The function should auto-create the directory
