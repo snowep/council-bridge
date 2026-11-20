@@ -12,22 +12,32 @@ const FILE_MODE = 0o600;
 
 // File-based nonce store for pre-database nonce validation
 // Used during bootstrap before SQLite database is initialized
-const NONCE_STORE_DIR = join(process.cwd(), '.secrets', 'nonces');
-const NONCE_STORE_FILE = join(NONCE_STORE_DIR, 'used-nonces.jsonl');
-
-// Cross-process mutual exclusion is provided by a dedicated SQLite database:
-// `BEGIN IMMEDIATE TRANSACTION` serializes writers across all processes on the
-// same file, and the OS enforces that only one process can hold the write lock
-// at a time. This replaces the old PID-marker directory lock, which let two
-// processes with different PIDs both "win" the takeover race.
-const LOCK_DB_PATH = join(NONCE_STORE_DIR, '.nonces-lock.db');
+// Environment variable override: FOUNDER_NONCE_STORE_PATH points to the nonce store file
+// Environment variable override: FOUNDER_NONCE_LOCK_DB points to the lock database file
 const LOCK_STALE_MS = 30 * 1000; // 30 seconds - lock considered stale after this
 let lockDb: Database.Database | null = null;
 
+// Lazy path resolution - allows env vars to be set before module import
+function getNonceStoreFile(): string {
+  return process.env.FOUNDER_NONCE_STORE_PATH
+    ? process.env.FOUNDER_NONCE_STORE_PATH
+    : join(process.cwd(), '.secrets', 'nonces', 'used-nonces.jsonl');
+}
+function getNonceStoreDir(): string {
+  const file = getNonceStoreFile();
+  return join(file, '..');
+}
+function getLockDbPath(): string {
+  return process.env.FOUNDER_NONCE_LOCK_DB
+    || join(getNonceStoreDir(), '.nonces-lock.db');
+}
+
 function getLockDb(): Database.Database {
   if (lockDb) return lockDb;
-  mkdirSync(NONCE_STORE_DIR, { recursive: true, mode: DIR_MODE });
-  lockDb = new Database(LOCK_DB_PATH, { verbose: undefined });
+  const nonceDir = getNonceStoreDir();
+  const lockPath = getLockDbPath();
+  mkdirSync(nonceDir, { recursive: true, mode: DIR_MODE });
+  lockDb = new Database(lockPath, { verbose: undefined });
   lockDb.pragma('journal_mode = WAL');
   lockDb.pragma('busy_timeout = 30000');
   lockDb.exec(`
@@ -53,10 +63,14 @@ function closeLockDb(): void {
 // as a new database, and the lock table is recreated by getLockDb().
 export function resetNonceLockStore(): void {
   closeLockDb();
+  const lockPath = getLockDbPath();
+  // Delete main file, WAL, and SHM files
   for (const suffix of ['', '-wal', '-shm']) {
-    const p = LOCK_DB_PATH + suffix;
+    const p = lockPath + suffix;
     try { if (existsSync(p)) unlinkSync(p); } catch {}
   }
+  // Also try deleting-journal-mode files (iOS) and any temp files
+  try { if (existsSync(lockPath + '-journal')) unlinkSync(lockPath + '-journal'); } catch {}
 }
 
 interface NonceRecord {
@@ -126,59 +140,18 @@ export function setDatabaseInstance(db: DatabaseInstance): void {
  * Mutual exclusion is provided by a dedicated SQLite lock database (see LOCK_DB_PATH).
  */
 
-// Cross-process mutual exclusion is provided by a dedicated SQLite database:
-// `BEGIN IMMEDIATE TRANSACTION` serializes writers across all processes on the
-// same file, and the OS enforces that only one process can hold the write lock
-// at a time. This replaces the old PID-marker directory lock, which let two
-// processes with different PIDs both "win" the takeover race.
-const LOCK_DB_PATH = join(NONCE_STORE_DIR, '.nonces-lock.db');
-let lockDb: Database.Database | null = null;
-
-function getLockDb(): Database.Database {
-  if (lockDb) return lockDb;
-  mkdirSync(NONCE_STORE_DIR, { recursive: true, mode: DIR_MODE });
-  lockDb = new Database(LOCK_DB_PATH, { verbose: undefined });
-  lockDb.pragma('journal_mode = WAL');
-  lockDb.pragma('busy_timeout = 30000');
-  lockDb.exec(`
-    CREATE TABLE IF NOT EXISTS nonce_lock (
-      id INTEGER PRIMARY KEY CHECK (id = 1),
-      owner_pid INTEGER NOT NULL,
-      owner_token TEXT NOT NULL,
-      acquired_at INTEGER NOT NULL
-    )
-  `);
-  return lockDb;
-}
-
-function closeLockDb(): void {
-  if (lockDb) {
-    try { lockDb.close(); } catch {}
-    lockDb = null;
-  }
-}
-
-// Remove the lock database file so a fresh lock is always used. Leftover
-// .db-wal/.db-shm files are harmless: SQLite treats an empty/missing main file
-// as a new database, and the lock table is recreated by getLockDb().
-export function resetNonceLockStore(): void {
-  closeLockDb();
-  for (const suffix of ['', '-wal', '-shm']) {
-    const p = LOCK_DB_PATH + suffix;
-    try { if (existsSync(p)) unlinkSync(p); } catch {}
-  }
-}
-
 /**
  * Initialize the nonce store directory and file with proper permissions.
  * Throws on filesystem errors (fail-closed security model).
  */
 export function initNonceStore(): void {
-  if (!existsSync(NONCE_STORE_DIR)) {
-    mkdirSync(NONCE_STORE_DIR, { recursive: true, mode: DIR_MODE });
+  const nonceDir = getNonceStoreDir();
+  const nonceFile = getNonceStoreFile();
+  if (!existsSync(nonceDir)) {
+    mkdirSync(nonceDir, { recursive: true, mode: DIR_MODE });
   }
-  if (!existsSync(NONCE_STORE_FILE)) {
-    writeFileSync(NONCE_STORE_FILE, '', { mode: FILE_MODE });
+  if (!existsSync(nonceFile)) {
+    writeFileSync(nonceFile, '', { mode: FILE_MODE });
   }
 }
 
@@ -311,9 +284,10 @@ export function releaseNonceLock(token: string | null): boolean {
  */
 export function parseNonceRecords(): Map<string, number> {
   const records = new Map<string, number>();
+  const nonceFile = getNonceStoreFile();
   try {
-    if (!existsSync(NONCE_STORE_FILE)) return records;
-    const content = readFileSync(NONCE_STORE_FILE, 'utf-8');
+    if (!existsSync(nonceFile)) return records;
+    const content = readFileSync(nonceFile, 'utf-8');
     const lines = content.trim().split('\n');
     for (const line of lines) {
       if (!line.trim()) continue;
@@ -336,7 +310,8 @@ export function parseNonceRecords(): Map<string, number> {
 export function writeNonceRecordsSync(records: Map<string, NonceRecord>): boolean {
   try {
     initNonceStore();
-    const tmpFile = NONCE_STORE_FILE + '.tmp';
+    const nonceFile = getNonceStoreFile();
+    const tmpFile = nonceFile + '.tmp';
 
     const lines: string[] = [];
     for (const record of records.values()) {
@@ -347,7 +322,7 @@ export function writeNonceRecordsSync(records: Map<string, NonceRecord>): boolea
     writeFileSync(tmpFile, lines.join('\n') + '\n', { mode: FILE_MODE });
 
     // Atomic rename - either old file or new file, never partial
-    renameSync(tmpFile, NONCE_STORE_FILE);
+    renameSync(tmpFile, nonceFile);
     return true;
   } catch {
     return false;
@@ -425,8 +400,9 @@ export function checkAndConsumeNonceFile(keyId: string, operation: string, nonce
 
 // Clear file-based nonce store (for testing)
 export function clearFileNonceStore(): void {
-  if (existsSync(NONCE_STORE_FILE)) {
-    writeFileSync(NONCE_STORE_FILE, '');
+  const nonceFile = getNonceStoreFile();
+  if (existsSync(nonceFile)) {
+    writeFileSync(nonceFile, '');
   }
 }
 

@@ -1,1037 +1,1169 @@
-# COUNCIL BRIDGE — COMPLETE M3 FINAL REMEDIATION
-## M3-004 + M3-007 + M3-008 + M3-009
-### Implementation, Security Hardening, Testing, Documentation and Final Acceptance Preparation
+# Council Bridge — M3 Final Remediation: Founder Nonce Security, Cross-Process Reliability, UI Regression, and Acceptance Evidence
 
-**Repository:** `C:\Projects\council-bridge`  
-**GitHub:** `snowep/council-bridge`  
-**Branch:** `refactor/repository-structure`  
-**Starting reference commit:** `1dc512de3f6c7a02a23e69b49e353f012d572098`  
-**Scope:** M3 remediation only.  
-**Goal:** Complete all remaining M3 requirements so the Founder can perform the final M3 acceptance and authorize M4.
+## 1. Role and objective
 
----
+Act as the senior backend security engineer, test engineer, and frontend quality engineer responsible for completing the outstanding M3 remediation in Council Bridge.
 
-# 0. YOUR MISSION
+Repository: `https://github.com/snowep/council-bridge`  
+Local repository: `C:\Projects\council-bridge`  
+Authorized working branch: `refactor/repository-structure`
 
-You are implementing the remaining M3 corrections in Council Bridge.
+The latest audited development commit was `9daa2c30b2762a3aa29223b1aeb73ca94e12a668` (`9daa2c3`). The previously audited `master` commit was `8fce7ceab84d792fc76146696065165055fd15df`.
 
-Do not produce another theoretical roadmap.
+These are reference points, not assumptions about the current checkout. Inspect the actual repository and remote state before proceeding.
 
-Inspect the actual repository, identify the current code, edit the necessary files, implement the fixes, run the tests, fix failures, and produce accurate verification reports.
+### Primary objective
 
-The four work areas are:
+Resolve the outstanding M3 findings, with particular emphasis on:
 
-1. M3-004: Database seeding security and Founder authorization.
-2. M3-007: Test reliability and regression verification.
-3. M3-008: Final documentation and evidence reconciliation.
-4. M3-009: Responsive design and accessibility verification.
+1. Replace the unsafe SQLite lease-based Founder nonce locking implementation with atomic, persistent SQLite nonce consumption.
+2. Make all cross-process tests exercise the actual production implementation.
+3. Verify both Founder bootstrap entrypoints enforce authorization before opening or creating the target database.
+4. Repair inaccurate or stale M3 verification reports.
+5. Revert unrelated Dashboard styling changes that violate the approved design constraints.
+6. Remove keyboard shortcuts that hijack browser-native commands.
+7. Complete the outstanding backend, frontend, integration, accessibility, responsive, and regression verification.
+8. Produce an evidence-based M3 final acceptance report.
 
-**The objective is a working, verified M3 implementation—not merely documentation claiming completion.**
+This is an implementation and verification task, not another planning-only audit. Do the work within the authorized scope.
 
-Do not begin M4.
-
----
-
-# 1. MANDATORY INITIAL INSPECTION
-
-Before modifying anything:
-
-1. Open the repository.
-2. Run `git status --short`.
-3. Run `git branch --show-current`.
-4. Run `git log -5 --oneline --decorate`.
-5. Record the actual HEAD commit.
-6. Compare the current HEAD with `1dc512de3f6c7a02a23e69b49e353f012d572098`.
-7. Inspect all uncommitted modifications.
-8. Identify files modified by the Founder or other developers.
-9. Preserve all existing user changes.
-10. Never reset, discard, overwrite or clean unrelated changes.
-
-If the current branch or commit differs from the reference commit, do not switch branches or reset history. Work from the actual current HEAD and explain the difference in the final report.
-
-Create an initial inventory of:
-
-- Founder authentication implementation.
-- Nonce storage implementation.
-- Database seeding guard.
-- Every bootstrap entry point.
-- Existing security tests.
-- Backend test configuration.
-- Frontend test configuration.
-- Playwright configuration.
-- Existing accessibility tests.
-- Existing M3 reports.
-
-Do not assume paths in previous audit reports are correct. Find the actual files.
+**M3 remains unaccepted. Do not declare M3 accepted. Only the Founder can formally accept it.**
 
 ---
 
-# 2. M3-004 — DATABASE SEEDING SECURITY
+## 2. Mandatory boundaries
 
-## 2.1 Fix the two-stage Founder authorization architecture
+### Branch and Git safety
 
-Relevant files to inspect:
+- Work exclusively on `refactor/repository-structure`.
+- Do not modify `master`.
+- Do not merge, fast-forward, rebase, cherry-pick into, or otherwise change `master`.
+- Do not delete, rename, or recreate branches.
+- Do not create another working branch.
+- Do not commit or push.
+- Do not create a pull request.
+- Do not deploy.
+- Do not force-push or rewrite Git history.
+- Do not run destructive Git commands.
+- Preserve all existing uncommitted changes.
+- Inspect `git status`, current branch, HEAD, and branch divergence before editing.
+- Do not discard, overwrite, or silently incorporate unrelated user changes.
+- If the current checkout is not the authorized branch, stop before modifying files and report the discrepancy.
 
-- `src/auth/founder.ts`
-- `src/security/database-seeding-guard.ts`
-- `scripts/bootstrap-signed.ts`
-- `scripts/run-bootstrap.ts`
-- `scripts/bootstrap-database.ts`
-- Every other script that invokes Founder authorization or seeds the database.
+### Database and security safety
 
-First locate these functions:
+- Do not modify the production `council.db`.
+- Do not run production migrations.
+- Do not seed, reset, clean, or delete production data.
+- Do not delete production nonce records.
+- Do not reset the Founder nonce database.
+- Do not remove replay-protection history.
+- Do not weaken authentication, authorization, signature verification, or production path restrictions.
+- Do not introduce hardcoded Founder identities or fallback authentication.
+- Do not expose Founder private keys to the frontend, repository, logs, or test reports.
+- Use isolated temporary databases for tests.
+- Do not silently fall back to an in-memory database or an empty nonce store when persistent storage fails.
 
-- `verifyFounderOperation()`
-- `verifyFounderOperationBeforeBootstrap()`
-- `checkAndConsumeNonce()`
-- File-based nonce storage functions.
-- SQLite nonce persistence functions.
-- `loadFounderKeyPair()`
-- `setDatabaseInstance()`
+### M3 design constraints
 
-Do not create duplicate authorization implementations.
+- Preserve React 19, Vite, TypeScript, and MUI 9.
+- Use official MUI components and Google's Material Design system.
+- Avoid unnecessary custom CSS and custom components.
+- Preserve the approved design system, existing palette, colors, theme definitions, design tokens, typography, and Impeccable-approved styling.
+- Do not introduce gradients, decorative AI-style cards, unnecessary visual effects, or new design patterns.
+- M3-009 may improve responsive layout, spacing, component arrangement, semantic markup, keyboard interaction, and accessibility behavior.
+- M3-009 must not change approved colors, palette, theme definitions, design tokens, or typography.
+- Preserve the four previously documented serious contrast exceptions as separately documented exceptions if they cannot be resolved within these constraints. Do not alter approved colors to make an accessibility test pass.
 
-Maintain a single authoritative Founder signature verification implementation.
+### Scope restrictions
 
-### Required authorization sequence
+- Do not start M4.
+- Do not bootstrap or reconcile the production organization database.
+- Do not change Council membership, divisions, staff identities, or organizational counts.
+- Do not implement new product features unrelated to M3 remediation.
+- Do not perform broad refactoring unrelated to the identified findings.
+- Do not interpret this prompt as M3 acceptance authorization.
 
-Production bootstrap must follow this exact sequence:
+---
 
-1. Read the requested database path.
-2. Validate the database path.
-3. Load the Founder public verification key.
-4. Validate required signature environment variables.
-5. Validate the operation identifier.
-6. Validate the signed payload.
-7. Validate the timestamp.
-8. Verify the cryptographic signature.
-9. Atomically reserve and persist the nonce in the pre-bootstrap nonce store.
-10. Only after all preceding steps succeed, create/open the target database.
-11. Initialize the SQLite database instance.
-12. Persist or reconcile nonce state into SQLite if required by the existing architecture.
-13. Execute the authorized bootstrap operation.
-14. Record the operation result.
+# 3. Phase A — Repository and implementation reconnaissance
 
-Never open the target database before successful authorization.
+Before editing:
 
-Never generate a Founder signature inside a bootstrap script.
+1. Inspect `git status --short`.
+2. Verify the current branch is `refactor/repository-structure`.
+3. Record the current HEAD SHA.
+4. Fetch and inspect remote branch references without changing branches.
+5. Confirm the current relationship between `master` and `refactor/repository-structure`.
+6. Inspect the complete diffs introduced by `9daa2c3` and subsequent commits, if any.
+7. Inspect the current implementations of:
+   - `src/auth/founder.ts`
+   - `scripts/run-bootstrap.ts`
+   - `scripts/bootstrap-signed.ts`
+   - `src/auth/database-seeding-guard.ts` or its actual current location
+   - Existing Founder signature verification modules
+   - Existing nonce persistence modules
+   - Existing migration and database initialization utilities
+   - All Founder security and cross-process tests
+   - Dashboard implementation and related styles
+   - Existing M3 reports and test configuration
+8. Inspect the actual database driver and project module conventions before choosing imports or file extensions.
+9. Inspect the existing Founder authorization API and every call site before changing interfaces.
+10. Establish the current test baseline before modifying implementation.
 
-Never load the Founder's private key just to verify a signature.
+Do not assume the file paths or code samples in this prompt exactly match the current repository. Adapt to the real implementation while preserving the required security properties.
 
-Use the public verification key for verification.
+Produce an initial internal change plan. Do not stop after documenting findings; proceed with implementation unless a genuine blocker prevents it.
 
-Preserve the existing signature format and canonical payload contract unless an interoperability defect is demonstrated.
+---
 
-## 2.2 Harden the file-based nonce store
+# 4. Phase B — Replace Founder nonce locking with transactional SQLite consumption
 
-Find the existing file-based nonce store in `src/auth/founder.ts`.
+## 4.1 Remove the lease-based locking architecture
 
-Modify that implementation rather than introducing a second competing store.
+The current implementation introduced a SQLite lock database with a lease mechanism.
 
-The nonce store must satisfy all requirements below.
+The previous implementation included concepts such as:
 
-### A. Missing nonce file
+- `LOCK_DB_PATH`
+- `LOCK_STALE_MS`
+- `owner_pid`
+- `owner_token`
+- `acquired_at`
+- `acquireNonceLock()`
+- `releaseNonceLock()`
+- `isLockStale()`
+- Lease expiration and takeover
+- A separate nonce file read/check/write operation after lock acquisition
 
-When the nonce file does not exist:
+The previous implementation is unsafe because its SQLite transaction is committed before the actual nonce operation completes. It therefore does not hold an exclusive write transaction throughout nonce consumption.
 
-- Initialize a valid empty nonce store.
-- Create its parent directory if necessary.
-- Use restrictive file permissions.
-- Ensure the directory and file are not writable by unrelated users where the platform supports permission controls.
+A process paused for longer than the lease interval can be treated as stale even though its protected operation has not completed.
 
-### B. Corrupt nonce file
+**Remove this lease architecture rather than extending it with more PID tracking, heartbeats, stale-lock recovery, or ownership markers.**
 
-When the file exists but contains invalid JSON or invalid structure:
+There must be no custom 30-second lease or stale-lock takeover in the replacement.
 
-- Reject authorization.
-- Do not treat the store as empty.
-- Do not automatically delete the file.
-- Do not overwrite the file.
-- Produce an explicit security error.
-- Require an explicit recovery procedure.
+## 4.2 Required architecture
 
-### C. File read errors
+Use one persistent SQLite database dedicated to Founder replay protection.
 
-If the file cannot be read:
+The nonce database must remain independent of the main application database.
 
-- Reject authorization.
-- Do not continue without replay protection.
-- Report the underlying filesystem error without exposing secrets.
+Suggested organization, adapted to existing project conventions:
 
-### D. File write errors
+```text
+src/
+├── auth/
+│   ├── founder.ts
+│   └── founder-nonce-store.ts
+│
+├── database/
+│   └── founder-nonce-database.ts
+│
+└── security/
+    └── database-seeding-guard.ts
 
-If nonce persistence fails:
+tests/
+└── security/
+    ├── founder-nonce-store.test.ts
+    ├── founder-nonce-cross-process.test.ts
+    └── founder-bootstrap-security.test.ts
+```
 
-- Reject authorization.
-- Do not continue to database creation.
-- Do not return successful authorization.
-- Do not silently ignore the error.
+Do not create duplicate modules if equivalent existing modules can be safely adapted.
 
-### E. Atomic persistence
+### Database responsibilities
 
-Implement safe atomic writes:
+The persistent nonce database module must:
 
-1. Write the new state to a temporary file in the same directory.
-2. Flush the temporary file where supported.
-3. Close the file.
-4. Atomically rename it over the target file.
-5. Verify the resulting state where practical.
+- Resolve a stable, explicitly configured filesystem path.
+- Create the required parent directory securely.
+- Use restrictive filesystem permissions where supported.
+- Reject invalid database paths.
+- Avoid silently switching to an in-memory database.
+- Use the existing supported SQLite driver, preferably the existing `better-sqlite3` dependency if that is what the repository uses.
+- Configure appropriate durability and concurrency settings.
+- Initialize the schema safely and idempotently.
+- Propagate initialization and filesystem errors.
+- Close connections cleanly during tests and controlled shutdown.
+- Never delete the database, WAL, or SHM files during normal operation.
 
-Never expose a partially written nonce file.
+Suggested configuration, subject to existing project conventions:
 
-### F. Cross-process concurrency
+```ts
+const NONCE_DATABASE_PATH = path.resolve(
+  process.env.FOUNDER_NONCE_DATABASE_PATH ??
+    path.join(
+      process.cwd(),
+      '.secrets',
+      'nonces',
+      'founder-nonces.db'
+    )
+);
+```
 
-A JavaScript `Set` is insufficient because separate Node.js processes do not share memory.
+Do not assume `process.cwd()` is always an appropriate production location. Verify deployment and execution conventions. The path must be stable across process restarts and independent of the target application database.
 
-Implement an atomic cross-process reservation mechanism.
+If the configured path is missing, ambiguous, inaccessible, invalid, or unsafe, fail closed.
 
-Use one of:
+### Required table
 
-- A reliable filesystem lock with exclusive creation and stale-lock recovery; or
-- A transactional durable store that is independent of the target database.
+Implement a persistent nonce table with a database-enforced uniqueness constraint.
 
-The mechanism must:
+Reference schema:
 
-- Prevent two concurrent processes from consuming the same nonce.
-- Avoid deleting a lock owned by another process.
-- Handle process crashes.
-- Detect stale locks safely.
-- Use bounded waiting and explicit timeout errors.
-- Never fall back to an unlocked write.
+```sql
+CREATE TABLE IF NOT EXISTS consumed_nonces (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    key_id TEXT NOT NULL,
+    operation TEXT NOT NULL,
+    nonce TEXT NOT NULL,
+    consumed_at INTEGER NOT NULL,
+    UNIQUE(key_id, operation, nonce)
+);
 
-Prefer a well-maintained existing dependency if one is already installed.
+CREATE INDEX IF NOT EXISTS idx_consumed_nonces_timestamp
+ON consumed_nonces(consumed_at);
+```
 
-Do not add Redis or another external infrastructure dependency.
+Before adopting the exact uniqueness tuple, inspect the existing security model and confirm the current replay-protection scope.
 
-### G. Nonce persistence across restarts
+Preserve or strengthen the existing scope. Do not silently weaken it.
 
-The file-based nonce store must survive:
+The uniqueness constraint must be enforced by SQLite, not by an in-memory JavaScript `Set` or a preliminary SELECT query.
 
-- Application restarts.
-- Bootstrap process restarts.
-- Database recreation.
-- SQLite deletion or restoration.
+## 4.3 Atomic nonce-consumption operation
 
-Do not clear the file-based nonce history during ordinary bootstrap.
+Implement a production function with responsibilities equivalent to:
 
-Keep nonce expiration behavior consistent with the existing security policy.
+```ts
+export interface ConsumeNonceInput {
+  keyId: string;
+  operation: string;
+  nonce: string;
+  consumedAt?: number;
+}
 
-If expired nonce cleanup exists, ensure it cannot accidentally remove active reservations or weaken replay protection.
+export interface ConsumeNonceResult {
+  consumed: boolean;
+  reason?: 'INVALID_INPUT' | 'REPLAYED';
+}
 
-### H. File location
+export function checkAndConsumeNonce(
+  input: ConsumeNonceInput
+): ConsumeNonceResult;
+```
 
-Inspect how the nonce-store path is currently determined.
+The implementation must:
 
-Use one documented, deterministic location.
+1. Validate the input.
+2. Obtain the persistent nonce database.
+3. Begin an SQLite write transaction using `BEGIN IMMEDIATE` or the driver's equivalent immediate transaction API.
+4. Attempt the nonce insertion under the database-enforced uniqueness constraint.
+5. Return success only when exactly one new nonce record has been committed.
+6. Roll back unsuccessful operations.
+7. Commit only after the nonce has been successfully inserted.
+8. Propagate database and filesystem errors.
+9. Never treat an uncertain outcome as successful authorization.
 
-Do not place the production nonce store inside a database directory that may be recreated or deleted.
+Reference SQL:
 
-Reject unsafe path configurations.
+```sql
+INSERT INTO consumed_nonces (
+    key_id,
+    operation,
+    nonce,
+    consumed_at
+)
+VALUES (?, ?, ?, ?)
+ON CONFLICT(key_id, operation, nonce)
+DO NOTHING;
+```
 
-Do not expose the nonce file path through browser APIs.
+Check the driver's affected-row count.
 
-## 2.3 Correct SQLite nonce reconciliation
+A duplicate must return a replay rejection.
 
-Inspect the current SQLite nonce table and persistence logic.
+Invalid input must never consume a nonce.
 
-Preserve existing schema compatibility.
+### Transaction requirements
+
+The transaction must cover the entire nonce consumption operation.
+
+Do not implement this sequence:
+
+```text
+Acquire lock
+Commit lock transaction
+Check nonce
+Write nonce
+Release lock
+```
+
+Implement this sequence:
+
+```text
+BEGIN IMMEDIATE
+Validate and insert nonce
+COMMIT
+```
+
+On any exception:
+
+```text
+ROLLBACK
+Propagate error
+```
+
+For `better-sqlite3`, a synchronous transaction wrapper using its immediate transaction mode is acceptable:
+
+```ts
+const transaction = db.transaction(() => {
+  // Execute nonce insertion and inspect affected rows.
+});
+
+const result = transaction.immediate();
+```
+
+Adapt the exact API to the installed driver and TypeScript version.
+
+Do not use `await` or asynchronous operations inside a synchronous SQLite transaction.
+
+A transaction must not be released before the nonce insertion has completed.
+
+## 4.4 Database lifecycle and failure handling
+
+Review all connection lifecycle behavior.
 
 Requirements:
 
-- No duplicate nonce acceptance.
-- No race conditions.
-- No silent write failures.
-- No clearing the durable file store after SQLite synchronization.
-- No accepting a nonce simply because SQLite is unavailable.
-- No bypassing replay protection during database initialization.
+- No concurrent deletion of an active nonce database.
+- No production-callable destructive reset function.
+- Do not export a general-purpose `resetNonceLockStore()` or equivalent from a production security module.
+- Test setup must use isolated temporary directories and databases.
+- Test cleanup must close all connections and wait for child processes to exit before deleting temporary files.
+- Do not swallow errors during database initialization, transaction commit, rollback, or persistence.
+- Do not treat corruption, permissions errors, or SQLite failures as proof that a lock is stale.
+- Never respond with successful nonce consumption when commit success is uncertain.
+- Never create an empty replacement database as an automatic recovery from corruption.
+- If a database corruption or I/O failure occurs, fail closed and provide an actionable diagnostic that does not expose secrets.
 
-Use transactional insertion and unique constraints where supported.
+Retain only lifecycle functions genuinely needed by production code.
 
-If SQLite synchronization fails, do not continue to seed.
+---
 
-Ensure that recovery does not accidentally permit replay.
+# 5. Phase C — Legacy nonce-history migration
 
-## 2.4 Fix Founder key-loading and global state
+The existing implementation used file-based nonce persistence, including `used-nonces.jsonl` or an equivalent file.
 
-Inspect `loadFounderKeyPair()` and all module-level Founder key state.
+Do not simply replace the file store with a new empty SQLite database.
 
-Production signature verification must not require the Founder private key.
+That would reset replay protection for previously consumed nonces.
 
-Separate verification-key loading from signing-key loading.
+## Required migration
 
-Recommended separation:
+1. Inspect the exact existing nonce file format and actual production location.
+2. Identify every existing nonce record and its key/operation scope.
+3. Implement a one-time, idempotent migration into the new SQLite nonce database.
+4. Preserve all valid historical nonce records.
+5. Use a migration marker or equivalent transactional mechanism to prevent repeated imports.
+6. Ensure concurrent startup cannot partially or inconsistently migrate the history.
+7. Do not delete, truncate, or rewrite the original nonce file.
+8. Preserve the original file as a recovery source.
+9. Record imported, duplicate, and invalid record counts without logging sensitive nonce values.
+10. If malformed or ambiguous historical records exist, fail closed or stop for manual reconciliation. Do not silently discard them.
+11. Make the migration safe to rerun after an interrupted attempt.
 
-- `loadFounderPublicKey()` — verification only.
-- `loadFounderPrivateKey()` — signing only, restricted to explicitly authorized signing workflows.
-- `verifyFounderSignature()` — pure cryptographic verification.
-- `reserveFounderNonce()` — durable replay protection.
+The migration must be committed transactionally.
 
-Do not rename public functions unnecessarily if other modules depend on them.
+A partial import must never be marked complete.
 
-Ensure missing public keys fail closed.
+After migration, the production nonce-consumption implementation must use the SQLite store as the authoritative source.
 
-Ensure an invalid key ID cannot silently fall back to another identity.
+There must be no silent fallback from SQLite to JSONL.
 
-## 2.5 Update bootstrap entry points
+Add tests covering:
 
-### File: `scripts/bootstrap-signed.ts`
+- First-time successful migration.
+- Repeated migration without duplication.
+- Duplicate historical records.
+- Invalid records.
+- Interrupted migration.
+- Database already containing some of the historical records.
+- Replay rejection for a nonce that was consumed before the migration.
+- Original JSONL file remains unchanged.
 
-Find the existing `verifyFounderOperationBeforeBootstrap()` call.
+Do not run this migration against production data during remediation. Test only against isolated fixtures or copied test data.
 
-Confirm that it executes before any target database operation.
+---
 
-Expected logical structure:
+# 6. Phase D — Founder authorization and bootstrap ordering
 
-```ts
-const databasePath = validateDatabasePath();
+Inspect the current implementations of:
 
-const authorization = await verifyFounderOperationBeforeBootstrap({
-  operation: 'bootstrap',
-  signature: process.env.FOUNDER_SIGNATURE,
-  timestamp: process.env.FOUNDER_TIMESTAMP,
-  nonce: process.env.FOUNDER_NONCE,
-});
+- `src/auth/founder.ts`
+- `scripts/run-bootstrap.ts`
+- `scripts/bootstrap-signed.ts`
+- Any underlying Founder signature and operation-verification utilities.
 
-const db = createDatabase(databasePath);
-setDatabaseInstance(db);
+Both bootstrap entrypoints must use the same security-critical authorization flow.
 
-await synchronizeFounderNonce(authorization);
+## Required order
 
-await executeBootstrap(db);
+```text
+1. Parse and validate the signed Founder operation request.
+2. Validate all required fields and operation types.
+3. Validate the target database path without opening or creating it.
+4. Load the trusted Founder public key.
+5. Verify the externally generated Founder signature.
+6. Validate the signature's associated key ID, operation, timestamp,
+   expiry, nonce, and other existing authorization constraints.
+7. Atomically consume the nonce using the persistent SQLite nonce store.
+8. Only after authorization succeeds, open or create the target database.
+9. Execute the approved bootstrap operation.
+10. Close the target database safely.
 ```
 
-This is illustrative. Adapt to the real interfaces and existing architecture.
+### Non-negotiable requirements
 
-Do not blindly paste code with incompatible function signatures.
+- The target database must not be opened or created before signature verification and successful nonce consumption.
+- Use the trusted public key for verification.
+- Do not load or require the Founder private key in a verification-only path.
+- Do not generate a Founder signature inside a bootstrap script.
+- Do not reintroduce self-signing.
+- Do not bypass operation, time, key ID, or nonce validation.
+- Preserve all existing production path restrictions.
+- Preserve the external signature generation workflow.
+- Invalid, missing, expired, malformed, or replayed signatures must be rejected.
+- Database initialization errors must fail closed.
+- Do not expose private key material in logs or error messages.
 
-### File: `scripts/run-bootstrap.ts`
+Retain existing public function names and signatures where possible. Inspect all call sites before changing the API.
 
-Apply the same authorization order.
+If an existing function is asynchronous, preserve compatibility or update every call site and test deliberately. Do not introduce an API-breaking change without necessity.
 
-Specifically remove any code that:
+### Important operation-failure behavior
 
-- Opens the database before authorization.
-- Generates a signature internally.
-- Initializes a Founder private key for verification.
-- Continues when signature variables are missing.
-- Ignores nonce persistence errors.
+Nonce consumption occurs before target database creation.
 
-### File: `scripts/bootstrap-database.ts`
+Therefore, if authorization succeeds but a later bootstrap operation fails, the nonce remains consumed.
 
-Determine whether this script performs seeding or only ordinary database initialization.
+Document this behavior. A new signed operation with a fresh nonce is required for a retry.
 
-Keep ordinary database initialization separate from production seeding authorization.
-
-Do not accidentally require a Founder seeding signature for normal server startup.
-
-Production server startup must still support its explicitly authorized persistent database path.
-
-Production seeding must require the additional Founder authorization.
-
-## 2.6 Path security
-
-File: `src/security/database-seeding-guard.ts`
-
-Inspect:
-
-- `resolveCanonicalPath()`
-- `validateDatabaseTarget()`
-- `validateSeedDatabasePath()`
-- Production allowlist matching.
-- Symlink resolution.
-- Environment variable conflict checks.
-
-Required behavior:
-
-- Exact allowlist match or descendant match only.
-- Never allow an authorized parent directory to authorize its parent.
-- Case-insensitive comparison on Windows.
-- Canonicalize existing path components.
-- Resolve symlinked ancestors.
-- Correctly handle nonexistent nested target directories.
-- Reject traversal.
-- Reject ambiguous paths.
-- Reject missing production paths.
-- Reject `:memory:` in production seeding.
-- Keep development and test allowlists explicit.
-- Do not introduce permissive default development paths.
-- Detect conflicting database path environment variables.
-
-The canonicalization algorithm must resolve the nearest existing ancestor using real filesystem resolution and safely append the remaining nonexistent path segments.
-
-Do not rely on string normalization alone to claim symlink protection.
-
-Add tests for:
-
-- Existing symlink.
-- Symlinked parent.
-- Nonexistent nested directory beneath a symlink.
-- Parent-directory authorization attempt.
-- Exact allowed path.
-- Allowed descendant.
-- Sibling directory rejection.
-- Windows drive-letter casing.
-- Windows separator variations.
-- Relative traversal.
-- Conflicting environment variables.
-
-## 2.7 Required M3-004 tests
-
-Add tests to the existing security test locations. Do not invent a duplicate test framework.
-
-Test the following:
-
-| Test | Expected |
-|---|---|
-| Valid external signature | Accepted |
-| Missing signature | Rejected |
-| Invalid signature | Rejected |
-| Invalid operation | Rejected |
-| Invalid payload | Rejected |
-| Expired timestamp | Rejected |
-| Malformed timestamp | Rejected |
-| Missing public key | Rejected |
-| Invalid key ID | Rejected |
-| Reused nonce | Rejected |
-| Corrupt nonce file | Rejected |
-| Unreadable nonce file | Rejected |
-| Unwritable nonce file | Rejected |
-| Concurrent identical requests | Exactly one succeeds |
-| Restart and replay | Rejected |
-| Database recreation and replay | Rejected |
-| Invalid signature creates database | No |
-| Missing signature creates database | No |
-| Nonce write failure creates database | No |
-| Valid signature creates database | Yes, only after authorization |
-
-Use isolated temporary directories for tests.
-
-Never use the real production database in security tests.
-
-Do not weaken assertions to make tests pass.
+Do not attempt to restore a consumed nonce automatically after a partial bootstrap failure.
 
 ---
 
-# 3. M3-007 — TEST RELIABILITY AND COMPLETE REGRESSION
+# 7. Phase E — Real production cross-process testing
 
-## 3.1 Fix Founder key global-state isolation
+The existing cross-process tests contain duplicated lock implementations and inline scripts that do not exercise the new production SQLite nonce-consumption implementation.
 
-Investigate the reported failing test:
+Replace those tests.
 
-`should get founder key id`
+## Required test architecture
 
-Find its actual location using repository search.
+The child-process worker must import and call the actual production function:
 
-Trace all tests that modify:
+```ts
+import {
+  checkAndConsumeNonce,
+} from '../../src/auth/founder-nonce-store.js';
+```
 
-- Founder public key.
-- Founder private key.
-- Founder key ID.
-- Founder configuration.
-- Nonce storage path.
-- Database instance.
+Adapt paths and module extensions to the actual project configuration.
 
-Do not simply classify the failure as pre-existing.
+Do not copy, reimplement, simulate, or duplicate the nonce-lock algorithm in a test worker.
 
-Implement reliable isolation.
+Do not use an inline `node -e` implementation of the locking mechanism.
 
-Preferred approach:
+The test worker should call the production API and return its actual result.
 
-1. Remove mutable global state where practical.
-2. Use dependency injection for key configuration and nonce storage.
-3. Otherwise expose an explicit test-only reset function.
-4. Restore original state in `afterEach`.
-5. Ensure tests cannot run concurrently when they share mutable module state.
-6. Keep production behavior unchanged.
+Use isolated temporary nonce databases configured through an explicit test environment variable.
 
-Do not skip the failing test.
+Ensure environment configuration is established before importing modules that initialize database connections.
 
-Do not change its assertion to make it pass.
+## Deterministic concurrency
 
-Do not globally disable test concurrency unless the affected suite genuinely requires isolation.
+Use a parent-controlled IPC barrier or equivalent deterministic synchronization.
 
-## 3.2 Fix Playwright runtime monitoring
+The parent test process should:
 
-File:
+1. Spawn multiple child processes.
+2. Wait until each process confirms it is ready.
+3. Release all processes at the same time.
+4. Collect their real production-function results.
+5. Verify the expected database state.
+6. Close workers and database connections before temporary-directory cleanup.
 
-`frontend/tests/e2e/phase10-verification.spec.ts`
+Do not rely solely on `Promise.all()` timing to prove simultaneous execution.
 
-Inspect every test and shared hook.
+## Required tests
 
-Register listeners before the first navigation.
+### A. Concurrent identical nonce
 
-Collect:
+Two or more independent OS processes attempt to consume the same nonce.
 
-- Uncaught page exceptions.
-- Console errors.
-- Failed network requests.
-- Unexpected HTTP 4xx responses.
-- Unexpected HTTP 5xx responses.
+Expected result:
 
-Do not ignore all errors.
+- Exactly one process succeeds.
+- Every other process receives a replay rejection.
+- The database contains exactly one record for that nonce.
 
-Do not use `.catch(() => {})` around assertions.
+### B. Concurrent distinct nonces
 
-Do not suppress errors simply because they are inconvenient.
+Independent processes consume different nonces concurrently.
 
-Expected errors must be explicitly listed by exact route, HTTP status and reason.
+Expected result:
 
-Use exact pathname comparisons rather than broad `startsWith()` checks.
+- Both operations succeed.
+- Both records exist.
+- Neither operation incorrectly blocks or rejects the other.
 
-Avoid treating every third-party or intentionally aborted request as an application failure, but document every exception.
+### C. Same-process concurrency
 
-## 3.3 Route coverage
+Verify multiple calls in the same Node.js process also behave correctly.
 
-Test the actual application routes.
+### D. Crash before commit
 
-The current target set is:
+Demonstrate that a process terminated while holding an uncommitted nonce transaction does not leave a partially committed nonce record.
 
-1. Dashboard.
-2. Chat.
-3. Council.
-4. Meetings.
-5. Memory.
-6. Organization.
-7. Tasks.
-8. Executions.
-9. Deliverables.
-10. Approvals.
-11. Activity.
-12. Profile.
-13. Settings.
+Use an isolated test database.
 
-Verify these against the actual router before writing tests.
+A suitable approach is to have a controlled test worker open a real transaction through the production database module, insert a test nonce without committing, signal the parent, and wait. The parent terminates that child process. Another child then calls the actual production `checkAndConsumeNonce()` function.
 
-For every route:
+Expected result:
 
-- Navigate directly.
-- Confirm the exact pathname.
-- Confirm the expected page heading or unique page landmark.
-- Confirm the page is not blank.
-- Confirm loading indicators settle.
-- Confirm no unexpected browser exceptions.
-- Confirm no unexpected server errors.
-- Confirm no broken primary navigation.
+- SQLite rolls back the abandoned transaction.
+- The second process can consume the nonce successfully.
+- No partial record remains.
 
-Do not use generic assertions that only prove some heading exists.
+Do not create a second implementation of the locking algorithm to test this behavior.
 
-Do not accept a 404 as a successful route test.
+### E. Restart persistence
 
-## 3.4 Required regression suites
+1. Consume a nonce.
+2. Close the database.
+3. Start a new process.
+4. Attempt to consume the same nonce.
 
-Run the existing project scripts for:
+Expected result: replay rejection.
 
-- Backend unit tests.
-- Backend integration tests.
-- Security tests.
-- Database migration tests.
-- Frontend unit tests.
-- Frontend integration tests.
-- MCP integration tests.
-- Playwright browser E2E.
-- Responsive tests.
-- Accessibility tests.
-- TypeScript.
-- ESLint.
-- Prettier.
-- Production build.
+### F. Main application database recreation
 
-Inspect `package.json` and workspace scripts before choosing commands.
+1. Consume a nonce.
+2. Recreate an isolated test copy of the main application database.
+3. Leave the Founder nonce database untouched.
+4. Attempt to consume the original nonce again.
 
-Do not invent commands.
+Expected result: replay rejection.
 
-Do not claim a suite passed when it did not execute.
+### G. Corrupt nonce database
 
-Do not report a successful test run if the process timed out or returned a nonzero exit code.
+Expected result:
 
-Record:
+- Authorization fails closed.
+- No empty replacement database is silently created.
+- No successful nonce result is returned.
 
-- Exact command.
-- Start and end status.
-- Exit code.
-- Passed count.
-- Failed count.
-- Skipped count.
-- Duration.
-- Relevant error output.
+### H. Unavailable nonce database
 
-If SQLite locking occurs under parallel execution, isolate test databases and correct the shared-resource problem. Use serial execution for the affected database suite only when necessary and document why.
+Expected result:
+
+- Authorization fails closed.
+- Filesystem and SQLite errors propagate.
+- No JSONL or in-memory fallback is used.
+
+### I. Invalid bootstrap signature
+
+Expected result:
+
+- The target database is not created.
+- The target database is not opened.
+- The nonce is not consumed unless the existing authorization policy explicitly requires otherwise.
+
+### J. Missing signature
+
+Expected result:
+
+- Rejection before target database creation.
+- No self-generated signature.
+- No private-key fallback.
+
+### K. Legacy migration and replay
+
+Verify that previously consumed JSONL nonces remain rejected after migration and application restart.
+
+### L. Lock removal
+
+Verify there are no remaining production dependencies on:
+
+- PID-specific takeover files.
+- Owner markers.
+- Stale-lock timeouts.
+- Lease-based acquisition.
+- Old duplicated worker locking logic.
+
+## Test quality rules
+
+- Test production source, not copied algorithms.
+- Do not use mocks for the central cross-process persistence guarantees.
+- Do not weaken existing assertions to make the suite pass.
+- Do not skip failing security tests.
+- Do not increase test timeouts as a substitute for fixing hangs.
+- Use bounded timeouts to detect deadlocks and child-process failures.
+- Verify process exit codes.
+- Verify database contents independently of worker output.
+- Ensure tests clean up their own isolated resources.
 
 ---
 
-# 4. M3-008 — FINAL DOCUMENTATION RECONCILIATION
+# 8. Phase F — Correct the unrelated Dashboard changes in commit 9daa2c3
 
-## 4.1 Inspect all existing M3 documentation
+The latest audited commit included Dashboard changes unrelated to M3-004.
 
-Find and inspect:
+Inspect the exact commit diff and remove only the changes that violate the existing approved design or browser interaction behavior.
 
-- M3 roadmap.
-- M3 acceptance criteria.
-- Wave 0 report.
-- Wave 1–6 reports.
-- M3 remediation reports.
-- Database seeding security report.
-- Test reliability report.
-- Accessibility report.
-- Previous final acceptance reports.
-- `NEXT_PROMPT.md` and archived prompts.
+Target file:
 
-Do not delete historical reports.
+`frontend/src/features/dashboard/pages/DashboardPage.tsx`
 
-Do not rewrite history.
+## 8.1 Revert unauthorized visual additions
 
-## 4.2 Create one authoritative final report
+Remove the newly introduced:
 
-Create:
+- Decorative conic-gradient backgrounds.
+- Unapproved card background decoration.
+- Unapproved visual emphasis and ornamental treatments.
+- Governance badge treatments or presentation changes that were not part of the accepted design baseline.
 
-`docs/reports/M3_FINAL_ACCEPTANCE_AUDIT.md`
+Restore the approved visual appearance from the appropriate pre-change implementation.
 
-Required sections:
+Do not blindly restore the entire file if it contains legitimate later functionality.
 
-1. Executive summary.
-2. Actual repository HEAD.
-3. Actual branch.
-4. Working tree status.
-5. Scope and exclusions.
-6. M3-001 through M3-009 findings matrix.
-7. M3-004 security architecture.
-8. Database seeding entry-point inventory.
-9. Founder authorization sequence.
-10. Nonce replay protection design.
-11. M3-007 test inventory.
-12. Exact test commands and results.
-13. Frontend E2E route coverage.
-14. M3-009 viewport coverage.
-15. Accessibility results.
-16. Known exceptions and limitations.
-17. Regression results.
-18. Security regression results.
-19. Unresolved issues.
-20. Final recommendation to Founder.
+Preserve valid dashboard functionality and all unrelated user changes.
 
-For every test result, include actual evidence.
+Do not change the approved palette, theme tokens, colors, or typography.
 
-Never copy old test counts into the new report.
+## 8.2 Remove browser shortcut hijacking
 
-Never claim independent verification for tests that were only reported by someone else.
+Remove logic that intercepts:
 
-## 4.3 Reconcile the old reports
+- `Ctrl/Cmd + R` to refresh dashboard data.
+- `Ctrl/Cmd + N` to open Create Division.
 
-Correct:
+These are browser-native shortcuts and must not be overridden.
 
-- Stale commit hashes.
-- Incorrect test counts.
-- Contradictory completion statements.
-- Incorrect route counts.
-- Claims of WCAG compliance unsupported by actual evidence.
-- Claims that invitations were delivered when only pending records were created.
-- Reports that describe uncommitted changes as committed.
+Preserve ordinary application-level shortcuts only when they do not conflict with browser, operating-system, or assistive-technology behavior.
 
-Mark superseded reports as historical where appropriate.
+Preserve Escape-to-close behavior if implemented correctly and accessible.
 
-Keep one authoritative final M3 report.
+Do not replace removed browser shortcuts with another set of conflicting shortcuts.
+
+Add or update tests verifying that browser-native shortcuts are not intercepted by the application.
 
 ---
 
-# 5. M3-009 — RESPONSIVE AND ACCESSIBILITY VERIFICATION
+# 9. Phase G — Complete M3 verification findings
 
-## 5.1 Mandatory visual-design boundary
+The remaining M3 findings must be verified against the final implementation.
 
-This is a strict restriction.
+## M3-001 — Dashboard actions
 
-Do not modify:
+Previously identified issue: Dashboard action controls had empty callbacks or did not reach their intended behavior.
 
-- Existing colors.
-- Color palette.
-- Theme definitions.
-- Design tokens.
-- Typography.
-- Approved font configuration.
-- Impeccable-approved visual styling.
+Verify:
 
-You may modify:
+- Create Division opens the correct dialog.
+- The action submits through the actual backend API.
+- Successful creation updates the UI.
+- Failed creation displays an actionable error.
+- Invite Staff performs the actual supported staff-registration operation.
+- The UI does not claim that an email invitation was sent unless an actual invitation-delivery mechanism exists.
+- New Task opens the intended task-creation interface.
+- Loading, disabled, success, and failure states behave correctly.
 
-- Layout.
-- Component arrangement.
-- Spacing.
-- Responsive breakpoints.
-- Navigation behavior.
-- Overflow handling.
-- Component sizing.
-- Keyboard interaction.
-- Focus behavior.
-- Semantic HTML.
-- Accessible labels.
-- Form behavior.
+Use accurate wording. A pending staff record is not equivalent to an invitation email being delivered.
 
-Use existing MUI 9 components.
+## M3-002 — Activity page
 
-Do not replace the existing design system.
+Verify:
 
-Do not introduce generic AI dashboard styling.
+- `/activity` exists.
+- The activity page is implemented.
+- Dashboard activity links work.
+- The activity API returns valid data.
+- Loading, empty, and error states are handled.
+- Authentication and authorization remain enforced.
+- Navigation works on desktop and mobile.
 
-## 5.2 Required routes and viewport matrix
+## M3-003 — Profile
 
-Verify all 13 routes:
+Verify:
 
-- Dashboard.
-- Chat.
-- Council.
-- Meetings.
-- Memory.
-- Organization.
-- Tasks.
-- Executions.
-- Deliverables.
-- Approvals.
-- Activity.
-- Profile.
-- Settings.
+- Profile functionality accurately reflects what is implemented.
+- Read-only fields are presented as read-only.
+- No fake save operation claims persistence when data is not actually saved.
+- Placeholder identity or email information is clearly handled.
+- Profile navigation and user-menu behavior work.
 
-At these five viewport widths:
+## M3-004 — Founder nonce security
+
+Complete the implementation and tests in Phases B–E.
+
+This is the primary security blocker.
+
+## M3-005 — Authorization status
+
+Verify:
+
+- Unauthorized division and staff operations return HTTP 403.
+- Authentication failures retain appropriate status codes.
+- Validation failures return appropriate 4xx responses.
+- Unclassified internal failures return 500.
+- Error handling does not expose sensitive internals.
+- No authorization rule is weakened.
+
+## M3-006 — Settings
+
+Verify:
+
+- Settings changes behave as real draft state.
+- Cancel restores the previous saved state.
+- Save persists only the settings the application actually supports.
+- Unsupported email or push notification delivery controls do not imply delivery functionality exists.
+- Theme settings remain consistent with the approved design system.
+- No approved color or typography tokens are modified.
+
+## M3-007 — Test and integration reliability
+
+Complete the entire backend and frontend verification suite.
+
+Do not report test success based only on earlier commits or prior user reports.
+
+Record actual results from the current final HEAD.
+
+## M3-008 — Evidence and reporting
+
+Update the reports after implementation and verification.
+
+Every report must reference the same actual final HEAD.
+
+Do not leave stale commit identifiers, stale test totals, or conflicting completion statements.
+
+## M3-009 — Responsive and accessibility verification
+
+Complete the route, viewport, accessibility, and keyboard verification described below.
+
+Do not claim WCAG 2.2 AA compliance without corresponding evidence.
+
+---
+
+# 10. Phase H — Responsive, accessibility, and keyboard verification
+
+The previous M3-009 evidence was insufficient because parts of the route list were not actually tested, accessibility coverage was incomplete, and keyboard checks were superficial.
+
+Complete the verification using the actual frontend test environment.
+
+## 10.1 Route inventory
+
+Derive the actual complete route inventory from the application router.
+
+The previously audited expected application pages include:
+
+1. Dashboard
+2. Chat
+3. Council
+4. Meetings
+5. Memory
+6. Organization
+7. Tasks
+8. Executions
+9. Deliverables
+10. Approvals
+11. Activity
+12. Settings
+13. Profile
+
+Verify every actual route. Do not assume a route exists simply because it appears in this list.
+
+Document:
+
+- Route.
+- Page/component.
+- Authentication requirement.
+- Expected loading behavior.
+- Expected empty behavior.
+- Expected error behavior.
+- Verification result.
+
+## 10.2 Viewport matrix
+
+Verify every applicable route at these five widths:
 
 | Viewport | Width |
 |---|---:|
-| Mobile | 375 |
-| Tablet | 768 |
-| Small desktop | 1024 |
-| Desktop | 1440 |
-| Wide desktop | 1920 |
+| Mobile | 375px |
+| Tablet | 768px |
+| Small desktop | 1024px |
+| Desktop | 1440px |
+| Large desktop | 1920px |
 
-Total required route/viewport combinations: 65.
+The expected coverage is the complete route-by-viewport matrix, not merely testing the Dashboard at five widths.
 
-Do not navigate to the root page and claim all routes were tested.
+For 13 applicable routes, this means at least 65 route/viewport combinations.
 
-Each combination must navigate to the actual route.
+Verify:
 
-## 5.3 Responsive assertions
+- No horizontal overflow.
+- No clipped primary navigation.
+- No overlapping controls.
+- No inaccessible dialogs.
+- No hidden critical actions.
+- Correct responsive navigation.
+- Appropriate content layout.
+- Usable forms and tables.
+- Readable text without changing approved typography tokens.
+- Usable touch targets.
+- Correct scroll behavior.
 
-For every route and viewport:
+## 10.3 Automated accessibility
 
-- Verify page content is visible.
-- Verify the main page container is visible.
-- Verify no horizontal document overflow.
-- Verify no clipped primary actions.
-- Verify navigation remains usable.
-- Verify dialogs fit within the viewport.
-- Verify tables and long content remain accessible.
-- Verify forms remain usable.
-- Verify the page does not become blank.
-- Verify there are no uncaught runtime exceptions.
+Use the installed Playwright and axe-core tools where available.
 
-Use real browser measurements.
-
-Do not use arbitrary fixed-width assertions that reject valid responsive layouts.
-
-## 5.4 Keyboard testing
-
-Test:
-
-- Tab navigation.
-- Shift+Tab navigation.
-- Visible focus.
-- Enter activation.
-- Space activation.
-- Escape dismissal.
-- Dialog focus entry.
-- Dialog focus containment.
-- Focus restoration after dialog close.
-- Menu keyboard operation.
-- Form field access.
-- Switch operation.
-- Disabled control behavior.
-
-Do not merely assert that `document.activeElement` exists.
-
-Assert that focus moves to the expected element and that keyboard interactions produce the expected behavior.
-
-## 5.5 axe-core accessibility tests
-
-Use the existing Playwright setup.
-
-If axe-core is already installed, reuse it.
-
-Otherwise install only the minimum necessary compatible development dependency.
-
-Run accessibility scans on all 13 routes.
-
-Also scan important interactive states:
-
-- Dashboard dialogs.
-- Navigation menus.
-- Settings controls.
-- Profile page.
-- Forms.
-- Other modal interactions.
+Run axe-core against every applicable route.
 
 Record:
 
-- Violation ID.
-- Impact.
-- Affected selector.
-- Description.
-- Number of occurrences.
-- Resolution or exception.
+- Routes tested.
+- Number of tests executed.
+- Violations by severity.
+- Number of critical, serious, moderate, and minor violations.
+- Specific unresolved exceptions.
+- Evidence of remediation.
 
-Fix critical and serious violations where possible without changing approved visual styling.
+Do not suppress, disable, or silently ignore accessibility rules to produce a passing result.
 
-The four previously documented serious color-contrast exceptions must remain documented if resolving them requires changing approved colors.
+The four previously documented serious contrast exceptions must remain individually documented if the approved styling constraint prevents resolution.
 
-Do not silently suppress them.
+Do not change existing colors, themes, or tokens to eliminate them.
 
-Do not claim complete WCAG 2.2 AA compliance while serious violations remain.
+## 10.4 Keyboard verification
 
-## 5.6 Fix functional accessibility problems
+Verify actual functionality through keyboard navigation.
 
-Explicitly inspect:
+At minimum:
 
-- Settings switches and accessible names.
-- Profile read-only fields.
-- Buttons without accessible names.
-- Icon-only controls.
-- Dialog labels.
-- Form labels.
-- Input descriptions.
-- Error announcements.
-- Focus visibility.
-- Navigation landmarks.
+- Tab navigation through primary page controls.
+- Shift+Tab reverse navigation.
+- Visible focus indication.
+- Enter and Space activation for appropriate controls.
+- Escape closes appropriate dialogs and menus.
+- Focus enters dialogs when opened.
+- Focus remains managed inside modal dialogs.
+- Focus returns appropriately when dialogs close.
+- No keyboard traps.
+- No browser-native shortcut interception.
+- Navigation and form submission work without a mouse.
+
+Do not consider a superficial press of Tab or Escape sufficient evidence.
+
+## 10.5 Screen reader and semantic structure
+
+Where the available test environment supports it, verify:
+
+- Correct page landmarks.
 - Heading hierarchy.
+- Accessible names.
+- Form labels.
+- Error-message relationships.
+- Dialog names and roles.
+- Button semantics.
+- Status-message announcements.
+- Table semantics.
+- Navigation labels.
 
-Use MUI-supported accessibility props.
-
-Do not create custom CSS unless necessary for functional accessibility or layout behavior.
-
----
-
-# 6. PRESERVE EXISTING FUNCTIONALITY
-
-Run regression tests for the already completed M3 work:
-
-- Dashboard Create Division action.
-- Dashboard Invite Staff action.
-- New Task action.
-- Activity page.
-- Activity API integration.
-- Profile read-only behavior.
-- Settings persistence.
-- Settings Cancel behavior.
-- Authorization errors returning 403.
-- Database seeding safety instructions.
-
-Do not regress previously implemented M3 functionality.
-
-Do not claim a staff invitation was delivered unless an actual delivery mechanism exists.
-
-Do not introduce unrelated feature work.
+Document any manual verification that cannot be automated.
 
 ---
 
-# 7. STRICT M4 BOUNDARY
+# 11. Phase I — Complete regression and quality gates
 
-M4 is NOT authorized during this task.
+Run the applicable checks using the repository's actual package scripts.
 
-Do not implement:
+At minimum:
 
-- Organization bootstrap.
-- Six-division population.
-- Six Division Heads.
-- Forty-five specialists.
-- Fifty-one logical division staff identities.
-- One hundred and two runtime instances.
-- Council seat changes.
-- Persona changes.
-- New agent provisioning.
-- Cross-division integration.
-- M4 orchestration.
-- M4 reliability architecture.
-- New production integrations.
+### Backend
 
-Do not modify production database records.
+- Full backend unit test suite.
+- Full backend integration test suite.
+- Founder authorization tests.
+- Founder signature tests.
+- Founder nonce persistence tests.
+- Cross-process concurrency tests.
+- Bootstrap security tests.
+- Database seeding guard tests.
+- Authentication and authorization regression tests.
+- MCP communication and workflow E2E tests.
 
-Do not execute production migrations.
+### Frontend
 
-Do not seed the production database.
+- Full frontend unit test suite.
+- Dashboard action tests.
+- Activity page tests.
+- Profile tests.
+- Settings tests.
+- Navigation and routing tests.
+- Full route/viewport Playwright suite.
+- axe-core accessibility verification.
+- Keyboard interaction verification.
 
-Do not modify Council membership.
+### Static and build checks
 
-Do not modify Founder identity or governance rules.
+- TypeScript type checking.
+- ESLint.
+- Prettier or the repository's configured formatter check.
+- Backend production build, if applicable.
+- Frontend production build.
 
-M3 is strictly a completion and verification task.
+Do not change tests, lint rules, TypeScript settings, accessibility rules, or build configuration merely to hide existing defects.
 
----
+### Test failure handling
 
-# 8. GIT AND PRODUCTION SAFETY
+For every failing test:
 
-You are authorized to edit files locally for M3 remediation.
+1. Identify the exact failing assertion.
+2. Determine whether the failure is caused by the implementation, test isolation, fixture setup, or environment.
+3. Fix the underlying issue where it is within scope.
+4. Preserve the original test intent.
+5. Rerun the affected test.
+6. Rerun the full relevant suite.
 
-You are NOT authorized to:
+If a failure is genuinely unrelated or pre-existing, document the exact test name, error, and evidence. Do not label it pre-existing without comparing it against the baseline.
 
-- Commit.
-- Push.
-- Merge.
-- Deploy.
-- Force-push.
-- Rewrite Git history.
-- Delete branches.
-- Delete user files.
-- Reset the working tree.
-- Modify production database records.
-- Run production migrations.
-- Run production seeding.
-- Delete `.secrets/archive`.
-- Remove historical evidence.
-
-Preserve all uncommitted user changes.
-
-Do not run destructive cleanup commands.
-
-Do not expose secrets in logs or reports.
+Do not fabricate test totals or report commands as passing when they were not run.
 
 ---
 
-# 9. IMPLEMENTATION ORDER
+# 12. Phase J — Report reconciliation
 
-Execute in this order.
+Update the existing M3 reports rather than creating conflicting documentation.
 
-### Stage 1 — M3-004
+Inspect and reconcile at least:
 
-1. Fix public-key verification.
-2. Fix durable file nonce storage.
-3. Fix cross-process nonce locking.
-4. Fix fail-closed error handling.
-5. Fix nonce synchronization.
-6. Fix bootstrap ordering.
-7. Fix path canonicalization.
-8. Add security tests.
-9. Run all security tests.
+- `docs/reports/M3_FINAL_ACCEPTANCE_AUDIT.md`
+- `docs/reports/M3_FINAL_REMEDIATION_VERIFICATION_REPORT.md`
+- `docs/reports/` reports covering database seeding security.
+- `docs/reports/` reports covering test reliability.
+- `docs/reports/` reports covering responsive and accessibility verification.
+- The original M3 wave reports where their status or conclusions are now outdated.
 
-Do not proceed to claim M3-004 complete until all security tests pass.
+Preserve relevant historical audit findings, but clearly distinguish historical findings from current verified status.
 
-### Stage 2 — M3-007
+All current reports must contain:
 
-1. Fix Founder global-state test isolation.
-2. Fix Playwright monitoring.
-3. Fix route assertions.
-4. Fix HTTP response classification.
-5. Run backend tests.
-6. Run frontend tests.
-7. Run MCP E2E.
-8. Run browser E2E.
-9. Run TypeScript, lint, formatting and production build.
+1. Actual final HEAD SHA.
+2. Current branch.
+3. Date of verification.
+4. Scope of the remediation.
+5. Files changed.
+6. Security design summary.
+7. Legacy nonce migration result.
+8. Bootstrap authorization ordering result.
+9. Cross-process test results.
+10. Full backend test totals.
+11. Full frontend test totals.
+12. MCP E2E results.
+13. TypeScript result.
+14. Lint and formatting results.
+15. Build result.
+16. Responsive route/viewport coverage.
+17. axe-core results.
+18. Keyboard verification results.
+19. Unresolved findings.
+20. Explicit acceptance disposition.
 
-### Stage 3 — M3-009
+Distinguish:
 
-1. Implement actual 13-route × 5-viewport tests.
-2. Fix responsive layout failures.
-3. Implement meaningful keyboard tests.
-4. Run axe-core.
-5. Fix functional accessibility violations.
-6. Document approved contrast exceptions.
-7. Produce the final verification report.
+- Verified by automated tests.
+- Verified by source inspection.
+- Verified manually.
+- Not verified.
+- Blocked.
+- Known exception.
 
-### Stage 4 — M3-008
+A test count is valid only when it comes from an actual executed test command and its exit code.
 
-1. Reconcile all findings.
-2. Reconcile test counts.
-3. Reconcile current Git state.
-4. Update historical reports.
-5. Create `M3_FINAL_ACCEPTANCE_AUDIT.md`.
-6. Verify every report matches the actual code and test results.
+Do not claim GitHub Actions or CI passed when there is no corresponding run.
 
-### Stage 5 — Final quality gate
-
-Run all required tests again after the final code changes.
-
-Do not rely on results from before the last modification.
-
-Check the Git working tree.
-
-Confirm no M4 implementation occurred.
+Do not claim that ChatGPT or another external reviewer independently executed tests when the evidence came from this implementation session.
 
 ---
 
-# 10. REQUIRED DELIVERABLES
+# 13. Required final report
 
-Produce these reports:
+Create or update:
 
-1. `docs/reports/M3_DATABASE_SEEDING_SECURITY_REPORT.md`
-2. `docs/reports/M3_TEST_RELIABILITY_REPORT.md`
-3. `docs/reports/M3_ACCESSIBILITY_RESPONSIVE_REPORT.md`
-4. `docs/reports/M3_FINAL_ACCEPTANCE_AUDIT.md`
+`docs/reports/M3_FINAL_REMEDIATION_VERIFICATION_REPORT.md`
 
-Also maintain the relevant test files and actual implementation.
+Also update:
 
-The reports must reflect actual evidence, not intended behavior.
+`docs/reports/M3_FINAL_ACCEPTANCE_AUDIT.md`
 
----
+The final report must include the following sections.
 
-# 11. FINAL ACCEPTANCE CONDITIONS
-
-M3 may be recommended for Founder acceptance only when:
-
-- M3-001 is verified.
-- M3-002 is verified.
-- M3-003 is verified.
-- M3-004 security implementation and tests pass.
-- M3-005 is verified.
-- M3-006 is verified.
-- M3-007 regression and test reliability are verified.
-- M3-008 documentation is reconciled.
-- M3-009 responsive and accessibility verification is complete.
-- No critical security defect remains.
-- No unexplained failing required test remains.
-- TypeScript passes.
-- Production build passes.
-- Git state is accurately documented.
-- No M4 implementation occurred.
-
-A known pre-existing failure is not automatically acceptable. Investigate it, isolate it, establish its cause and prove it does not invalidate the required test coverage.
-
-Do not declare a milestone accepted on the Founder's behalf.
-
----
-
-# 12. FINAL RESPONSE FORMAT
-
-When finished, provide:
-
-## A. Implementation summary
-List every file changed and what changed.
-
-## B. Security results
-Explain the exact Founder verification and nonce lifecycle.
-
-## C. Test results
-Provide a table:
-
-| Suite | Passed | Failed | Skipped | Exit code |
-|---|---:|---:|---:|---:|
-
-## D. Responsive results
-Report the actual number of route/viewport combinations executed and passed.
-
-## E. Accessibility results
-Report axe-core violations by impact and list approved exceptions.
-
-## F. Documentation
-List the four completed reports.
-
-## G. Git state
-Report actual branch, HEAD, changed files and uncommitted changes.
-
-## H. Remaining issues
-List only genuine unresolved issues.
-
-## I. Final disposition
+## A. Executive disposition
 
 Choose exactly one:
 
-- READY FOR FINAL FOUNDER ACCEPTANCE
-- PARTIALLY COMPLETE — SPECIFIC CORRECTIONS REMAIN
-- BLOCKED — SECURITY OR RELIABILITY DEFECTS REMAIN
+- READY FOR FINAL FOUNDER AUDIT
+- PARTIALLY COMPLETE
+- BLOCKED
 
-Do not claim M3 acceptance.
+Do not use READY FOR FINAL FOUNDER AUDIT unless every required M3 remediation and verification gate has passed or is explicitly accounted for by an approved exception.
 
-Do not begin M4.
+Do not use ACCEPTED or COMPLETE as a substitute for Founder acceptance.
 
-**Execute the implementation now. Do not stop after producing an audit or another plan.**
+## B. M3 findings matrix
+
+| Finding | Required result | Evidence | Status |
+|---|---|---|---|
+| M3-001 | Dashboard actions verified | Tests and source | |
+| M3-002 | Activity page/API verified | Tests and source | |
+| M3-003 | Profile behavior verified | Tests and source | |
+| M3-004 | Transactional nonce security verified | Security and cross-process tests | |
+| M3-005 | Authorization responses verified | API tests | |
+| M3-006 | Settings behavior verified | Frontend tests | |
+| M3-007 | Full test reliability verified | Actual test output | |
+| M3-008 | Reports reconciled | Current report HEAD | |
+| M3-009 | Responsive/accessibility verified | Playwright and axe evidence | |
+
+## C. Founder nonce security
+
+Document:
+
+- Old implementation removed.
+- New database architecture.
+- Transaction behavior.
+- Unique constraint.
+- Error and corruption handling.
+- Persistent database path.
+- Legacy nonce migration.
+- Bootstrap order.
+- Private-key handling.
+- Cross-process concurrency results.
+- Crash/restart results.
+- Main database recreation results.
+
+## D. Test evidence
+
+Give exact:
+
+- Commands.
+- Exit codes.
+- Passed tests.
+- Failed tests.
+- Skipped tests.
+- Duration, where available.
+
+## E. Accessibility evidence
+
+Give:
+
+- Actual route inventory.
+- Viewport matrix completion.
+- axe-core totals and severity breakdown.
+- Keyboard verification results.
+- Four documented contrast exceptions.
+- Any remaining limitation.
+
+## F. Change inventory
+
+List every modified, created, and deleted file with a concise reason.
+
+Identify any changes that were intentionally not made.
+
+## G. Remaining risks
+
+List every unresolved security, functional, regression, or accessibility finding.
+
+Do not conceal known failures.
+
+## H. Acceptance recommendation
+
+State whether the implementation is ready for final Founder review.
+
+Explicitly state:
+
+**M3 has not been formally accepted. Founder approval is still required.**
+
+---
+
+# 14. Definition of done
+
+This remediation is ready for final Founder audit only when all of the following are true:
+
+- [ ] Work remained on `refactor/repository-structure`.
+- [ ] `master` was not modified.
+- [ ] The previous lease-based nonce-locking mechanism has been removed.
+- [ ] Nonces are stored in a persistent independent SQLite database.
+- [ ] Nonce consumption is protected by one complete immediate SQLite transaction.
+- [ ] SQLite enforces nonce uniqueness.
+- [ ] Legacy nonce history has been safely migrated or is explicitly blocked pending reconciliation.
+- [ ] No silent JSONL or in-memory fallback exists.
+- [ ] Both bootstrap scripts verify authorization before target database creation/opening.
+- [ ] Bootstrap verification uses only the Founder public key.
+- [ ] No bootstrap script generates its own Founder signature.
+- [ ] Actual production nonce code is tested by independent child processes.
+- [ ] Identical nonce concurrency permits exactly one success.
+- [ ] Distinct nonce concurrency succeeds.
+- [ ] Crash and rollback behavior is verified.
+- [ ] Restart persistence is verified.
+- [ ] Main application database recreation does not reset replay protection.
+- [ ] Corrupt and unavailable nonce databases fail closed.
+- [ ] Invalid and missing signatures leave the target database unopened.
+- [ ] Dashboard unauthorized styling changes are removed.
+- [ ] Browser-native Ctrl/Cmd+R and Ctrl/Cmd+N shortcuts are not intercepted.
+- [ ] M3-001 through M3-006 regression checks pass or have explicitly documented blockers.
+- [ ] M3-007 full backend/frontend verification is completed.
+- [ ] M3-008 reports reference the actual final HEAD.
+- [ ] M3-009 route/viewport, axe-core, and keyboard coverage is completed.
+- [ ] Approved palette, colors, themes, design tokens, and typography remain unchanged.
+- [ ] All executed quality gates and exit codes are accurately reported.
+- [ ] No production DB, production migration, M4, commit, push, merge, deployment, or destructive Git operation was performed.
+
+---
+
+# 15. Final execution instructions
+
+Execute the implementation and verification work in the authorized branch.
+
+Do not stop after creating a plan or reporting the problems already known.
+
+Do not ask for approval for ordinary, non-destructive code changes inside this authorized M3 scope.
+
+If an operation would cross one of the explicit safety boundaries, do not perform it. Document the blocker instead.
+
+Preserve all unrelated user changes.
+
+At completion, provide:
+
+1. Executive disposition.
+2. Actual final HEAD SHA and branch.
+3. Files changed.
+4. Summary of the transactional SQLite implementation.
+5. Legacy nonce migration status.
+6. Founder bootstrap security verification.
+7. Cross-process concurrency evidence.
+8. Full test results and exit codes.
+9. M3-001 through M3-009 status matrix.
+10. Remaining blockers or exceptions.
+11. Paths to the updated reports.
+
+Do not commit or push.
+
+Do not merge into `master`.
+
+Do not declare M3 accepted.
+
+The final deliverable is an implemented and evidence-backed M3 remediation ready for the Founder's final review.
