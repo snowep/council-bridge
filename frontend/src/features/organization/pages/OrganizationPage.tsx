@@ -13,7 +13,7 @@ import {
   Tab,
 } from '@mui/material';
 import RefreshOutlined from '@mui/icons-material/RefreshOutlined';
-import { apiClient } from '@shared/api/client';
+import { apiClient, getErrorMessage } from '@shared/api/client';
 import type { Division, StaffAgent, DivisionMember } from '@shared/types/api';
 import { TabPanel } from '@shared/components/TabPanel';
 
@@ -42,9 +42,7 @@ export default function OrganizationPage() {
       setStaff(Array.isArray(staffRes?.staff) ? staffRes.staff : []);
       setMembers(Array.isArray(memRes?.members) ? memRes.members : []);
     } catch (err: any) {
-      // Handle error object that might be { code, message } or Error
-      const errorMessage = err?.response?.data?.error || err?.message || err?.message || 'Failed to fetch data';
-      setError(typeof errorMessage === 'string' ? errorMessage : 'Failed to fetch data');
+      setError(getErrorMessage(err, 'Failed to fetch data'));
     } finally {
       setLoading(false);
     }

@@ -20,7 +20,7 @@ import {
   Menu as MenuIcon,
   AddOutlined,
 } from '@mui/icons-material';
-import { apiClient } from '@shared/api/client';
+import { apiClient, getErrorMessage } from '@shared/api/client';
 import type { Message as ApiMessage } from '@shared/types/api';
 import { useAppAuth } from '@app/use-app-auth';
 import { useTheme } from '@mui/material/styles';
@@ -86,7 +86,7 @@ export default function ChatPage() {
       setFilteredConversations(list);
       setPollingErrorCount(0);
     } catch (err: any) {
-      const msg = err?.response?.data?.error || err.message || 'Failed to fetch conversations';
+      const msg = getErrorMessage(err, 'Failed to fetch conversations');
       setFetchError(msg);
       console.error('Failed to fetch conversations:', err);
       setFilteredConversations([]);
@@ -113,7 +113,7 @@ export default function ChatPage() {
         setMessages(prev => [...prev, ...transformedMessages]);
       }
     } catch (err: any) {
-      const msg = err?.response?.data?.error || err.message || 'Failed to fetch messages';
+      const msg = getErrorMessage(err, 'Failed to fetch messages');
       setFetchError(msg);
       console.error('Failed to fetch messages:', err);
       if (offset === 0) setMessages([]);
@@ -178,7 +178,7 @@ export default function ChatPage() {
       setPendingFailedMessage(null);
     } catch (err: any) {
       setMessages(prev => prev.filter(m => m.message_id !== tempId));
-      const msg = err?.response?.data?.error || err.message || 'Failed to send message';
+      const msg = getErrorMessage(err, 'Failed to send message');
       setSendError(msg);
       setPendingFailedMessage(content);
       console.error('Failed to send message:', err);
@@ -207,7 +207,7 @@ export default function ChatPage() {
       ));
       setPendingFailedMessage(null);
     } catch (err: any) {
-      const msg = err?.response?.data?.error || err.message || 'Retry failed';
+      const msg = getErrorMessage(err, 'Retry failed');
       setSendError(msg);
     }
   };

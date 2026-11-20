@@ -55,7 +55,7 @@ import {
   ExpandMore as ExpandMoreIcon,
   ArrowForwardOutlined,
 } from '@mui/icons-material';
-import { apiClient } from '@shared/api/client';
+import { apiClient, getErrorMessage } from '@shared/api/client';
 import type {
   Deliverable,
   DeliverableStatus,
@@ -149,7 +149,7 @@ export default function DeliverablesPage() {
       const list = Array.isArray(res) ? res : res.data || [];
       setDeliverables(list);
     } catch (err: any) {
-      setError(err?.response?.data?.error || err.message || 'Failed to fetch deliverables');
+      setError(getErrorMessage(err, 'Failed to fetch deliverables'));
     } finally {
       setLoading(false);
     }
@@ -232,7 +232,7 @@ export default function DeliverablesPage() {
       showSnackbar('Deliverable created successfully');
     } catch (err: any) {
       console.error('Failed to create deliverable:', err);
-      showSnackbar('Failed to create deliverable: ' + (err?.response?.data?.error || err.message), 'error');
+      showSnackbar(getErrorMessage(err, 'Failed to create deliverable'), 'error');
     } finally {
       setCreating(false);
     }
@@ -246,7 +246,7 @@ export default function DeliverablesPage() {
       showSnackbar('Submitted for review');
     } catch (err: any) {
       console.error('Failed to submit:', err);
-      showSnackbar('Failed to submit: ' + (err?.response?.data?.error || err.message), 'error');
+      showSnackbar(getErrorMessage(err, 'Failed to submit'), 'error');
     }
   };
 
@@ -265,7 +265,7 @@ export default function DeliverablesPage() {
       showSnackbar('Review submitted successfully');
     } catch (err: any) {
       console.error('Failed to review:', err);
-      showSnackbar('Failed to review: ' + (err?.response?.data?.error || err.message), 'error');
+      showSnackbar(getErrorMessage(err, 'Failed to review'), 'error');
     }
   };
 
@@ -280,7 +280,7 @@ export default function DeliverablesPage() {
       showSnackbar('Revision requested successfully');
     } catch (err: any) {
       console.error('Failed to request revision:', err);
-      showSnackbar('Failed to request revision: ' + (err?.response?.data?.error || err.message), 'error');
+      showSnackbar(getErrorMessage(err, 'Failed to request revision'), 'error');
     }
   };
 
@@ -296,7 +296,7 @@ export default function DeliverablesPage() {
       showSnackbar('Reviewer assigned successfully');
     } catch (err: any) {
       console.error('Failed to assign reviewer:', err);
-      showSnackbar('Failed to assign reviewer: ' + (err?.response?.data?.error || err.message), 'error');
+      showSnackbar(getErrorMessage(err, 'Failed to assign reviewer'), 'error');
     }
   };
 

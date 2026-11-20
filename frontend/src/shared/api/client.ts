@@ -1,6 +1,14 @@
 import axios, { type AxiosInstance, type InternalAxiosRequestConfig, AxiosError } from 'axios';
 import type { SessionTokenResponse, AuthStatusResponse, FounderPublicKeyResponse, ActivityResponse } from '../types/api';
 
+// Extract error message from API error response
+export function getErrorMessage(err: any, fallback: string = 'An error occurred'): string {
+  const errorData = err?.response?.data?.error;
+  if (typeof errorData === 'string') return errorData;
+  if (errorData?.message) return errorData.message;
+  return err?.message || fallback;
+}
+
 // Use relative URL when frontend and backend share origin (production with Vite proxy)
 // Fall back to explicit URL for development or separate deployments
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';

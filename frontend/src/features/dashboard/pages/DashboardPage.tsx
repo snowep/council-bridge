@@ -41,7 +41,7 @@ import {
   ChatOutlined,
   PlayArrow,
 } from '@mui/icons-material';
-import { apiClient } from '@shared/api/client';
+import { apiClient, getErrorMessage } from '@shared/api/client';
 import { useNavigate } from 'react-router-dom';
 import type { Division, StaffAgent, ApprovalRequest, ExecutionRequest } from '@shared/types/api';
 
@@ -187,8 +187,7 @@ export default function DashboardPage() {
         }
       }
     } catch (err: any) {
-      const message = err?.response?.data?.error || err.message || `Failed to fetch ${section}`;
-      setErrors(prev => ({ ...prev, [section]: message }));
+      setErrors(prev => ({ ...prev, [section]: getErrorMessage(err, `Failed to fetch ${section}`) }));
       console.error(`Dashboard fetch error (${section}):`, err);
     } finally {
       setLoading(prev => ({ ...prev, [section]: false }));
@@ -235,7 +234,7 @@ export default function DashboardPage() {
       fetchSection('divisions');
     } catch (err: any) {
       console.error('Failed to create division:', err);
-      showSnackbar(err?.response?.data?.error || 'Failed to create division', 'error');
+      showSnackbar(getErrorMessage(err, 'Failed to create division'), 'error');
     } finally {
       setSubmittingAction(false);
     }
@@ -264,7 +263,7 @@ export default function DashboardPage() {
       fetchSection('staff');
     } catch (err: any) {
       console.error('Failed to invite staff:', err);
-      showSnackbar(err?.response?.data?.error || 'Failed to invite staff', 'error');
+      showSnackbar(getErrorMessage(err, 'Failed to invite staff'), 'error');
     } finally {
       setSubmittingAction(false);
     }
@@ -301,7 +300,7 @@ export default function DashboardPage() {
       navigate('/tasks');
     } catch (err: any) {
       console.error('Failed to create task:', err);
-      showSnackbar(err?.response?.data?.error || 'Failed to create task', 'error');
+      showSnackbar(getErrorMessage(err, 'Failed to create task'), 'error');
     } finally {
       setSubmittingAction(false);
     }

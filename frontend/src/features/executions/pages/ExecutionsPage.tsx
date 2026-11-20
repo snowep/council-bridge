@@ -54,7 +54,7 @@ import {
   ArrowBackOutlined,
 } from '@mui/icons-material';
 import ExpandMore from '@mui/icons-material/ExpandMore';
-import { apiClient } from '@shared/api/client';
+import { apiClient, getErrorMessage } from '@shared/api/client';
 import type {
   ExecutionRequest,
   ExecutionStatus,
@@ -139,7 +139,7 @@ export default function ExecutionsPage() {
       const list = Array.isArray(res) ? res : res.data || [];
       setExecutions(list);
     } catch (err: any) {
-      setError(err?.response?.data?.error || err.message || 'Failed to fetch executions');
+      setError(getErrorMessage(err, 'Failed to fetch executions'));
     } finally {
       setLoading(false);
     }
@@ -199,7 +199,7 @@ export default function ExecutionsPage() {
       showSnackbar('Execution request created successfully');
     } catch (err: any) {
       console.error('Failed to create execution:', err);
-      showSnackbar('Failed to create execution: ' + (err?.response?.data?.error || err.message), 'error');
+      showSnackbar(getErrorMessage(err, 'Failed to create execution'), 'error');
     } finally {
       setCreating(false);
     }
@@ -213,7 +213,7 @@ export default function ExecutionsPage() {
       showSnackbar('Execution started');
     } catch (err: any) {
       console.error('Failed to execute:', err);
-      showSnackbar('Failed to execute: ' + (err?.response?.data?.error || err.message), 'error');
+      showSnackbar(getErrorMessage(err, 'Failed to execute'), 'error');
     }
   };
 
@@ -225,7 +225,7 @@ export default function ExecutionsPage() {
       showSnackbar('Execution cancelled');
     } catch (err: any) {
       console.error('Failed to cancel:', err);
-      showSnackbar('Failed to cancel: ' + (err?.response?.data?.error || err.message), 'error');
+      showSnackbar(getErrorMessage(err, 'Failed to cancel'), 'error');
     }
   };
 
@@ -247,7 +247,7 @@ export default function ExecutionsPage() {
       showSnackbar('Execution approved');
     } catch (err: any) {
       console.error('Failed to approve:', err);
-      showSnackbar('Failed to approve: ' + (err?.response?.data?.error || err.message), 'error');
+      showSnackbar(getErrorMessage(err, 'Failed to approve'), 'error');
     }
   };
 
@@ -264,7 +264,7 @@ export default function ExecutionsPage() {
       showSnackbar('Execution request rejected');
     } catch (err: any) {
       console.error('Failed to reject:', err);
-      showSnackbar('Failed to reject: ' + (err?.response?.data?.error || err.message), 'error');
+      showSnackbar(getErrorMessage(err, 'Failed to reject'), 'error');
     }
   };
 

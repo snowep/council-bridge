@@ -24,7 +24,7 @@ import {
   SearchOutlined,
   Close as CloseIcon,
 } from '@mui/icons-material';
-import { apiClient } from '@shared/api/client';
+import { apiClient, getErrorMessage } from '@shared/api/client';
 import type { StaffAgent, Division } from '@shared/types/api';
 import { ParticipantIcon, PARTICIPANT_COLORS } from '../constants';
 
@@ -95,7 +95,7 @@ export function AgentSelectionDialog({
       setAgents(combined);
       setFilteredAgents(combined);
     } catch (err: any) {
-      const msg = err?.response?.data?.error || err.message || 'Failed to load agents';
+      const msg = getErrorMessage(err, 'Failed to load agents');
       setError(msg);
       console.error('Failed to fetch agents:', err);
     } finally {

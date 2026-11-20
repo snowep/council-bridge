@@ -40,7 +40,7 @@ import {
   FilterListOutlined,
   KeyboardArrowUp,
 } from '@mui/icons-material';
-import { apiClient } from '@shared/api/client';
+import { apiClient, getErrorMessage } from '@shared/api/client';
 import { useAppAuth } from '@app/use-app-auth';
 import type { ActivityResponse, ActivityItem } from '@shared/types/api';
 
@@ -165,7 +165,7 @@ export default function ActivityPage() {
       // Use limit * (totalPages - 1) + current page items as approximation
       setTotalCount(response.limit * Math.max(1, Math.ceil((response.offset + response.activity.length) / response.limit)));
     } catch (err: any) {
-      setError(err?.response?.data?.error || err.message || 'Failed to load activity');
+      setError(getErrorMessage(err, 'Failed to load activity'));
     } finally {
       setLoading(false);
     }

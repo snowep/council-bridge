@@ -50,7 +50,7 @@ import {
   ArrowRight,
   LowPriority,
 } from '@mui/icons-material';
-import { apiClient } from '@shared/api/client';
+import { apiClient, getErrorMessage } from '@shared/api/client';
 import type { Task, TaskStatus, TaskAssignedToType } from '@shared/types/api';
 import { TabPanel } from '@shared/components/TabPanel';
 
@@ -125,7 +125,7 @@ const TasksPage: React.FC = () => {
       setTasks(Array.isArray(response.tasks) ? response.tasks : []);
       setError(null);
     } catch (err) {
-      setError('Failed to fetch tasks');
+      setError(getErrorMessage(err, 'Failed to fetch tasks'));
       console.error('Failed to fetch tasks:', err);
       setTasks([]);
     } finally {
@@ -136,7 +136,7 @@ const TasksPage: React.FC = () => {
   const fetchDivisionsAndStaff = async () => {
     try {
       const [divisionsResponse, staffResponse] = await Promise.all([
-        apiClient.get<{ divisions: Array<{ division_id: string; name: string }> }>('/api/divisions/organization/divisions'),
+        apiClient.get<{ divisions: Array<{ division_id: string; name: string }> }>('/api/divisions'),
         apiClient.get<{ staff: Array<{ staff_id: string; name: string; division_id: string }> }>('/api/staff'),
       ]);
       setDivisions(Array.isArray(divisionsResponse.divisions) ? divisionsResponse.divisions : []);
@@ -154,7 +154,7 @@ const TasksPage: React.FC = () => {
       setSelectedTask(response.task);
     } catch (err) {
       console.error('Failed to fetch task detail:', err);
-      showSnackbar('Failed to fetch task detail', 'error');
+      showSnackbar(getErrorMessage(err, 'Failed to fetch task detail'), 'error');
       setSelectedTask(null);
     }
   };
@@ -163,7 +163,11 @@ const TasksPage: React.FC = () => {
     e.preventDefault();
     setSubmitting(true);
     try {
-      await apiClient.post('/api/tasks', createForm);
+      await apiClient.post('/api/tasks', {
+        ...createForm,
+        created_by_type: 'founder',
+        created_by_id: 'founder',
+      });
       showSnackbar('Task created successfully');
       setCreateDialogOpen(false);
       setCreateForm({
@@ -176,7 +180,7 @@ const TasksPage: React.FC = () => {
       fetchTasks();
     } catch (err) {
       console.error('Failed to create task:', err);
-      showSnackbar('Failed to create task', 'error');
+      showSnackbar(getErrorMessage(err, 'Failed to create task'), 'error');
     } finally {
       setSubmitting(false);
     }
@@ -195,7 +199,7 @@ const TasksPage: React.FC = () => {
       fetchTaskDetail(selectedTask.task_id);
     } catch (err) {
       console.error('Failed to assign task:', err);
-      showSnackbar('Failed to assign task', 'error');
+      showSnackbar(getErrorMessage(err, 'Failed to assign task'), 'error');
     } finally {
       setSubmitting(false);
     }
@@ -213,7 +217,7 @@ const TasksPage: React.FC = () => {
       fetchTaskDetail(selectedTask.task_id);
     } catch (err) {
       console.error('Failed to update status:', err);
-      showSnackbar('Failed to update status', 'error');
+      showSnackbar(getErrorMessage(err, 'Failed to update status'), 'error');
     } finally {
       setSubmitting(false);
     }

@@ -13,7 +13,7 @@ import {
   CircularProgress,
 } from '@mui/material';
 import { useAppAuth } from '@app/use-app-auth';
-import { apiClient } from '@shared/api/client';
+import { apiClient, getErrorMessage } from '@shared/api/client';
 
 interface SeatOption { value: string; label: string; }
 interface StaffOption { value: string; label: string; }
@@ -88,7 +88,7 @@ export default function LoginPage() {
       await login(ownerType, ownerId, runtime);
       navigateAfterLogin();
     } catch (err: any) {
-      setError(err?.response?.data?.error || err.message || 'Login failed');
+      setError(getErrorMessage(err, 'Login failed'));
     } finally {
       setSubmitting(false);
     }

@@ -20,7 +20,7 @@ import {
 } from '@mui/material';
 import { VerifiedUserOutlined, RefreshOutlined, CheckCircleOutlined, CancelOutlined } from '@mui/icons-material';
 import { useAppAuth } from '@app/use-app-auth';
-import { apiClient } from '@shared/api/client';
+import { apiClient, getErrorMessage } from '@shared/api/client';
 import type { ApprovalRequest } from '@shared/types/api';
 
 export default function ApprovalsPage() {
@@ -39,7 +39,7 @@ export default function ApprovalsPage() {
       const list = Array.isArray(res) ? res : res.data || [];
       setApprovals(list);
     } catch (err: any) {
-      setError(err?.response?.data?.error || err.message || 'Failed to fetch approvals');
+      setError(getErrorMessage(err, 'Failed to fetch approvals'));
     } finally {
       setLoading(false);
     }
@@ -55,7 +55,7 @@ export default function ApprovalsPage() {
       fetchApprovals();
     } catch (err: any) {
       console.error('Failed to approve:', err);
-      alert('Failed to approve: ' + (err?.response?.data?.error || err.message));
+      alert('Failed to approve: ' + getErrorMessage(err));
     } finally {
       setProcessing(prev => { const next = new Set(prev); next.delete(approvalRequestId); return next; });
     }
@@ -73,7 +73,7 @@ export default function ApprovalsPage() {
       fetchApprovals();
     } catch (err: any) {
       console.error('Failed to reject:', err);
-      alert('Failed to reject: ' + (err?.response?.data?.error || err.message));
+      alert('Failed to reject: ' + getErrorMessage(err));
     } finally {
       setProcessing(prev => { const next = new Set(prev); next.delete(approvalRequestId); return next; });
     }

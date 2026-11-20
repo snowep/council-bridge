@@ -34,7 +34,7 @@ import {
   DescriptionOutlined,
   CategoryOutlined,
 } from '@mui/icons-material';
-import { apiClient } from '@shared/api/client';
+import { apiClient, getErrorMessage } from '@shared/api/client';
 
 interface MemoryEntry {
   memory_id: string;
@@ -112,7 +112,7 @@ export default function MemoryPage() {
       const list = Array.isArray(response) ? response : (response.entries || response.data || []);
       setEntries(Array.isArray(list) ? list : []);
     } catch (err: any) {
-      setError(err?.response?.data?.error || err.message || 'Failed to fetch memory entries');
+      setError(getErrorMessage(err, 'Failed to fetch memory entries'));
       console.error('Memory fetch error:', err);
       setEntries([]);
     } finally {
