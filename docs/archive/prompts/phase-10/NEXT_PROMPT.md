@@ -1,1169 +1,1426 @@
-# Council Bridge — M3 Final Remediation: Founder Nonce Security, Cross-Process Reliability, UI Regression, and Acceptance Evidence
+# IMPLEMENTATION PROMPT — SINGLE ACTIVE RUNTIME + SHARED PERSISTENT INTELLIGENCE
 
-## 1. Role and objective
-
-Act as the senior backend security engineer, test engineer, and frontend quality engineer responsible for completing the outstanding M3 remediation in Council Bridge.
-
-Repository: `https://github.com/snowep/council-bridge`  
-Local repository: `C:\Projects\council-bridge`  
-Authorized working branch: `refactor/repository-structure`
-
-The latest audited development commit was `9daa2c30b2762a3aa29223b1aeb73ca94e12a668` (`9daa2c3`). The previously audited `master` commit was `8fce7ceab84d792fc76146696065165055fd15df`.
-
-These are reference points, not assumptions about the current checkout. Inspect the actual repository and remote state before proceeding.
-
-### Primary objective
-
-Resolve the outstanding M3 findings, with particular emphasis on:
-
-1. Replace the unsafe SQLite lease-based Founder nonce locking implementation with atomic, persistent SQLite nonce consumption.
-2. Make all cross-process tests exercise the actual production implementation.
-3. Verify both Founder bootstrap entrypoints enforce authorization before opening or creating the target database.
-4. Repair inaccurate or stale M3 verification reports.
-5. Revert unrelated Dashboard styling changes that violate the approved design constraints.
-6. Remove keyboard shortcuts that hijack browser-native commands.
-7. Complete the outstanding backend, frontend, integration, accessibility, responsive, and regression verification.
-8. Produce an evidence-based M3 final acceptance report.
-
-This is an implementation and verification task, not another planning-only audit. Do the work within the authorized scope.
-
-**M3 remains unaccepted. Do not declare M3 accepted. Only the Founder can formally accept it.**
+## Project: Council Bridge
+**Repository:** `snowep/council-bridge`  
+**Local path:** `C:\Projects\council-bridge`  
+**Target branch:** `refactor/repository-structure`  
+**Baseline commit:** `56df3fb`  
+**Implementation scope:** Runtime connection lifecycle and shared-memory compatibility  
+**Execution authority:** Founder-authorized implementation of this specific change only
 
 ---
 
-## 2. Mandatory boundaries
+# 1. PRIMARY OBJECTIVE
 
-### Branch and Git safety
+Implement a runtime architecture in which Council Bridge supports exactly ONE active connected runtime at a time:
 
-- Work exclusively on `refactor/repository-structure`.
-- Do not modify `master`.
-- Do not merge, fast-forward, rebase, cherry-pick into, or otherwise change `master`.
-- Do not delete, rename, or recreate branches.
-- Do not create another working branch.
-- Do not commit or push.
-- Do not create a pull request.
-- Do not deploy.
-- Do not force-push or rewrite Git history.
-- Do not run destructive Git commands.
-- Preserve all existing uncommitted changes.
-- Inspect `git status`, current branch, HEAD, and branch divergence before editing.
-- Do not discard, overwrite, or silently incorporate unrelated user changes.
-- If the current checkout is not the authorized branch, stop before modifying files and report the discrepancy.
+- Claude Code
+- Hermes Agent
 
-### Database and security safety
+The Founder must be able to use either runtime independently.
 
-- Do not modify the production `council.db`.
-- Do not run production migrations.
-- Do not seed, reset, clean, or delete production data.
-- Do not delete production nonce records.
-- Do not reset the Founder nonce database.
-- Do not remove replay-protection history.
-- Do not weaken authentication, authorization, signature verification, or production path restrictions.
-- Do not introduce hardcoded Founder identities or fallback authentication.
-- Do not expose Founder private keys to the frontend, repository, logs, or test reports.
-- Use isolated temporary databases for tests.
-- Do not silently fall back to an in-memory database or an empty nonce store when persistent storage fails.
+Examples:
 
-### M3 design constraints
+**Scenario A — Claude Code**
+1. Start Council Bridge.
+2. Connect Claude Code.
+3. Claude Code accesses Council Bridge.
+4. Claude Code operates using the existing Council identities, governance, tools, and persistent memory.
+5. Hermes remains disconnected.
 
-- Preserve React 19, Vite, TypeScript, and MUI 9.
-- Use official MUI components and Google's Material Design system.
-- Avoid unnecessary custom CSS and custom components.
-- Preserve the approved design system, existing palette, colors, theme definitions, design tokens, typography, and Impeccable-approved styling.
-- Do not introduce gradients, decorative AI-style cards, unnecessary visual effects, or new design patterns.
-- M3-009 may improve responsive layout, spacing, component arrangement, semantic markup, keyboard interaction, and accessibility behavior.
-- M3-009 must not change approved colors, palette, theme definitions, design tokens, or typography.
-- Preserve the four previously documented serious contrast exceptions as separately documented exceptions if they cannot be resolved within these constraints. Do not alter approved colors to make an accessibility test pass.
+**Scenario B — Hermes Agent**
+1. Disconnect Claude Code.
+2. Connect Hermes.
+3. Hermes accesses the same Council Bridge.
+4. Hermes operates using the same Council identities, governance, tools, and persistent memory.
+5. Claude Code remains disconnected.
 
-### Scope restrictions
+The critical requirement:
 
-- Do not start M4.
-- Do not bootstrap or reconcile the production organization database.
-- Do not change Council membership, divisions, staff identities, or organizational counts.
-- Do not implement new product features unrelated to M3 remediation.
-- Do not perform broad refactoring unrelated to the identified findings.
-- Do not interpret this prompt as M3 acceptance authorization.
+**Switching runtimes MUST NOT switch, duplicate, reset, isolate, delete, or replace the shared memory system.**
+
+Both runtimes must use the same Bridge-owned persistent intelligence infrastructure.
+
+The architecture must be:
+
+> Single Active Runtime + Shared Persistent Intelligence.
+
+This is a runtime lifecycle change, NOT a redesign of Council Bridge's memory architecture.
 
 ---
 
-# 3. Phase A — Repository and implementation reconnaissance
+# 2. NON-NEGOTIABLE ARCHITECTURAL PRINCIPLES
 
-Before editing:
+## 2.1 Council Bridge owns persistent intelligence
 
-1. Inspect `git status --short`.
-2. Verify the current branch is `refactor/repository-structure`.
-3. Record the current HEAD SHA.
-4. Fetch and inspect remote branch references without changing branches.
-5. Confirm the current relationship between `master` and `refactor/repository-structure`.
-6. Inspect the complete diffs introduced by `9daa2c3` and subsequent commits, if any.
-7. Inspect the current implementations of:
-   - `src/auth/founder.ts`
-   - `scripts/run-bootstrap.ts`
-   - `scripts/bootstrap-signed.ts`
-   - `src/auth/database-seeding-guard.ts` or its actual current location
-   - Existing Founder signature verification modules
-   - Existing nonce persistence modules
-   - Existing migration and database initialization utilities
-   - All Founder security and cross-process tests
-   - Dashboard implementation and related styles
-   - Existing M3 reports and test configuration
-8. Inspect the actual database driver and project module conventions before choosing imports or file extensions.
-9. Inspect the existing Founder authorization API and every call site before changing interfaces.
-10. Establish the current test baseline before modifying implementation.
+Council Bridge remains the authoritative owner of:
 
-Do not assume the file paths or code samples in this prompt exactly match the current repository. Adapt to the real implementation while preserving the required security properties.
+- Agent identities.
+- Agent profiles.
+- Agent responsibilities.
+- Agent capabilities and boundaries.
+- Private agent memory.
+- Shared Council knowledge.
+- Approved knowledge.
+- Historical records.
+- Message history.
+- Council discussions.
+- Council decisions.
+- Voting records.
+- Tasks.
+- Delegations.
+- Execution records.
+- Deliverables.
+- Approval records.
+- Governance rules.
+- Organizational structure.
+- Division and staff records.
 
-Produce an initial internal change plan. Do not stop after documenting findings; proceed with implementation unless a genuine blocker prevents it.
+These records must remain in the existing persistent storage architecture.
 
----
+Do not transfer ownership of canonical memory to Claude Code or Hermes.
 
-# 4. Phase B — Replace Founder nonce locking with transactional SQLite consumption
+Do not make either runtime the authoritative memory provider.
 
-## 4.1 Remove the lease-based locking architecture
+## 2.2 One shared database
 
-The current implementation introduced a SQLite lock database with a lease mechanism.
+Both runtimes MUST connect to the same existing SQLite database.
 
-The previous implementation included concepts such as:
-
-- `LOCK_DB_PATH`
-- `LOCK_STALE_MS`
-- `owner_pid`
-- `owner_token`
-- `acquired_at`
-- `acquireNonceLock()`
-- `releaseNonceLock()`
-- `isLockStale()`
-- Lease expiration and takeover
-- A separate nonce file read/check/write operation after lock acquisition
-
-The previous implementation is unsafe because its SQLite transaction is committed before the actual nonce operation completes. It therefore does not hold an exclusive write transaction throughout nonce consumption.
-
-A process paused for longer than the lease interval can be treated as stale even though its protected operation has not completed.
-
-**Remove this lease architecture rather than extending it with more PID tracking, heartbeats, stale-lock recovery, or ownership markers.**
-
-There must be no custom 30-second lease or stale-lock takeover in the replacement.
-
-## 4.2 Required architecture
-
-Use one persistent SQLite database dedicated to Founder replay protection.
-
-The nonce database must remain independent of the main application database.
-
-Suggested organization, adapted to existing project conventions:
+Required behavior:
 
 ```text
-src/
-├── auth/
-│   ├── founder.ts
-│   └── founder-nonce-store.ts
-│
-├── database/
-│   └── founder-nonce-database.ts
-│
-└── security/
-    └── database-seeding-guard.ts
-
-tests/
-└── security/
-    ├── founder-nonce-store.test.ts
-    ├── founder-nonce-cross-process.test.ts
-    └── founder-bootstrap-security.test.ts
+Claude Code ───────┐
+                   │
+                   ▼
+             Council Bridge
+                   │
+                   ▼
+             Existing SQLite
+                   ▲
+                   │
+Hermes Agent ──────┘
 ```
 
-Do not create duplicate modules if equivalent existing modules can be safely adapted.
+Only one runtime may be actively connected at any given time.
 
-### Database responsibilities
+Both runtimes must use the same database and the same Bridge APIs.
 
-The persistent nonce database module must:
+Do not create:
 
-- Resolve a stable, explicitly configured filesystem path.
-- Create the required parent directory securely.
-- Use restrictive filesystem permissions where supported.
-- Reject invalid database paths.
-- Avoid silently switching to an in-memory database.
-- Use the existing supported SQLite driver, preferably the existing `better-sqlite3` dependency if that is what the repository uses.
-- Configure appropriate durability and concurrency settings.
-- Initialize the schema safely and idempotently.
-- Propagate initialization and filesystem errors.
-- Close connections cleanly during tests and controlled shutdown.
-- Never delete the database, WAL, or SHM files during normal operation.
+- A Claude-specific database.
+- A Hermes-specific database.
+- A second Council Bridge instance.
+- Separate memory directories.
+- Separate Council knowledge stores.
+- Runtime-specific copies of agent identities.
+- A memory synchronization mechanism between two databases.
 
-Suggested configuration, subject to existing project conventions:
+There must be no memory synchronization problem because there must be only ONE canonical memory store.
 
-```ts
-const NONCE_DATABASE_PATH = path.resolve(
-  process.env.FOUNDER_NONCE_DATABASE_PATH ??
-    path.join(
-      process.cwd(),
-      '.secrets',
-      'nonces',
-      'founder-nonces.db'
-    )
-);
+## 2.3 Agent identity is independent of runtime connection
+
+A logical agent identity must survive runtime disconnection.
+
+For example:
+
+```text
+Agent Identity:
+  agent_id: steve-jobs
+  display_name: Steve Jobs
+  role: Permanent Council Member
+  responsibilities: Existing responsibilities
+  capabilities: Existing capabilities
+  boundaries: Existing boundaries
+
+Runtime:
+  active_runtime: claude | hermes | none
+  connection_status: connected | disconnected | switching | error
 ```
 
-Do not assume `process.cwd()` is always an appropriate production location. Verify deployment and execution conventions. The path must be stable across process restarts and independent of the target application database.
+The runtime is an execution environment.
 
-If the configured path is missing, ambiguous, inaccessible, invalid, or unsafe, fail closed.
+The agent identity is an organizational identity.
 
-### Required table
+Never treat them as the same database entity.
 
-Implement a persistent nonce table with a database-enforced uniqueness constraint.
+Disconnecting Claude Code must NOT:
 
-Reference schema:
+- Delete agent identities.
+- Deactivate Council members.
+- Remove Division Heads.
+- Remove specialists.
+- Delete agent memory.
+- Recreate agent records.
+- Change agent responsibilities.
+- Change Council membership.
+- Reset governance records.
 
-```sql
-CREATE TABLE IF NOT EXISTS consumed_nonces (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    key_id TEXT NOT NULL,
-    operation TEXT NOT NULL,
-    nonce TEXT NOT NULL,
-    consumed_at INTEGER NOT NULL,
-    UNIQUE(key_id, operation, nonce)
-);
+Switching to Hermes must NOT create a second copy of those identities.
 
-CREATE INDEX IF NOT EXISTS idx_consumed_nonces_timestamp
-ON consumed_nonces(consumed_at);
+## 2.4 Preserve all existing governance
+
+The following must remain unchanged:
+
+- 11 Council seats.
+- Four permanent founding Council personas.
+- Seven replaceable Council seats.
+- Founder authority.
+- Six organizational divisions.
+- Six Division Heads.
+- Forty-five specialists.
+- Existing agent identity mappings.
+- Existing permissions.
+- Existing access boundaries.
+- Existing delegation rules.
+- Existing approval workflows.
+
+Do not reinterpret, recalculate, seed, or modify organizational records as part of this task.
+
+Do not change the number of agents or Council seats.
+
+---
+
+# 3. FIRST TASK: COMPLETE BASELINE AUDIT
+
+Before changing any file, inspect the actual repository.
+
+Verify:
+
+1. Current branch.
+2. Current HEAD commit.
+3. Working tree status.
+4. Untracked files.
+5. Existing runtime registration mechanisms.
+6. Existing MCP server lifecycle.
+7. Existing Claude Code MCP configuration.
+8. Existing Hermes MCP configuration.
+9. Existing agent identity model.
+10. Existing persistent memory model.
+11. Existing database schema and migrations.
+12. Existing message and conversation persistence.
+13. Existing authentication and authorization.
+14. Existing runtime-related API endpoints.
+15. Existing runtime-related frontend pages and components.
+16. Existing tests involving Claude, Hermes, agents, memory, and MCP connections.
+
+Use commit `56df3fb` as the intended baseline, but do not assume the local repository is identical.
+
+If the local HEAD differs from `56df3fb`, report the difference before proceeding.
+
+If the working tree contains user modifications, preserve them.
+
+Do not reset, clean, overwrite, or discard any existing user changes.
+
+## Baseline report
+
+Create:
+
+`docs/reports/SINGLE_ACTIVE_RUNTIME_BASELINE_AUDIT.md`
+
+Include:
+
+- Current branch and commit.
+- Working tree status.
+- Existing architecture.
+- Relevant files and their responsibilities.
+- Existing runtime connection behavior.
+- Existing shared-memory behavior.
+- Existing database ownership.
+- Identified implementation gaps.
+- Proposed minimal change list.
+- Potential migration requirements.
+- Potential compatibility risks.
+
+Do not begin implementation if the audit reveals a conflict with the non-negotiable architecture above.
+
+---
+
+# 4. RUNTIME LIFECYCLE
+
+Implement a centralized runtime lifecycle manager.
+
+The exact module location must follow the existing repository architecture. Do not invent a new architectural layer if an existing service or module can own this responsibility cleanly.
+
+The lifecycle manager must support:
+
+```text
+NONE
+  │
+  ▼
+DISCONNECTED
+  │
+  ▼
+CONNECTING
+  │
+  ▼
+CONNECTED
+  │
+  ▼
+DISCONNECTING
+  │
+  ▼
+DISCONNECTED
 ```
 
-Before adopting the exact uniqueness tuple, inspect the existing security model and confirm the current replay-protection scope.
+Runtime switching must also support:
 
-Preserve or strengthen the existing scope. Do not silently weaken it.
+```text
+CLAUDE_CONNECTED
+       │
+       ▼
+DISCONNECTING_CLAUDE
+       │
+       ▼
+SWITCHING
+       │
+       ▼
+CONNECTING_HERMES
+       │
+       ▼
+HERMES_CONNECTED
+```
 
-The uniqueness constraint must be enforced by SQLite, not by an in-memory JavaScript `Set` or a preliminary SELECT query.
+The reverse direction must work identically.
 
-## 4.3 Atomic nonce-consumption operation
+The supported runtime identifiers must be explicit and validated:
 
-Implement a production function with responsibilities equivalent to:
+```typescript
+type RuntimeType = 'claude' | 'hermes';
+```
 
-```ts
-export interface ConsumeNonceInput {
-  keyId: string;
-  operation: string;
-  nonce: string;
-  consumedAt?: number;
+Do not silently accept arbitrary runtime identifiers.
+
+## 4.1 Required runtime state
+
+Determine whether the existing schema can represent this state before creating new tables or columns.
+
+The runtime lifecycle must expose equivalent information to:
+
+```typescript
+interface RuntimeConnectionState {
+  activeRuntime: RuntimeType | null;
+  connectionStatus:
+    | 'disconnected'
+    | 'connecting'
+    | 'connected'
+    | 'disconnecting'
+    | 'switching'
+    | 'error';
+
+  sessionId: string | null;
+  connectedAt: string | null;
+  lastHeartbeatAt: string | null;
+  leaseExpiresAt: string | null;
+  lastError: string | null;
 }
-
-export interface ConsumeNonceResult {
-  consumed: boolean;
-  reason?: 'INVALID_INPUT' | 'REPLAYED';
-}
-
-export function checkAndConsumeNonce(
-  input: ConsumeNonceInput
-): ConsumeNonceResult;
 ```
 
-The implementation must:
+This is a behavioral contract, not permission to duplicate existing models.
 
-1. Validate the input.
-2. Obtain the persistent nonce database.
-3. Begin an SQLite write transaction using `BEGIN IMMEDIATE` or the driver's equivalent immediate transaction API.
-4. Attempt the nonce insertion under the database-enforced uniqueness constraint.
-5. Return success only when exactly one new nonce record has been committed.
-6. Roll back unsuccessful operations.
-7. Commit only after the nonce has been successfully inserted.
-8. Propagate database and filesystem errors.
-9. Never treat an uncertain outcome as successful authorization.
+Reuse existing fields and types where appropriate.
 
-Reference SQL:
+Do not create redundant state representations.
 
-```sql
-INSERT INTO consumed_nonces (
-    key_id,
-    operation,
-    nonce,
-    consumed_at
-)
-VALUES (?, ?, ?, ?)
-ON CONFLICT(key_id, operation, nonce)
-DO NOTHING;
-```
+## 4.2 One active runtime invariant
 
-Check the driver's affected-row count.
-
-A duplicate must return a replay rejection.
-
-Invalid input must never consume a nonce.
-
-### Transaction requirements
-
-The transaction must cover the entire nonce consumption operation.
-
-Do not implement this sequence:
+The backend MUST enforce:
 
 ```text
-Acquire lock
-Commit lock transaction
-Check nonce
-Write nonce
-Release lock
+ACTIVE_RUNTIME_COUNT <= 1
 ```
 
-Implement this sequence:
+This is a server-side invariant.
+
+Frontend restrictions alone are insufficient.
+
+The invariant must remain valid under:
+
+- Two simultaneous connection requests.
+- Two simultaneous switching requests.
+- Repeated connection requests.
+- Repeated disconnection requests.
+- Stale sessions.
+- Process restarts.
+- Failed connections.
+- Network interruptions.
+- Concurrent MCP initialization requests.
+
+Use appropriate SQLite transaction semantics and existing concurrency patterns.
+
+If persistent runtime state is required, use the existing SQLite database.
+
+Do not introduce Redis or another external service.
+
+Do not rely exclusively on an in-memory boolean.
+
+Do not use a frontend-only mutex.
+
+Do not implement a time-based lease that can permit two active runtimes after a race.
+
+Any lease mechanism must have explicit ownership, atomic acquisition, safe expiration, and safe release.
+
+The server must reject a second runtime activation while another valid runtime session owns the active connection.
+
+Return a clear, consistent conflict response.
+
+## 4.3 Connection ownership
+
+Every runtime connection must have a unique session identifier.
+
+The session must identify:
+
+- Runtime type.
+- Connection session ID.
+- Connection start time.
+- Last heartbeat.
+- Session status.
+- Session ownership.
+
+A disconnect request must be authorized against the current session.
+
+A stale or superseded session must not be allowed to disconnect a newer session.
+
+A connection request from a runtime must not overwrite an existing active session.
+
+Do not use runtime type alone as a session identity.
+
+## 4.4 Safe runtime switching
+
+Implement a controlled switching operation.
+
+Expected behavior:
+
+1. Validate the requested runtime.
+2. Read current active runtime.
+3. If the requested runtime is already active, return the existing state without creating a duplicate session.
+4. If another runtime is active, initiate controlled disconnection.
+5. Release the previous session safely.
+6. Confirm that no valid active session remains.
+7. Acquire the new runtime session atomically.
+8. Initialize the new runtime against the existing Bridge.
+9. Load the existing agent identities and authorized shared context.
+10. Confirm successful connection.
+11. Persist the new runtime state.
+12. Return the final connection state.
+
+If any step fails:
+
+- Do not leave two active runtimes.
+- Do not destroy existing memory.
+- Do not delete agent identities.
+- Do not corrupt runtime state.
+- Return a meaningful error.
+- Leave the Bridge in a recoverable state.
+
+Do not claim that a runtime is connected before its connection has actually been established.
+
+## 4.5 Stale session recovery
+
+Implement safe recovery for:
+
+- Crashed runtime processes.
+- Abandoned sessions.
+- Missing heartbeats.
+- Expired sessions.
+- Bridge restarts.
+- Interrupted switching operations.
+
+A stale session may be released only after verifying that its ownership is no longer valid.
+
+Do not assume every heartbeat failure means the runtime process is dead.
+
+Do not allow a stale-session cleanup operation to release a newer active session.
+
+Recovery must be safe under concurrent requests.
+
+Document the chosen heartbeat interval, timeout, recovery policy, and race protections.
+
+Do not invent arbitrary timeout values without examining existing operational requirements.
+
+---
+
+# 5. SHARED MEMORY REQUIREMENTS
+
+This is the most important functional requirement.
+
+Claude Code and Hermes must share the same persistent intelligence.
+
+## 5.1 Shared memory behavior
+
+Example:
+
+1. Claude Code connects.
+2. Claude Code retrieves the existing agent memory for a Council persona.
+3. Claude Code records a new approved memory.
+4. Claude Code disconnects.
+5. Hermes connects.
+6. Hermes retrieves the same agent memory.
+7. Hermes sees the memory written by Claude Code.
+8. Hermes records another approved memory.
+9. Hermes disconnects.
+10. Claude Code reconnects.
+11. Claude Code sees the memory written by Hermes.
+
+This must work through the existing Bridge memory APIs and authorization model.
+
+The reverse direction must work as well.
+
+## 5.2 Memory ownership
+
+The canonical memory must remain Bridge-owned.
+
+Required:
 
 ```text
-BEGIN IMMEDIATE
-Validate and insert nonce
-COMMIT
+Claude Code ──┐
+              │
+              ▼
+        Bridge Memory API
+              │
+              ▼
+        Shared SQLite DB
+              ▲
+              │
+Hermes Agent ──┘
 ```
 
-On any exception:
+Do not:
+
+- Store canonical agent memory exclusively in Claude Code.
+- Store canonical agent memory exclusively in Hermes.
+- Create a Claude-only memory database.
+- Create a Hermes-only memory database.
+- Duplicate memory records when switching.
+- Import/export memory as the normal switching mechanism.
+- Reset memory during connection initialization.
+- Clear memory during disconnection.
+- Rebuild identities from runtime-local configuration.
+
+Runtime-local caches may exist only if the existing architecture requires them.
+
+They must never become authoritative.
+
+## 5.3 Memory access and authorization
+
+Both runtimes must use the same existing permission rules.
+
+Do not grant Hermes additional permissions simply because Claude Code disconnects.
+
+Do not grant Claude Code additional permissions simply because Hermes disconnects.
+
+Preserve:
+
+- Agent-private memory boundaries.
+- Shared Council knowledge permissions.
+- Cross-division authorization.
+- Founder-only permissions.
+- Approval requirements.
+- Existing memory provenance rules.
+- Existing audit logging.
+
+Do not let a runtime impersonate another agent.
+
+The identity requesting memory access must be independently authenticated and authorized.
+
+## 5.4 Session context versus persistent memory
+
+Keep these concepts separate:
+
+**Runtime session context**
+- Runtime-specific active conversation.
+- Runtime-specific execution state.
+- Temporary tool invocation context.
+- Runtime-specific session metadata.
+
+**Persistent shared intelligence**
+- Agent memory.
+- Council knowledge.
+- Historical messages.
+- Decisions.
+- Governance.
+- Tasks.
+- Deliverables.
+- Approved records.
+
+A runtime switch may end a runtime-specific session.
+
+It must not erase or reset persistent shared intelligence.
+
+Do not merge Claude Code's private local conversation history with Hermes's private local conversation history unless an existing explicit feature already supports this.
+
+The requirement is shared Bridge-owned memory and organizational history, not forced merging of unrelated runtime-local chat transcripts.
+
+---
+
+# 6. MCP INTEGRATION
+
+Inspect the existing MCP server implementation and both runtime configurations.
+
+Both clients must connect to the same Council Bridge MCP endpoint.
+
+The server must remain the same server.
+
+The database must remain the same database.
+
+The MCP tool definitions must remain consistent across runtimes.
+
+## 6.1 Claude Code
+
+Preserve the existing Claude Code MCP configuration format and connection behavior.
+
+Verify:
+
+- Server URL.
+- Transport.
+- Authentication.
+- Tool discovery.
+- Tool invocation.
+- Connection lifecycle.
+- Disconnect behavior.
+
+Do not introduce a second Claude-specific Bridge server.
+
+## 6.2 Hermes Agent
+
+Preserve the existing Hermes MCP configuration format and connection behavior.
+
+Verify:
+
+- Server URL.
+- Transport.
+- Authentication.
+- Tool discovery.
+- Tool invocation.
+- Connection lifecycle.
+- Disconnect behavior.
+
+Do not introduce a second Hermes-specific Bridge server.
+
+## 6.3 MCP initialization
+
+Runtime registration must not be confused with agent registration.
+
+An MCP client connecting must not create duplicate organizational identities.
+
+An existing identity must be reused.
+
+If the runtime connection is rejected because another runtime is active, return a clear error explaining:
+
+- Which runtime currently owns the connection.
+- Why the new connection was rejected.
+- How to disconnect or switch safely.
+
+Never expose secrets, private keys, tokens, or sensitive session metadata in error messages.
+
+## 6.4 Preserve MCP compatibility
+
+Do not remove or rename existing MCP tools merely to support runtime switching.
+
+Do not change existing tool input schemas without necessity.
+
+Do not break:
+
+- Messaging.
+- Inbox retrieval.
+- Replies.
+- Thread history.
+- Agent registration.
+- Identity verification.
+- Council tools.
+- Memory tools.
+- Task tools.
+- Delegation tools.
+- Execution tools.
+- Deliverable tools.
+- Approval tools.
+
+If a schema change is unavoidable, document it and add backward-compatibility tests.
+
+---
+
+# 7. API REQUIREMENTS
+
+Inspect existing route conventions first.
+
+Reuse existing endpoints where possible.
+
+Avoid unnecessary API duplication.
+
+The implementation must provide equivalent functionality for:
+
+- Reading active runtime state.
+- Connecting a runtime.
+- Disconnecting the active runtime.
+- Switching runtime.
+- Heartbeat/session renewal.
+- Recovering stale sessions, if exposed through an API.
+
+Possible conceptual interface:
 
 ```text
-ROLLBACK
-Propagate error
+GET    /api/runtime
+POST   /api/runtime/connect
+POST   /api/runtime/disconnect
+POST   /api/runtime/switch
+POST   /api/runtime/heartbeat
 ```
 
-For `better-sqlite3`, a synchronous transaction wrapper using its immediate transaction mode is acceptable:
+These are proposed endpoint names, NOT mandatory names.
 
-```ts
-const transaction = db.transaction(() => {
-  // Execute nonce insertion and inspect affected rows.
-});
+Follow the repository's existing route conventions.
 
-const result = transaction.immediate();
-```
+Use existing authentication and authorization middleware.
 
-Adapt the exact API to the installed driver and TypeScript version.
+Validate request bodies with the project's existing Zod conventions.
 
-Do not use `await` or asynchronous operations inside a synchronous SQLite transaction.
+Use consistent response structures.
 
-A transaction must not be released before the nonce insertion has completed.
+Use correct HTTP status codes.
 
-## 4.4 Database lifecycle and failure handling
+Recommended semantics:
 
-Review all connection lifecycle behavior.
+| Situation | Expected response |
+|---|---|
+| Successful connection | 200 or 201 |
+| Successful disconnection | 200 |
+| Runtime already active | 200, idempotent |
+| Another runtime owns connection | 409 |
+| Invalid runtime identifier | 400 |
+| Unauthorized operation | 401/403 |
+| Invalid session ownership | 403 or 409 |
+| Internal lifecycle failure | 500 |
 
-Requirements:
+Do not expose stack traces or internal secrets.
 
-- No concurrent deletion of an active nonce database.
-- No production-callable destructive reset function.
-- Do not export a general-purpose `resetNonceLockStore()` or equivalent from a production security module.
-- Test setup must use isolated temporary directories and databases.
-- Test cleanup must close all connections and wait for child processes to exit before deleting temporary files.
-- Do not swallow errors during database initialization, transaction commit, rollback, or persistence.
-- Do not treat corruption, permissions errors, or SQLite failures as proof that a lock is stale.
-- Never respond with successful nonce consumption when commit success is uncertain.
-- Never create an empty replacement database as an automatic recovery from corruption.
-- If a database corruption or I/O failure occurs, fail closed and provide an actionable diagnostic that does not expose secrets.
-
-Retain only lifecycle functions genuinely needed by production code.
+Do not bypass existing authentication to simplify local testing.
 
 ---
 
-# 5. Phase C — Legacy nonce-history migration
+# 8. FRONTEND REQUIREMENTS
 
-The existing implementation used file-based nonce persistence, including `used-nonces.jsonl` or an equivalent file.
+Inspect the existing frontend and design system before implementation.
 
-Do not simply replace the file store with a new empty SQLite database.
+Use:
 
-That would reset replay protection for previously consumed nonces.
+- React 19.
+- Vite.
+- TypeScript.
+- MUI 9.
+- Existing Google Material Design system.
+- Existing vanilla MUI components.
 
-## Required migration
+Do not introduce a new component library.
 
-1. Inspect the exact existing nonce file format and actual production location.
-2. Identify every existing nonce record and its key/operation scope.
-3. Implement a one-time, idempotent migration into the new SQLite nonce database.
-4. Preserve all valid historical nonce records.
-5. Use a migration marker or equivalent transactional mechanism to prevent repeated imports.
-6. Ensure concurrent startup cannot partially or inconsistently migrate the history.
-7. Do not delete, truncate, or rewrite the original nonce file.
-8. Preserve the original file as a recovery source.
-9. Record imported, duplicate, and invalid record counts without logging sensitive nonce values.
-10. If malformed or ambiguous historical records exist, fail closed or stop for manual reconciliation. Do not silently discard them.
-11. Make the migration safe to rerun after an interrupted attempt.
+Do not add custom visual styling unless necessary.
 
-The migration must be committed transactionally.
+Do not change:
 
-A partial import must never be marked complete.
+- Existing palette.
+- Theme definitions.
+- Design tokens.
+- Typography.
+- Approved visual styling.
+- Existing page layout outside this feature.
 
-After migration, the production nonce-consumption implementation must use the SQLite store as the authoritative source.
+Do not add generic AI-themed visual patterns.
 
-There must be no silent fallback from SQLite to JSONL.
+## 8.1 Runtime control
 
-Add tests covering:
+Provide a clear way to see and manage the active runtime.
 
-- First-time successful migration.
-- Repeated migration without duplication.
-- Duplicate historical records.
-- Invalid records.
-- Interrupted migration.
-- Database already containing some of the historical records.
-- Replay rejection for a nonce that was consumed before the migration.
-- Original JSONL file remains unchanged.
+The UI must show:
 
-Do not run this migration against production data during remediation. Test only against isolated fixtures or copied test data.
+- Active runtime.
+- Connection status.
+- Session state where appropriate.
+- Last heartbeat where useful.
+- Available alternative runtime.
+- Current switching progress.
+- Connection failure information.
 
----
+The user must be able to:
 
-# 6. Phase D — Founder authorization and bootstrap ordering
+- Connect Claude Code.
+- Connect Hermes.
+- Disconnect the active runtime.
+- Switch from Claude Code to Hermes.
+- Switch from Hermes to Claude Code.
 
-Inspect the current implementations of:
+Do not show two runtimes as simultaneously connected.
 
-- `src/auth/founder.ts`
-- `scripts/run-bootstrap.ts`
-- `scripts/bootstrap-signed.ts`
-- Any underlying Founder signature and operation-verification utilities.
+## 8.2 Accurate state representation
 
-Both bootstrap entrypoints must use the same security-critical authorization flow.
+The UI must reflect backend-confirmed state.
 
-## Required order
+Do not optimistically display a successful connection before the server confirms it.
 
-```text
-1. Parse and validate the signed Founder operation request.
-2. Validate all required fields and operation types.
-3. Validate the target database path without opening or creating it.
-4. Load the trusted Founder public key.
-5. Verify the externally generated Founder signature.
-6. Validate the signature's associated key ID, operation, timestamp,
-   expiry, nonce, and other existing authorization constraints.
-7. Atomically consume the nonce using the persistent SQLite nonce store.
-8. Only after authorization succeeds, open or create the target database.
-9. Execute the approved bootstrap operation.
-10. Close the target database safely.
-```
+During switching, show the actual transition.
 
-### Non-negotiable requirements
+Prevent accidental duplicate submissions in the UI, but do not rely on the UI for server-side safety.
 
-- The target database must not be opened or created before signature verification and successful nonce consumption.
-- Use the trusted public key for verification.
-- Do not load or require the Founder private key in a verification-only path.
-- Do not generate a Founder signature inside a bootstrap script.
-- Do not reintroduce self-signing.
-- Do not bypass operation, time, key ID, or nonce validation.
-- Preserve all existing production path restrictions.
-- Preserve the external signature generation workflow.
-- Invalid, missing, expired, malformed, or replayed signatures must be rejected.
-- Database initialization errors must fail closed.
-- Do not expose private key material in logs or error messages.
+Show actionable errors without exposing sensitive details.
 
-Retain existing public function names and signatures where possible. Inspect all call sites before changing the API.
+## 8.3 No unrelated dashboard changes
 
-If an existing function is asynchronous, preserve compatibility or update every call site and test deliberately. Do not introduce an API-breaking change without necessity.
+Do not modify unrelated dashboard actions.
 
-### Important operation-failure behavior
+Do not redesign the Dashboard.
 
-Nonce consumption occurs before target database creation.
+Do not alter keyboard shortcuts.
 
-Therefore, if authorization succeeds but a later bootstrap operation fails, the nonce remains consumed.
+Do not add decorative gradients or governance badge styling.
 
-Document this behavior. A new signed operation with a fresh nonce is required for a retry.
+Do not alter existing theme behavior.
 
-Do not attempt to restore a consumed nonce automatically after a partial bootstrap failure.
+Do not modify Profile, Settings, Activity, or other pages unless a direct integration requirement makes it necessary.
+
+If another page must change, justify the exact change in the implementation report.
 
 ---
 
-# 7. Phase E — Real production cross-process testing
+# 9. DATABASE AND MIGRATION REQUIREMENTS
 
-The existing cross-process tests contain duplicated lock implementations and inline scripts that do not exercise the new production SQLite nonce-consumption implementation.
+Inspect the current schema and migration history before changing the database.
 
-Replace those tests.
+First determine whether runtime lifecycle state can be represented using existing tables.
 
-## Required test architecture
+If a schema change is necessary:
 
-The child-process worker must import and call the actual production function:
+1. Create a new sequential migration.
+2. Follow the existing migration naming convention.
+3. Preserve existing data.
+4. Add appropriate constraints and indexes.
+5. Use transactions.
+6. Include migration tests.
+7. Include rollback or recovery considerations according to the existing migration system.
+8. Verify database integrity.
+9. Verify foreign-key integrity.
+10. Verify existing records remain unchanged.
 
-```ts
-import {
-  checkAndConsumeNonce,
-} from '../../src/auth/founder-nonce-store.js';
-```
+Do not edit old migrations that have already been applied.
 
-Adapt paths and module extensions to the actual project configuration.
+Do not modify production databases.
 
-Do not copy, reimplement, simulate, or duplicate the nonce-lock algorithm in a test worker.
+Do not run production migrations.
 
-Do not use an inline `node -e` implementation of the locking mechanism.
+Do not seed or delete agent identities.
 
-The test worker should call the production API and return its actual result.
+Do not alter existing memory records.
 
-Use isolated temporary nonce databases configured through an explicit test environment variable.
-
-Ensure environment configuration is established before importing modules that initialize database connections.
-
-## Deterministic concurrency
-
-Use a parent-controlled IPC barrier or equivalent deterministic synchronization.
-
-The parent test process should:
-
-1. Spawn multiple child processes.
-2. Wait until each process confirms it is ready.
-3. Release all processes at the same time.
-4. Collect their real production-function results.
-5. Verify the expected database state.
-6. Close workers and database connections before temporary-directory cleanup.
-
-Do not rely solely on `Promise.all()` timing to prove simultaneous execution.
-
-## Required tests
-
-### A. Concurrent identical nonce
-
-Two or more independent OS processes attempt to consume the same nonce.
-
-Expected result:
-
-- Exactly one process succeeds.
-- Every other process receives a replay rejection.
-- The database contains exactly one record for that nonce.
-
-### B. Concurrent distinct nonces
-
-Independent processes consume different nonces concurrently.
-
-Expected result:
-
-- Both operations succeed.
-- Both records exist.
-- Neither operation incorrectly blocks or rejects the other.
-
-### C. Same-process concurrency
-
-Verify multiple calls in the same Node.js process also behave correctly.
-
-### D. Crash before commit
-
-Demonstrate that a process terminated while holding an uncommitted nonce transaction does not leave a partially committed nonce record.
-
-Use an isolated test database.
-
-A suitable approach is to have a controlled test worker open a real transaction through the production database module, insert a test nonce without committing, signal the parent, and wait. The parent terminates that child process. Another child then calls the actual production `checkAndConsumeNonce()` function.
-
-Expected result:
-
-- SQLite rolls back the abandoned transaction.
-- The second process can consume the nonce successfully.
-- No partial record remains.
-
-Do not create a second implementation of the locking algorithm to test this behavior.
-
-### E. Restart persistence
-
-1. Consume a nonce.
-2. Close the database.
-3. Start a new process.
-4. Attempt to consume the same nonce.
-
-Expected result: replay rejection.
-
-### F. Main application database recreation
-
-1. Consume a nonce.
-2. Recreate an isolated test copy of the main application database.
-3. Leave the Founder nonce database untouched.
-4. Attempt to consume the original nonce again.
-
-Expected result: replay rejection.
-
-### G. Corrupt nonce database
-
-Expected result:
-
-- Authorization fails closed.
-- No empty replacement database is silently created.
-- No successful nonce result is returned.
-
-### H. Unavailable nonce database
-
-Expected result:
-
-- Authorization fails closed.
-- Filesystem and SQLite errors propagate.
-- No JSONL or in-memory fallback is used.
-
-### I. Invalid bootstrap signature
-
-Expected result:
-
-- The target database is not created.
-- The target database is not opened.
-- The nonce is not consumed unless the existing authorization policy explicitly requires otherwise.
-
-### J. Missing signature
-
-Expected result:
-
-- Rejection before target database creation.
-- No self-generated signature.
-- No private-key fallback.
-
-### K. Legacy migration and replay
-
-Verify that previously consumed JSONL nonces remain rejected after migration and application restart.
-
-### L. Lock removal
-
-Verify there are no remaining production dependencies on:
-
-- PID-specific takeover files.
-- Owner markers.
-- Stale-lock timeouts.
-- Lease-based acquisition.
-- Old duplicated worker locking logic.
-
-## Test quality rules
-
-- Test production source, not copied algorithms.
-- Do not use mocks for the central cross-process persistence guarantees.
-- Do not weaken existing assertions to make the suite pass.
-- Do not skip failing security tests.
-- Do not increase test timeouts as a substitute for fixing hangs.
-- Use bounded timeouts to detect deadlocks and child-process failures.
-- Verify process exit codes.
-- Verify database contents independently of worker output.
-- Ensure tests clean up their own isolated resources.
+Do not introduce another SQLite database for runtime state unless the current architecture makes that technically unavoidable. The default and required approach is to reuse the existing Council Bridge database.
 
 ---
 
-# 8. Phase F — Correct the unrelated Dashboard changes in commit 9daa2c3
+# 10. SECURITY REQUIREMENTS
 
-The latest audited commit included Dashboard changes unrelated to M3-004.
+Preserve the existing security architecture.
 
-Inspect the exact commit diff and remove only the changes that violate the existing approved design or browser interaction behavior.
+Specifically:
 
-Target file:
+- Production authentication remains fail-closed.
+- No hardcoded identity fallback.
+- No identity spoofing.
+- No forwarded-IP trust bypass.
+- No browser exposure of Founder private keys.
+- No private-key generation or signature-generation shortcut.
+- No authentication bypass for runtime switching.
+- No permission escalation.
+- No unauthorized session takeover.
+- No cross-agent memory leakage.
+- No cross-division permission bypass.
+- No runtime impersonation.
 
-`frontend/src/features/dashboard/pages/DashboardPage.tsx`
+Runtime switching must be an authenticated and authorized operation.
 
-## 8.1 Revert unauthorized visual additions
+Session ownership must be verified server-side.
 
-Remove the newly introduced:
+A runtime must not disconnect or replace another runtime's session without the appropriate authorization.
 
-- Decorative conic-gradient backgrounds.
-- Unapproved card background decoration.
-- Unapproved visual emphasis and ornamental treatments.
-- Governance badge treatments or presentation changes that were not part of the accepted design baseline.
+All important lifecycle events must be auditable.
 
-Restore the approved visual appearance from the appropriate pre-change implementation.
+Audit events should include:
 
-Do not blindly restore the entire file if it contains legitimate later functionality.
+- Runtime connection requested.
+- Runtime connection accepted.
+- Runtime connection rejected.
+- Runtime disconnection requested.
+- Runtime disconnection completed.
+- Runtime switch initiated.
+- Runtime switch completed.
+- Runtime switch failed.
+- Stale session detected.
+- Stale session recovered.
 
-Preserve valid dashboard functionality and all unrelated user changes.
+Do not log:
 
-Do not change the approved palette, theme tokens, colors, or typography.
-
-## 8.2 Remove browser shortcut hijacking
-
-Remove logic that intercepts:
-
-- `Ctrl/Cmd + R` to refresh dashboard data.
-- `Ctrl/Cmd + N` to open Create Division.
-
-These are browser-native shortcuts and must not be overridden.
-
-Preserve ordinary application-level shortcuts only when they do not conflict with browser, operating-system, or assistive-technology behavior.
-
-Preserve Escape-to-close behavior if implemented correctly and accessible.
-
-Do not replace removed browser shortcuts with another set of conflicting shortcuts.
-
-Add or update tests verifying that browser-native shortcuts are not intercepted by the application.
+- Private keys.
+- Authentication tokens.
+- Sensitive memory contents.
+- Full secrets.
+- Unnecessary private session data.
 
 ---
 
-# 9. Phase G — Complete M3 verification findings
+# 11. TESTING REQUIREMENTS
 
-The remaining M3 findings must be verified against the final implementation.
+Tests must verify actual behavior, not merely function existence.
 
-## M3-001 — Dashboard actions
+Use the existing test framework and conventions.
 
-Previously identified issue: Dashboard action controls had empty callbacks or did not reach their intended behavior.
+Do not weaken existing tests.
+
+Do not replace integration tests with mocks when a real SQLite integration test is feasible.
+
+## 11.1 Runtime lifecycle unit tests
+
+Test:
+
+1. No active runtime initially.
+2. Claude Code can connect.
+3. Hermes can connect.
+4. Unknown runtime is rejected.
+5. Repeated connection is idempotent where appropriate.
+6. Disconnection succeeds.
+7. Repeated disconnection is safe.
+8. Runtime state is accurate.
+9. Failed connection leaves recoverable state.
+10. Invalid session ownership is rejected.
+
+## 11.2 Single-active-runtime integration tests
+
+Test:
+
+1. Claude connects; Hermes connection is rejected.
+2. Hermes connects; Claude connection is rejected.
+3. Claude disconnects; Hermes can connect.
+4. Hermes disconnects; Claude can connect.
+5. Two simultaneous connection attempts result in at most one active runtime.
+6. Two simultaneous switch attempts cannot create two active sessions.
+7. Duplicate requests do not create duplicate sessions.
+8. A stale session cannot disconnect a newer session.
+9. A superseded session cannot perform authorized operations.
+10. Bridge restart restores a safe disconnected or recoverable state.
+11. A crashed runtime can be recovered safely.
+12. Database transaction rollback does not leave a false active session.
+
+Use independent child processes for concurrency tests where practical.
+
+Do not use sequential tests to claim concurrent race safety.
+
+## 11.3 Shared-memory integration tests
+
+These are mandatory.
+
+Test the following using the same persistent SQLite database:
+
+**Test A — Claude writes, Hermes reads**
+1. Connect Claude.
+2. Authenticate as a test agent.
+3. Write a memory record through the Bridge memory API.
+4. Disconnect Claude.
+5. Connect Hermes.
+6. Authenticate as the same logical test agent.
+7. Read the memory.
+8. Assert exact content and provenance match.
+
+**Test B — Hermes writes, Claude reads**
+1. Connect Hermes.
+2. Write another memory record.
+3. Disconnect Hermes.
+4. Connect Claude.
+5. Read the record.
+6. Assert exact content and provenance match.
+
+**Test C — Memory survives process restart**
+1. Write memory through Claude.
+2. Stop/restart Bridge.
+3. Connect Hermes.
+4. Verify the same record remains available.
+
+**Test D — Shared Council knowledge**
+1. Write an approved Council knowledge record through one runtime.
+2. Switch runtime.
+3. Verify the other runtime can retrieve it under the same authorization rules.
+
+**Test E — Private memory boundaries**
+1. Write private memory for Agent A.
+2. Connect the other runtime.
+3. Attempt retrieval as Agent B.
+4. Verify access remains denied.
+
+**Test F — No duplicate memory**
+1. Switch Claude → Hermes → Claude.
+2. Verify existing memory record counts remain unchanged unless an explicit write occurs.
+3. Verify no duplicated agent identities or memory records were created.
+
+## 11.4 MCP end-to-end tests
+
+Test both actual client configurations against the same Bridge instance.
 
 Verify:
 
-- Create Division opens the correct dialog.
-- The action submits through the actual backend API.
-- Successful creation updates the UI.
-- Failed creation displays an actionable error.
-- Invite Staff performs the actual supported staff-registration operation.
-- The UI does not claim that an email invitation was sent unless an actual invitation-delivery mechanism exists.
-- New Task opens the intended task-creation interface.
-- Loading, disabled, success, and failure states behave correctly.
+- MCP initialization.
+- Tool discovery.
+- Tool invocation.
+- Authentication.
+- Runtime ownership.
+- Runtime switching.
+- Shared memory reads.
+- Shared memory writes.
+- Message history.
+- Existing Council workflows.
 
-Use accurate wording. A pending staff record is not equivalent to an invitation email being delivered.
+Use actual MCP protocol behavior where feasible.
 
-## M3-002 — Activity page
+Do not mark a configuration verified merely because its JSON parses.
 
-Verify:
+## 11.5 Regression tests
 
-- `/activity` exists.
-- The activity page is implemented.
-- Dashboard activity links work.
-- The activity API returns valid data.
-- Loading, empty, and error states are handled.
-- Authentication and authorization remain enforced.
-- Navigation works on desktop and mobile.
+Run existing tests covering:
 
-## M3-003 — Profile
+- Authentication.
+- Founder authorization.
+- Identity.
+- Council.
+- Messaging.
+- Memory.
+- Knowledge.
+- Tasks.
+- Delegation.
+- Execution.
+- Deliverables.
+- Approvals.
+- Database migrations.
+- Dashboard.
+- Runtime integration.
 
-Verify:
+Report pre-existing failures separately.
 
-- Profile functionality accurately reflects what is implemented.
-- Read-only fields are presented as read-only.
-- No fake save operation claims persistence when data is not actually saved.
-- Placeholder identity or email information is clearly handled.
-- Profile navigation and user-menu behavior work.
-
-## M3-004 — Founder nonce security
-
-Complete the implementation and tests in Phases B–E.
-
-This is the primary security blocker.
-
-## M3-005 — Authorization status
-
-Verify:
-
-- Unauthorized division and staff operations return HTTP 403.
-- Authentication failures retain appropriate status codes.
-- Validation failures return appropriate 4xx responses.
-- Unclassified internal failures return 500.
-- Error handling does not expose sensitive internals.
-- No authorization rule is weakened.
-
-## M3-006 — Settings
-
-Verify:
-
-- Settings changes behave as real draft state.
-- Cancel restores the previous saved state.
-- Save persists only the settings the application actually supports.
-- Unsupported email or push notification delivery controls do not imply delivery functionality exists.
-- Theme settings remain consistent with the approved design system.
-- No approved color or typography tokens are modified.
-
-## M3-007 — Test and integration reliability
-
-Complete the entire backend and frontend verification suite.
-
-Do not report test success based only on earlier commits or prior user reports.
-
-Record actual results from the current final HEAD.
-
-## M3-008 — Evidence and reporting
-
-Update the reports after implementation and verification.
-
-Every report must reference the same actual final HEAD.
-
-Do not leave stale commit identifiers, stale test totals, or conflicting completion statements.
-
-## M3-009 — Responsive and accessibility verification
-
-Complete the route, viewport, accessibility, and keyboard verification described below.
-
-Do not claim WCAG 2.2 AA compliance without corresponding evidence.
+Do not silently change unrelated code to make the new tests pass.
 
 ---
 
-# 10. Phase H — Responsive, accessibility, and keyboard verification
+# 12. REQUIRED DOCUMENTATION
 
-The previous M3-009 evidence was insufficient because parts of the route list were not actually tested, accessibility coverage was incomplete, and keyboard checks were superficial.
+Update only the documentation directly relevant to this architecture.
 
-Complete the verification using the actual frontend test environment.
+Create:
 
-## 10.1 Route inventory
+`docs/architecture/SINGLE_ACTIVE_RUNTIME.md`
 
-Derive the actual complete route inventory from the application router.
+It must explain:
 
-The previously audited expected application pages include:
+1. The architecture.
+2. Why only one runtime is active at a time.
+3. Why memory remains shared.
+4. Bridge ownership of canonical memory.
+5. Agent identity versus runtime connection.
+6. Connection lifecycle.
+7. Switching sequence.
+8. Session ownership.
+9. Stale session recovery.
+10. Database consistency.
+11. MCP client configuration.
+12. Authentication and authorization.
+13. Failure handling.
+14. Operational instructions.
+15. Known limitations.
 
-1. Dashboard
-2. Chat
-3. Council
-4. Meetings
-5. Memory
-6. Organization
-7. Tasks
-8. Executions
-9. Deliverables
-10. Approvals
-11. Activity
-12. Settings
-13. Profile
+Update existing architecture or setup documentation only where necessary.
 
-Verify every actual route. Do not assume a route exists simply because it appears in this list.
+Do not duplicate entire documents.
 
-Document:
-
-- Route.
-- Page/component.
-- Authentication requirement.
-- Expected loading behavior.
-- Expected empty behavior.
-- Expected error behavior.
-- Verification result.
-
-## 10.2 Viewport matrix
-
-Verify every applicable route at these five widths:
-
-| Viewport | Width |
-|---|---:|
-| Mobile | 375px |
-| Tablet | 768px |
-| Small desktop | 1024px |
-| Desktop | 1440px |
-| Large desktop | 1920px |
-
-The expected coverage is the complete route-by-viewport matrix, not merely testing the Dashboard at five widths.
-
-For 13 applicable routes, this means at least 65 route/viewport combinations.
-
-Verify:
-
-- No horizontal overflow.
-- No clipped primary navigation.
-- No overlapping controls.
-- No inaccessible dialogs.
-- No hidden critical actions.
-- Correct responsive navigation.
-- Appropriate content layout.
-- Usable forms and tables.
-- Readable text without changing approved typography tokens.
-- Usable touch targets.
-- Correct scroll behavior.
-
-## 10.3 Automated accessibility
-
-Use the installed Playwright and axe-core tools where available.
-
-Run axe-core against every applicable route.
-
-Record:
-
-- Routes tested.
-- Number of tests executed.
-- Violations by severity.
-- Number of critical, serious, moderate, and minor violations.
-- Specific unresolved exceptions.
-- Evidence of remediation.
-
-Do not suppress, disable, or silently ignore accessibility rules to produce a passing result.
-
-The four previously documented serious contrast exceptions must remain individually documented if the approved styling constraint prevents resolution.
-
-Do not change existing colors, themes, or tokens to eliminate them.
-
-## 10.4 Keyboard verification
-
-Verify actual functionality through keyboard navigation.
-
-At minimum:
-
-- Tab navigation through primary page controls.
-- Shift+Tab reverse navigation.
-- Visible focus indication.
-- Enter and Space activation for appropriate controls.
-- Escape closes appropriate dialogs and menus.
-- Focus enters dialogs when opened.
-- Focus remains managed inside modal dialogs.
-- Focus returns appropriately when dialogs close.
-- No keyboard traps.
-- No browser-native shortcut interception.
-- Navigation and form submission work without a mouse.
-
-Do not consider a superficial press of Tab or Escape sufficient evidence.
-
-## 10.5 Screen reader and semantic structure
-
-Where the available test environment supports it, verify:
-
-- Correct page landmarks.
-- Heading hierarchy.
-- Accessible names.
-- Form labels.
-- Error-message relationships.
-- Dialog names and roles.
-- Button semantics.
-- Status-message announcements.
-- Table semantics.
-- Navigation labels.
-
-Document any manual verification that cannot be automated.
+Do not rewrite unrelated documentation.
 
 ---
 
-# 11. Phase I — Complete regression and quality gates
+# 13. IMPLEMENTATION BOUNDARIES
 
-Run the applicable checks using the repository's actual package scripts.
+This task is specifically about:
 
-At minimum:
+- Runtime lifecycle.
+- Single-active-runtime enforcement.
+- Runtime switching.
+- Shared-memory compatibility.
+- MCP connection integration.
+- Minimal UI control.
+- Security.
+- Tests.
+- Directly relevant documentation.
 
-### Backend
+The following are OUT OF SCOPE:
 
-- Full backend unit test suite.
-- Full backend integration test suite.
-- Founder authorization tests.
-- Founder signature tests.
-- Founder nonce persistence tests.
+- New Council governance features.
+- New Council members.
+- New divisions.
+- New specialists.
+- Changes to agent identities.
+- Changes to the memory architecture.
+- New memory algorithms.
+- New AI models.
+- Model routing.
+- Simultaneous multi-runtime execution.
+- Runtime load balancing.
+- Distributed deployment.
+- Cloud hosting.
+- Redis.
+- New databases.
+- Broad repository refactoring.
+- Unrelated UI redesign.
+- Theme changes.
+- Palette changes.
+- Typography changes.
+- Changes to existing governance rules.
+- M4 implementation.
+- Production database modifications.
+- Git history rewriting.
+- Branch deletion.
+- Commit or push operations.
+
+Do not interpret this prompt as permission to expand scope.
+
+---
+
+# 14. FILE-LEVEL CHANGE CONTROL
+
+Every file change must be justified.
+
+Before editing a file, identify:
+
+- File path.
+- Existing responsibility.
+- Why it must change.
+- Exact intended modification.
+- Related tests.
+- Whether the change is necessary or optional.
+
+Create:
+
+`docs/reports/SINGLE_ACTIVE_RUNTIME_FILE_CHANGE_MANIFEST.md`
+
+Use this structure:
+
+| File | Existing responsibility | Change type | Exact change | Reason | Tests |
+|---|---|---|---|---|---|
+
+Change types:
+
+- ADD
+- MODIFY
+- DELETE
+- MOVE
+
+Rules:
+
+1. No file may be modified without appearing in the manifest.
+2. No file may be deleted without explicit justification.
+3. No file may be moved as a convenience.
+4. No broad formatting changes.
+5. No unrelated semicolon, import-order, whitespace, naming, or formatting changes.
+6. Do not reformat entire files.
+7. Do not change semicolons, quotes, trailing commas, or line endings unless directly required by the implementation or existing lint rules.
+8. Preserve existing code conventions.
+9. Preserve comments unless they become demonstrably incorrect.
+10. Preserve all existing user modifications.
+11. Do not modify generated files unless the existing build process requires it.
+12. Do not introduce dependencies unless technically necessary and documented.
+
+**A one-character change is still a change and must be justified.**
+
+Before implementation, produce the manifest.
+
+After implementation, compare the actual Git diff against the manifest.
+
+Every changed line must be attributable to an approved requirement.
+
+If an unrelated change appears, revert only that unrelated change while preserving user work.
+
+Do not silently expand the implementation.
+
+---
+
+# 15. DEFINITION OF DONE
+
+The implementation is complete only when every applicable item below is verified.
+
+## Architecture
+- [ ] Claude Code and Hermes use the same Council Bridge instance.
+- [ ] Both runtimes use the same SQLite database.
+- [ ] Exactly one runtime can be active.
+- [ ] The invariant is enforced server-side.
+- [ ] Runtime identity is separate from agent identity.
+- [ ] Runtime disconnection does not deactivate agents.
+- [ ] Switching does not recreate identities.
+- [ ] No duplicate memory database exists.
+- [ ] No runtime-specific canonical memory store exists.
+
+## Lifecycle
+- [ ] Claude can connect.
+- [ ] Hermes can connect.
+- [ ] Claude can disconnect.
+- [ ] Hermes can disconnect.
+- [ ] Claude → Hermes switching works.
+- [ ] Hermes → Claude switching works.
+- [ ] Concurrent activation is safe.
+- [ ] Session ownership is enforced.
+- [ ] Stale-session recovery is safe.
+- [ ] Bridge restart is safe.
+- [ ] Failed switching leaves recoverable state.
+
+## Shared intelligence
+- [ ] Claude-written memory is visible to Hermes.
+- [ ] Hermes-written memory is visible to Claude.
+- [ ] Shared Council knowledge is visible under existing authorization.
+- [ ] Memory survives Bridge restart.
+- [ ] Private memory boundaries remain enforced.
+- [ ] Switching does not duplicate memory.
+- [ ] Existing agent identities remain unchanged.
+- [ ] Existing Council history remains unchanged.
+- [ ] Existing tasks and deliverables remain unchanged.
+
+## MCP
+- [ ] Claude MCP configuration works.
+- [ ] Hermes MCP configuration works.
+- [ ] Both use the same Bridge endpoint.
+- [ ] Tool discovery works.
+- [ ] Tool invocation works.
+- [ ] Existing MCP tools remain compatible.
+- [ ] Rejected connections return clear errors.
+
+## Security
+- [ ] Production authentication remains fail-closed.
+- [ ] No identity fallback is introduced.
+- [ ] No private key is exposed.
+- [ ] No session takeover vulnerability exists.
+- [ ] No cross-agent memory leakage exists.
+- [ ] No permission escalation exists.
+- [ ] Lifecycle events are auditable.
+
+## Frontend
+- [ ] Active runtime is visible.
+- [ ] Connection state is accurate.
+- [ ] Runtime switching works.
+- [ ] Errors are understandable.
+- [ ] Existing palette is unchanged.
+- [ ] Existing theme is unchanged.
+- [ ] Existing typography is unchanged.
+- [ ] No unrelated page changes exist.
+
+## Quality
+- [ ] Targeted unit tests pass.
+- [ ] Targeted integration tests pass.
+- [ ] Cross-process concurrency tests pass.
+- [ ] Shared-memory tests pass.
+- [ ] MCP end-to-end tests pass.
+- [ ] Existing regression suite passes, or pre-existing failures are documented.
+- [ ] TypeScript has zero new errors.
+- [ ] Production build succeeds.
+- [ ] Database integrity is verified.
+- [ ] Foreign-key integrity is verified.
+- [ ] Actual diff matches the file manifest.
+- [ ] Documentation is complete.
+
+A checkbox may only be marked complete when evidence exists.
+
+Do not mark untested behavior as complete.
+
+---
+
+# 16. REQUIRED FINAL REPORTS
+
+Create:
+
+`docs/reports/SINGLE_ACTIVE_RUNTIME_IMPLEMENTATION_REPORT.md`
+
+Include:
+
+1. Executive summary.
+2. Baseline commit.
+3. Final working-tree status.
+4. Architecture implemented.
+5. Runtime lifecycle implementation.
+6. Single-active-runtime enforcement.
+7. Shared-memory verification.
+8. MCP compatibility verification.
+9. Database changes, if any.
+10. Security verification.
+11. Frontend changes.
+12. Exact files added.
+13. Exact files modified.
+14. Exact files deleted, if any.
+15. Test commands executed.
+16. Test results.
+17. TypeScript result.
+18. Build result.
+19. Database integrity result.
+20. Known limitations.
+21. Unresolved issues.
+22. Definition of Done checklist.
+23. Git diff summary.
+24. Confirmation that no unauthorized work occurred.
+
+Also create:
+
+`docs/reports/SINGLE_ACTIVE_RUNTIME_TEST_EVIDENCE.md`
+
+Include actual test commands and outputs or reliable summaries of the executed test results.
+
+Do not fabricate test evidence.
+
+Do not report a test as passing if it was skipped, mocked inadequately, or not executed.
+
+---
+
+# 17. EXECUTION ORDER
+
+Follow this sequence exactly:
+
+**Stage 1 — Baseline**
+- Inspect repository.
+- Verify branch and commit.
+- Inspect working tree.
+- Map relevant files.
+- Audit existing architecture.
+- Write baseline report.
+
+**Stage 2 — Design**
+- Define the minimal architecture.
+- Identify existing reusable components.
+- Define lifecycle state.
+- Define session ownership.
+- Define concurrency and recovery behavior.
+- Confirm shared-memory ownership.
+- Produce the file-change manifest.
+
+**Stage 3 — Backend**
+- Implement runtime lifecycle.
+- Implement single-active-runtime enforcement.
+- Implement safe switching.
+- Implement session ownership.
+- Implement heartbeat/recovery if required.
+- Preserve existing authentication.
+- Preserve existing memory APIs.
+
+**Stage 4 — Database**
+- Add a migration only if necessary.
+- Test transaction behavior.
+- Test restart persistence.
+- Verify integrity.
+
+**Stage 5 — MCP**
+- Integrate Claude.
+- Integrate Hermes.
+- Verify same endpoint.
+- Verify same persistent storage.
+- Verify runtime conflict behavior.
+
+**Stage 6 — Frontend**
+- Add minimal runtime controls.
+- Connect UI to actual backend state.
+- Verify switching.
+- Preserve existing visual system.
+
+**Stage 7 — Testing**
+- Unit tests.
+- Integration tests.
 - Cross-process concurrency tests.
-- Bootstrap security tests.
-- Database seeding guard tests.
-- Authentication and authorization regression tests.
-- MCP communication and workflow E2E tests.
+- Shared-memory tests.
+- MCP end-to-end tests.
+- Security regression tests.
+- Full regression suite.
 
-### Frontend
+**Stage 8 — Audit**
+- Inspect every changed file.
+- Compare diff against manifest.
+- Check for unrelated changes.
+- Verify all requirements.
+- Verify documentation.
+- Produce final reports.
 
-- Full frontend unit test suite.
-- Dashboard action tests.
-- Activity page tests.
-- Profile tests.
-- Settings tests.
-- Navigation and routing tests.
-- Full route/viewport Playwright suite.
-- axe-core accessibility verification.
-- Keyboard interaction verification.
+Do not skip stages.
 
-### Static and build checks
-
-- TypeScript type checking.
-- ESLint.
-- Prettier or the repository's configured formatter check.
-- Backend production build, if applicable.
-- Frontend production build.
-
-Do not change tests, lint rules, TypeScript settings, accessibility rules, or build configuration merely to hide existing defects.
-
-### Test failure handling
-
-For every failing test:
-
-1. Identify the exact failing assertion.
-2. Determine whether the failure is caused by the implementation, test isolation, fixture setup, or environment.
-3. Fix the underlying issue where it is within scope.
-4. Preserve the original test intent.
-5. Rerun the affected test.
-6. Rerun the full relevant suite.
-
-If a failure is genuinely unrelated or pre-existing, document the exact test name, error, and evidence. Do not label it pre-existing without comparing it against the baseline.
-
-Do not fabricate test totals or report commands as passing when they were not run.
+If a stage cannot be completed, stop and report the blocker rather than pretending completion.
 
 ---
 
-# 12. Phase J — Report reconciliation
+# 18. GIT AND AUTHORIZATION RULES
 
-Update the existing M3 reports rather than creating conflicting documentation.
+Work only on:
 
-Inspect and reconcile at least:
+`refactor/repository-structure`
 
-- `docs/reports/M3_FINAL_ACCEPTANCE_AUDIT.md`
-- `docs/reports/M3_FINAL_REMEDIATION_VERIFICATION_REPORT.md`
-- `docs/reports/` reports covering database seeding security.
-- `docs/reports/` reports covering test reliability.
-- `docs/reports/` reports covering responsive and accessibility verification.
-- The original M3 wave reports where their status or conclusions are now outdated.
+Do not switch branches without authorization.
 
-Preserve relevant historical audit findings, but clearly distinguish historical findings from current verified status.
+Do not modify `master`.
 
-All current reports must contain:
+Do not:
 
-1. Actual final HEAD SHA.
-2. Current branch.
-3. Date of verification.
-4. Scope of the remediation.
-5. Files changed.
-6. Security design summary.
-7. Legacy nonce migration result.
-8. Bootstrap authorization ordering result.
-9. Cross-process test results.
-10. Full backend test totals.
-11. Full frontend test totals.
-12. MCP E2E results.
-13. TypeScript result.
-14. Lint and formatting results.
-15. Build result.
-16. Responsive route/viewport coverage.
-17. axe-core results.
-18. Keyboard verification results.
-19. Unresolved findings.
-20. Explicit acceptance disposition.
+- Commit.
+- Push.
+- Merge.
+- Rebase.
+- Force-push.
+- Rewrite Git history.
+- Delete branches.
+- Reset the working tree.
+- Run destructive cleanup.
+- Modify production databases.
+- Apply production migrations.
 
-Distinguish:
+Leave all implementation changes uncommitted.
 
-- Verified by automated tests.
-- Verified by source inspection.
-- Verified manually.
-- Not verified.
-- Blocked.
-- Known exception.
-
-A test count is valid only when it comes from an actual executed test command and its exit code.
-
-Do not claim GitHub Actions or CI passed when there is no corresponding run.
-
-Do not claim that ChatGPT or another external reviewer independently executed tests when the evidence came from this implementation session.
+Preserve the existing working tree and all user changes.
 
 ---
 
-# 13. Required final report
+# 19. FINAL INSTRUCTION
 
-Create or update:
+The objective is not to make Claude Code and Hermes share an active session.
 
-`docs/reports/M3_FINAL_REMEDIATION_VERIFICATION_REPORT.md`
+The objective is to let the Founder choose which runtime to use while both runtimes retain access to the same persistent organizational intelligence.
 
-Also update:
+The final architecture must satisfy:
 
-`docs/reports/M3_FINAL_ACCEPTANCE_AUDIT.md`
+```text
+                 FOUNDER
+                    │
+                    ▼
+             Choose Runtime
+                    │
+            ┌───────┴───────┐
+            │               │
+            ▼               ▼
+        Claude Code       Hermes
+            │               │
+            └───────┬───────┘
+                    │
+          Only ONE connected
+             at a time
+                    │
+                    ▼
+             COUNCIL BRIDGE
+                    │
+       ┌────────────┼────────────┐
+       │            │            │
+       ▼            ▼            ▼
+    Identity      Memory      Governance
+       │            │            │
+       └────────────┼────────────┘
+                    │
+                    ▼
+             Shared SQLite
+```
 
-The final report must include the following sections.
+The runtime can change.
 
-## A. Executive disposition
+The agent identities cannot be reset.
 
-Choose exactly one:
+The memory cannot be isolated.
 
-- READY FOR FINAL FOUNDER AUDIT
-- PARTIALLY COMPLETE
-- BLOCKED
+The organization cannot be duplicated.
 
-Do not use READY FOR FINAL FOUNDER AUDIT unless every required M3 remediation and verification gate has passed or is explicitly accounted for by an approved exception.
+The governance cannot be bypassed.
 
-Do not use ACCEPTED or COMPLETE as a substitute for Founder acceptance.
+The Bridge remains the single source of truth.
 
-## B. M3 findings matrix
-
-| Finding | Required result | Evidence | Status |
-|---|---|---|---|
-| M3-001 | Dashboard actions verified | Tests and source | |
-| M3-002 | Activity page/API verified | Tests and source | |
-| M3-003 | Profile behavior verified | Tests and source | |
-| M3-004 | Transactional nonce security verified | Security and cross-process tests | |
-| M3-005 | Authorization responses verified | API tests | |
-| M3-006 | Settings behavior verified | Frontend tests | |
-| M3-007 | Full test reliability verified | Actual test output | |
-| M3-008 | Reports reconciled | Current report HEAD | |
-| M3-009 | Responsive/accessibility verified | Playwright and axe evidence | |
-
-## C. Founder nonce security
-
-Document:
-
-- Old implementation removed.
-- New database architecture.
-- Transaction behavior.
-- Unique constraint.
-- Error and corruption handling.
-- Persistent database path.
-- Legacy nonce migration.
-- Bootstrap order.
-- Private-key handling.
-- Cross-process concurrency results.
-- Crash/restart results.
-- Main database recreation results.
-
-## D. Test evidence
-
-Give exact:
-
-- Commands.
-- Exit codes.
-- Passed tests.
-- Failed tests.
-- Skipped tests.
-- Duration, where available.
-
-## E. Accessibility evidence
-
-Give:
-
-- Actual route inventory.
-- Viewport matrix completion.
-- axe-core totals and severity breakdown.
-- Keyboard verification results.
-- Four documented contrast exceptions.
-- Any remaining limitation.
-
-## F. Change inventory
-
-List every modified, created, and deleted file with a concise reason.
-
-Identify any changes that were intentionally not made.
-
-## G. Remaining risks
-
-List every unresolved security, functional, regression, or accessibility finding.
-
-Do not conceal known failures.
-
-## H. Acceptance recommendation
-
-State whether the implementation is ready for final Founder review.
-
-Explicitly state:
-
-**M3 has not been formally accepted. Founder approval is still required.**
-
----
-
-# 14. Definition of done
-
-This remediation is ready for final Founder audit only when all of the following are true:
-
-- [ ] Work remained on `refactor/repository-structure`.
-- [ ] `master` was not modified.
-- [ ] The previous lease-based nonce-locking mechanism has been removed.
-- [ ] Nonces are stored in a persistent independent SQLite database.
-- [ ] Nonce consumption is protected by one complete immediate SQLite transaction.
-- [ ] SQLite enforces nonce uniqueness.
-- [ ] Legacy nonce history has been safely migrated or is explicitly blocked pending reconciliation.
-- [ ] No silent JSONL or in-memory fallback exists.
-- [ ] Both bootstrap scripts verify authorization before target database creation/opening.
-- [ ] Bootstrap verification uses only the Founder public key.
-- [ ] No bootstrap script generates its own Founder signature.
-- [ ] Actual production nonce code is tested by independent child processes.
-- [ ] Identical nonce concurrency permits exactly one success.
-- [ ] Distinct nonce concurrency succeeds.
-- [ ] Crash and rollback behavior is verified.
-- [ ] Restart persistence is verified.
-- [ ] Main application database recreation does not reset replay protection.
-- [ ] Corrupt and unavailable nonce databases fail closed.
-- [ ] Invalid and missing signatures leave the target database unopened.
-- [ ] Dashboard unauthorized styling changes are removed.
-- [ ] Browser-native Ctrl/Cmd+R and Ctrl/Cmd+N shortcuts are not intercepted.
-- [ ] M3-001 through M3-006 regression checks pass or have explicitly documented blockers.
-- [ ] M3-007 full backend/frontend verification is completed.
-- [ ] M3-008 reports reference the actual final HEAD.
-- [ ] M3-009 route/viewport, axe-core, and keyboard coverage is completed.
-- [ ] Approved palette, colors, themes, design tokens, and typography remain unchanged.
-- [ ] All executed quality gates and exit codes are accurately reported.
-- [ ] No production DB, production migration, M4, commit, push, merge, deployment, or destructive Git operation was performed.
-
----
-
-# 15. Final execution instructions
-
-Execute the implementation and verification work in the authorized branch.
-
-Do not stop after creating a plan or reporting the problems already known.
-
-Do not ask for approval for ordinary, non-destructive code changes inside this authorized M3 scope.
-
-If an operation would cross one of the explicit safety boundaries, do not perform it. Document the blocker instead.
-
-Preserve all unrelated user changes.
-
-At completion, provide:
-
-1. Executive disposition.
-2. Actual final HEAD SHA and branch.
-3. Files changed.
-4. Summary of the transactional SQLite implementation.
-5. Legacy nonce migration status.
-6. Founder bootstrap security verification.
-7. Cross-process concurrency evidence.
-8. Full test results and exit codes.
-9. M3-001 through M3-009 status matrix.
-10. Remaining blockers or exceptions.
-11. Paths to the updated reports.
-
-Do not commit or push.
-
-Do not merge into `master`.
-
-Do not declare M3 accepted.
-
-The final deliverable is an implemented and evidence-backed M3 remediation ready for the Founder's final review.
+**Implement only this scope. Verify every requirement. Document every file change. Leave all changes uncommitted and unpushed.**

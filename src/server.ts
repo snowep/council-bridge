@@ -462,6 +462,10 @@ app.use('/api/quality-thresholds', qualityRoutes);
 app.use('/api/activity', activityRoutes);
 app.use('/api/hermes', hermesBridgeRoutes);
 
+// Import and register runtime routes
+import runtimeRoutes from './api/routes/runtime.routes.js';
+app.use('/api/runtime', runtimeRoutes);
+
 // MCP endpoint - create new server+transport per request for stateless operation
 app.all('/mcp', authMiddleware, async (req, res) => {
   const requestTransport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });

@@ -235,6 +235,16 @@ export interface DatabaseInstance {
     getFounderNonce: PreparedStatement;
     cleanupFounderNonces: PreparedStatement;
     deleteAllFounderNonces: PreparedStatement;
+
+    // Phase 10: Runtime Session Management
+    upsertRuntimeSession: PreparedStatement;
+    getRuntimeSessionByRuntime: PreparedStatement;
+    getRuntimeSessionBySession: PreparedStatement;
+    getActiveRuntimeSession: PreparedStatement;
+    getConnectedRuntimeSession: PreparedStatement;
+    getRuntimeSessionsExpiring: PreparedStatement;
+    updateRuntimeSessionStatus: PreparedStatement;
+    updateRuntimeSessionHeartbeat: PreparedStatement;
   };
   query: (sql: string, params?: any[]) => QueryResult;
   runPreparedStatement: (name: string, params?: any[]) => any;
@@ -243,10 +253,9 @@ export interface DatabaseInstance {
 }
 
 // Phase 4 schema version. Bumped when createDatabase() adds tables.
-// Current version aligns with migrations/016_fix_cross_division_shares_granted_by_type.sql
-// This represents the full Phase 4-6 schema with task_audit, deliverable workflow, and execution tables.
-// Previous: 5.0.0 for Task 5: task_audit table - updated to reflect complete migration sequence 016
-export const SCHEMA_VERSION = '16.0.0';
+// Current version: 17.0.0 - runtime_sessions table for Phase 10
+// Previous: 16.0.0 for Task 5: task_audit table
+export const SCHEMA_VERSION = '17.0.0';
 
 function createDatabase(dbPath?: string): DatabaseInstance {
   const isProduction = process.env.NODE_ENV === 'production';
@@ -1414,6 +1423,63 @@ function createDatabase(dbPath?: string): DatabaseInstance {
     `) as PreparedStatement,
     deleteAllFounderNonces: db.prepare(`
       DELETE FROM founder_nonces
+    `) as PreparedStatement,
+
+    // Phase 10: Runtime Session Management
+    upsertRuntimeSession: db.prepare(`
+      INSERT INTO runtime_sessions
+        (runtime, session_id, connection_status, connected_at, last_heartbeat_at, lease_expires_at, client_ip, user_agent, last_error, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(runtime) DO UPDATE SET
+        session_id = excluded.session_id,
+        connection_status = excluded.connection_status,
+        connected_at = COALESCE(excluded.connected_at, runtime_sessions.connected_at),
+        last_heartbeat_at = excluded.last_heartbeat_at,
+        lease_expires_at = excluded.lease_expires_at,
+        client_ip = excluded.client_ip,
+        user_agent = excluded.user_agent,
+        last_error = excluded.last_error,
+        updated_at = datetime('now')
+    `) as PreparedStatement,
+
+    getRuntimeSessionByRuntime: db.prepare(`
+      SELECT * FROM runtime_sessions WHERE runtime = ?
+    `) as PreparedStatement,
+
+    getRuntimeSessionBySession: db.prepare(`
+      SELECT * FROM runtime_sessions WHERE session_id = ?
+    `) as PreparedStatement,
+
+    getActiveRuntimeSession: db.prepare(`
+      SELECT * FROM runtime_sessions
+      WHERE connection_status = 'connected'
+      AND (lease_expires_at IS NULL OR datetime('now') < lease_expires_at)
+    `) as PreparedStatement,
+
+    getConnectedRuntimeSession: db.prepare(`
+      SELECT * FROM runtime_sessions
+      WHERE connection_status IN ('connecting', 'connected', 'switching')
+      ORDER BY updated_at DESC
+      LIMIT 1
+    `) as PreparedStatement,
+
+    getRuntimeSessionsExpiring: db.prepare(`
+      SELECT * FROM runtime_sessions
+      WHERE lease_expires_at IS NOT NULL
+      AND datetime('now') >= lease_expires_at
+      AND connection_status IN ('connected', 'connecting', 'switching')
+    `) as PreparedStatement,
+
+    updateRuntimeSessionStatus: db.prepare(`
+      UPDATE runtime_sessions
+      SET connection_status = ?, last_error = ?, updated_at = datetime('now')
+      WHERE runtime = ?
+    `) as PreparedStatement,
+
+    updateRuntimeSessionHeartbeat: db.prepare(`
+      UPDATE runtime_sessions
+      SET last_heartbeat_at = ?, lease_expires_at = ?, updated_at = datetime('now')
+      WHERE session_id = ?
     `) as PreparedStatement,
   };
 
