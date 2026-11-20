@@ -1509,6 +1509,8 @@ function createDatabase(dbPath?: string): DatabaseInstance {
       UPDATE runtime_sessions
       SET last_heartbeat_at = ?, lease_expires_at = ?, updated_at = datetime('now')
       WHERE session_id = ?
+      AND connection_status = 'connected'
+      AND (lease_expires_at IS NULL OR CAST(lease_expires_at AS INTEGER) > CAST(strftime('%s', 'now') || '000' AS INTEGER))
     `) as PreparedStatement,
   };
 

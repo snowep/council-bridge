@@ -64,16 +64,11 @@ function getCurrentTimestamp(): string {
   return String(Date.now());
 }
 
-function addMillisecondsToISO(msString: string, ms: number): string {
-  const date = new Date(parseInt(msString));
-  date.setTime(date.getTime() + ms);
-  return date.toISOString();
-}
-
-function parseISO(s: string | null): number | null {
+function parseUnixMs(s: string | null): number | null {
   if (!s) return null;
-  const ms = parseInt(s);
-  return isNaN(ms) ? null : ms;
+  const ms = parseInt(s, 10);
+  if (isNaN(ms)) return null;
+  return ms;
 }
 
 export class RuntimeLifecycleManager {
@@ -106,7 +101,12 @@ export class RuntimeLifecycleManager {
 
   checkOwnership(sessionId: string): boolean {
     const row = this.db.stmt.getRuntimeSessionBySession.get(sessionId) as RuntimeSessionRow | undefined;
-    return row !== undefined && row.session_id === sessionId;
+    if (!row || row.session_id !== sessionId) {
+      return false;
+    }
+    // Verify the session is still the active runtime owner
+    const activeSession = this.db.stmt.getActiveRuntimeSession.get() as RuntimeSessionRow | undefined;
+    return activeSession?.session_id === sessionId;
   }
 
   getSessionOwnership(sessionId: string): { runtime: RuntimeType | null; isOwner: boolean } {
@@ -230,7 +230,7 @@ export class RuntimeLifecycleManager {
 
     const newSessionId = sessionId || randomUUID();
     const now = getCurrentTimestamp();
-    const leaseExpires = addMillisecondsToISO(now, LEASE_DURATION_MS);
+    const leaseExpires = String(Number(now) + LEASE_DURATION_MS);
 
     try {
       this.db.runPreparedStatement('beginTransaction', []);
@@ -299,26 +299,28 @@ export class RuntimeLifecycleManager {
       return { success: false, error: 'Session ID required' };
     }
 
+    // Check if session exists at all (for unknown session rejection)
     const session = this.db.stmt.getRuntimeSessionBySession.get(sessionId) as RuntimeSessionRow | undefined;
     if (!session) {
       return { success: false, error: 'Session not found' };
     }
 
-    // Check if already expired - lease_expires_at is Unix milliseconds
-    const leaseExpires = parseISO(session.lease_expires_at);
     const now = Date.now();
-    if (leaseExpires !== null && leaseExpires < now) {
-      return { success: false, error: 'Session expired' };
-    }
-
     const newLeaseExpires = String(now + LEASE_DURATION_MS);
 
     try {
-      this.db.stmt.updateRuntimeSessionHeartbeat.run(
+      // Atomic update: only succeeds if session is connected and not expired
+      const result = this.db.runPreparedStatement('updateRuntimeSessionHeartbeat', [
         String(now),
         newLeaseExpires,
         sessionId
-      );
+      ]);
+
+      // Check if any row was actually updated (affected rows check)
+      if (!result || result.changes === 0) {
+        // No row updated means: not connected, or expired, or session doesn't own it
+        return { success: false, error: 'Session not eligible for renewal (not connected or expired)' };
+      }
 
       const newState = this.getState();
       return { success: true, state: newState };
@@ -331,31 +333,28 @@ export class RuntimeLifecycleManager {
   }
 
   recoverStaleSessions(): { recovered: number; errors: string[] } {
-    // Use Unix milliseconds for consistent comparison
     const now = Date.now();
     let recovered = 0;
     const errors: string[] = [];
 
     try {
-      // Find expired sessions
-      const sessions = this.db.stmt.getRuntimeSessionsExpiring.all(String(now)) as RuntimeSessionRow[];
-
+      // Begin transaction for atomic recovery
       this.db.runPreparedStatement('beginTransaction', []);
 
-      for (const session of sessions) {
-        if (session.connection_status === 'connected') {
-          try {
-            this.db.stmt.updateRuntimeSessionStatus.run(
-              'disconnected',
-              null,
-              session.session_id
-            );
-            recovered++;
-          } catch (e) {
-            errors.push(`Failed to recover session ${session.session_id}: ${e}`);
-          }
-        }
-      }
+      // Atomic update: only disconnect if still expired (race-safe)
+      // This prevents recovering a session that was just renewed by heartbeat
+      const stmt = this.db.db.prepare(`
+        UPDATE runtime_sessions
+        SET connection_status = 'disconnected', last_error = ?, updated_at = datetime('now')
+        WHERE connection_status = 'connected'
+        AND lease_expires_at IS NOT NULL
+        AND CAST(lease_expires_at AS INTEGER) <= ?
+      `);
+
+      const result = stmt.run(`Session recovered due to stale lease (${now})`, String(now));
+      // better-sqlite3 returns changes on the statement object after run()
+      const changedRows = (result as any).changes;
+      recovered = changedRows || 0;
 
       this.db.runPreparedStatement('commitTransaction', []);
     } catch (error) {
