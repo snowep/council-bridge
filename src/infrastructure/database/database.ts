@@ -1036,7 +1036,36 @@ function createDatabase(dbPath?: string): DatabaseInstance {
     );
 
     CREATE INDEX IF NOT EXISTS idx_founder_nonces_expires ON founder_nonces(expires_at);
-  `);
+    `);
+
+  // Ensure runtime_sessions table exists (Migration 017)
+  db.prepare(`
+    CREATE TABLE IF NOT EXISTS runtime_sessions (
+      runtime TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      connection_status TEXT NOT NULL,
+      connected_at TEXT,
+      last_heartbeat_at TEXT,
+      lease_expires_at TEXT,
+      client_ip TEXT,
+      user_agent TEXT,
+      last_error TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `).run();
+
+  // Ensure only one session can be 'connected' at a time
+  // Using a partial unique index on runtime where status is connected/connecting/switching
+  db.prepare(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_single_active_runtime
+    ON runtime_sessions(runtime)
+    WHERE connection_status IN ('connecting', 'connected', 'switching')
+  `).run();
+
+  db.prepare(`CREATE INDEX IF NOT EXISTS idx_runtime_sessions_active ON runtime_sessions(connection_status) WHERE connection_status IN ('connecting', 'connected', 'switching')`).run();
+  db.prepare(`CREATE INDEX IF NOT EXISTS idx_runtime_sessions_session_id ON runtime_sessions(session_id)`).run();
+  db.prepare(`CREATE INDEX IF NOT EXISTS idx_runtime_sessions_lease ON runtime_sessions(lease_expires_at)`).run();
 
   const stmt = {
     insertAgent: db.prepare(`
@@ -1453,7 +1482,7 @@ function createDatabase(dbPath?: string): DatabaseInstance {
     getActiveRuntimeSession: db.prepare(`
       SELECT * FROM runtime_sessions
       WHERE connection_status = 'connected'
-      AND (lease_expires_at IS NULL OR datetime('now') < lease_expires_at)
+      AND (lease_expires_at IS NULL OR CAST(lease_expires_at AS INTEGER) > CAST(strftime('%s', 'now') || '000' AS INTEGER))
     `) as PreparedStatement,
 
     getConnectedRuntimeSession: db.prepare(`
@@ -1466,14 +1495,14 @@ function createDatabase(dbPath?: string): DatabaseInstance {
     getRuntimeSessionsExpiring: db.prepare(`
       SELECT * FROM runtime_sessions
       WHERE lease_expires_at IS NOT NULL
-      AND datetime('now') >= lease_expires_at
+      AND CAST(lease_expires_at AS INTEGER) <= CAST(strftime('%s', 'now') || '000' AS INTEGER)
       AND connection_status IN ('connected', 'connecting', 'switching')
     `) as PreparedStatement,
 
     updateRuntimeSessionStatus: db.prepare(`
       UPDATE runtime_sessions
       SET connection_status = ?, last_error = ?, updated_at = datetime('now')
-      WHERE runtime = ?
+      WHERE session_id = ?
     `) as PreparedStatement,
 
     updateRuntimeSessionHeartbeat: db.prepare(`
