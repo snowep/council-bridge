@@ -337,6 +337,8 @@ export default function DashboardPage() {
     onClick: () => void;
     emptyAction: { label: string; onClick: () => void } | null;
     retryKey: keyof typeof loading;
+    governanceBadge?: boolean;
+    emphasis?: boolean;
   }> = [
     {
       label: 'Active Divisions',
@@ -349,6 +351,7 @@ export default function DashboardPage() {
       onClick: () => navigate('/organization'),
       emptyAction: totalDivisions === 0 ? { label: 'Create Division', onClick: () => setCreateDivisionDialogOpen(true) } : null,
       retryKey: 'divisions',
+      governanceBadge: true,
     },
     {
       label: 'Staff Agents',
@@ -373,6 +376,8 @@ export default function DashboardPage() {
       onClick: () => navigate('/approvals'),
       emptyAction: totalApprovals === 0 && totalStaff > 0 ? { label: 'No pending approvals', onClick: () => {} } : null,
       retryKey: 'approvals',
+      emphasis: pendingApprovals > 0,
+      governanceBadge: true,
     },
     {
       label: 'Execution Requests',
@@ -399,9 +404,33 @@ export default function DashboardPage() {
     );
   }
 
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ctrl/Cmd + R: Refresh dashboard
+      if ((e.metaKey || e.ctrlKey) && e.key === 'r') {
+        e.preventDefault();
+        fetchDashboardData();
+      }
+      // Ctrl/Cmd + N: Create division (when on dashboard)
+      if ((e.metaKey || e.ctrlKey) && e.key === 'n') {
+        e.preventDefault();
+        setCreateDivisionDialogOpen(true);
+      }
+      // Escape: Close any open dialogs
+      if (e.key === 'Escape') {
+        setCreateDivisionDialogOpen(false);
+        setInviteStaffDialogOpen(false);
+        setCreateTaskDialogOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [fetchDashboardData]);
+
   return (
     <Box sx={{ maxWidth: 1200, mx: 'auto', p: { xs: 2, sm: 3, md: 4 } }}>
-      {/* Header */}
+      {/* Header with keyboard shortcut hint */}
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3, flexWrap: 'wrap', gap: 2 }}>
         <Box>
           <Typography variant="h4" sx={{ fontWeight: 600, mb: 0.5 }}>
@@ -412,6 +441,9 @@ export default function DashboardPage() {
               ? `Last updated ${lastRefreshed.toLocaleTimeString()}`
               : 'Real-time overview of your organization'
             }
+          </Typography>
+          <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block', opacity: 0.6 }}>
+            ⌘R: Refresh | ⌘N: New Division | Esc: Close
           </Typography>
         </Box>
         <Button
@@ -751,12 +783,23 @@ interface StatCardProps {
     error: string | null;
     onClick: () => void;
     emptyAction?: { label: string; onClick: () => void } | null;
+    governanceBadge?: boolean;
+    emphasis?: boolean;
   };
   onRetry: () => void;
 }
 
 function StatCard({ stat, onRetry }: StatCardProps) {
-  const { label, value, secondary, icon, color, loading, error, emptyAction, onClick } = stat;
+  const { label, value, secondary, icon, color, loading, error, emptyAction, onClick, governanceBadge, emphasis } = stat;
+
+  const governanceAccentColor = {
+    primary: 'primary.main',
+    secondary: 'secondary.main',
+    warning: 'warning.main',
+    error: 'error.main',
+    info: 'info.main',
+    success: 'success.main',
+  }[color];
 
   if (loading) {
     return (
@@ -770,9 +813,26 @@ function StatCard({ stat, onRetry }: StatCardProps) {
           transition: 'transform 0.2s ease, box-shadow 0.2s ease',
           '&:hover': { transform: 'translateY(-2px)', boxShadow: 4 },
           cursor: 'pointer',
+          position: 'relative',
+          overflow: 'hidden',
         }}
         onClick={onClick}
       >
+        {governanceBadge && (
+          <Box
+            sx={{
+              position: 'absolute',
+              top: 0,
+              right: -10,
+              width: 40,
+              height: 40,
+              borderRadius: '50%',
+              bgcolor: governanceAccentColor,
+              opacity: 0.1,
+              transform: 'translateY(50%) rotate(45deg)',
+            }}
+          />
+        )}
         <CardContent sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
           <Typography variant="body2" color="text.secondary" gutterBottom>{label}</Typography>
           <Skeleton variant="text" width="40%" height={40} sx={{ mb: 1 }} />
@@ -794,9 +854,26 @@ function StatCard({ stat, onRetry }: StatCardProps) {
           transition: 'transform 0.2s ease, box-shadow 0.2s ease',
           '&:hover': { transform: 'translateY(-2px)', boxShadow: 4 },
           cursor: 'pointer',
+          position: 'relative',
+          overflow: 'hidden',
         }}
         onClick={onClick}
       >
+        {governanceBadge && (
+          <Box
+            sx={{
+              position: 'absolute',
+              top: 0,
+              right: -10,
+              width: 40,
+              height: 40,
+              borderRadius: '50%',
+              bgcolor: governanceAccentColor,
+              opacity: 0.1,
+              transform: 'translateY(50%) rotate(45deg)',
+            }}
+          />
+        )}
         <CardContent sx={{ display: 'flex', flexDirection: 'column', height: '100%', alignItems: 'center', justifyContent: 'center', textAlign: 'center', p: 2 }}>
           <ErrorOutlined fontSize="large" color="error" sx={{ mb: 1 }} />
           <Typography variant="body2" color="error" gutterBottom>{label}</Typography>
@@ -807,6 +884,16 @@ function StatCard({ stat, onRetry }: StatCardProps) {
     );
   }
 
+  const cardBg = `
+    conic-gradient(
+      from 0deg at 50% 50%,
+      rgba(255, 255, 255, 0) 0deg,
+      rgba(255, 255, 255, 0) 80deg,
+      rgba(0, 0, 0, 0.02) 80deg,
+      rgba(0, 0, 0, 0.02) 100deg
+    )
+  `;
+
   return (
     <Card
       elevation={2}
@@ -815,12 +902,43 @@ function StatCard({ stat, onRetry }: StatCardProps) {
         minHeight: 160,
         border: '1px solid',
         borderColor: 'divider',
-        transition: 'transform 0.2s ease, box-shadow 0.2s ease',
+        transition: 'transform 0.2s ease, box-shadow 0.2s ease, background-image 0.3s ease',
         '&:hover': { transform: 'translateY(-2px)', boxShadow: 4 },
         cursor: 'pointer',
+        position: 'relative',
+        overflow: 'hidden',
+        backgroundImage: governanceBadge ? cardBg : 'none',
       }}
       onClick={onClick}
     >
+      {governanceBadge && (
+        <Box
+          sx={{
+            position: 'absolute',
+            top: 0,
+            right: -10,
+            width: 40,
+            height: 40,
+            borderRadius: '50%',
+            bgcolor: governanceAccentColor,
+            opacity: 0.1,
+            transform: 'translateY(50%) rotate(45deg)',
+          }}
+        />
+      )}
+      {emphasis && (
+        <Box
+          sx={{
+            position: 'absolute',
+            bottom: 0,
+            left: 0,
+            right: 0,
+            height: 4,
+            bgcolor: governanceAccentColor,
+            opacity: 0.3,
+          }}
+        />
+      )}
       <CardContent>
         <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 2, mb: 2 }}>
           <Box
@@ -832,9 +950,25 @@ function StatCard({ stat, onRetry }: StatCardProps) {
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
+              position: 'relative',
+              zIndex: 1,
             }}
           >
             {icon}
+            {governanceBadge && (
+              <Box
+                sx={{
+                  position: 'absolute',
+                  top: 2,
+                  right: 2,
+                  width: 8,
+                  height: 8,
+                  borderRadius: '50%',
+                  bgcolor: governanceAccentColor,
+                  opacity: 0.6,
+                }}
+              />
+            )}
           </Box>
           <Box sx={{ flex: 1 }}>
             <Typography variant="body2" color="text.secondary" gutterBottom>{label}</Typography>

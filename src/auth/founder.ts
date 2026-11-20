@@ -4,6 +4,7 @@
 import crypto from 'crypto';
 import { readFileSync, writeFileSync, existsSync, mkdirSync, statSync, chmodSync, appendFileSync, renameSync, rmSync, openSync, closeSync, unlinkSync } from 'fs';
 import { join } from 'path';
+import Database from 'better-sqlite3';
 import { DatabaseInstance } from '../database.js';
 
 const DIR_MODE = 0o700;
@@ -13,6 +14,50 @@ const FILE_MODE = 0o600;
 // Used during bootstrap before SQLite database is initialized
 const NONCE_STORE_DIR = join(process.cwd(), '.secrets', 'nonces');
 const NONCE_STORE_FILE = join(NONCE_STORE_DIR, 'used-nonces.jsonl');
+
+// Cross-process mutual exclusion is provided by a dedicated SQLite database:
+// `BEGIN IMMEDIATE TRANSACTION` serializes writers across all processes on the
+// same file, and the OS enforces that only one process can hold the write lock
+// at a time. This replaces the old PID-marker directory lock, which let two
+// processes with different PIDs both "win" the takeover race.
+const LOCK_DB_PATH = join(NONCE_STORE_DIR, '.nonces-lock.db');
+const LOCK_STALE_MS = 30 * 1000; // 30 seconds - lock considered stale after this
+let lockDb: Database.Database | null = null;
+
+function getLockDb(): Database.Database {
+  if (lockDb) return lockDb;
+  mkdirSync(NONCE_STORE_DIR, { recursive: true, mode: DIR_MODE });
+  lockDb = new Database(LOCK_DB_PATH, { verbose: undefined });
+  lockDb.pragma('journal_mode = WAL');
+  lockDb.pragma('busy_timeout = 30000');
+  lockDb.exec(`
+    CREATE TABLE IF NOT EXISTS nonce_lock (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      owner_pid INTEGER NOT NULL,
+      owner_token TEXT NOT NULL,
+      acquired_at INTEGER NOT NULL
+    )
+  `);
+  return lockDb;
+}
+
+function closeLockDb(): void {
+  if (lockDb) {
+    try { lockDb.close(); } catch {}
+    lockDb = null;
+  }
+}
+
+// Remove the lock database file so a fresh lock is always used. Leftover
+// .db-wal/.db-shm files are harmless: SQLite treats an empty/missing main file
+// as a new database, and the lock table is recreated by getLockDb().
+export function resetNonceLockStore(): void {
+  closeLockDb();
+  for (const suffix of ['', '-wal', '-shm']) {
+    const p = LOCK_DB_PATH + suffix;
+    try { if (existsSync(p)) unlinkSync(p); } catch {}
+  }
+}
 
 interface NonceRecord {
   key_id: string;
@@ -78,16 +123,50 @@ export function setDatabaseInstance(db: DatabaseInstance): void {
  * Cross-process safe file-based nonce store.
  * Uses atomic file operations instead of JavaScript Set (which is insufficient
  * because separate Node.js processes do not share memory).
+ * Mutual exclusion is provided by a dedicated SQLite lock database (see LOCK_DB_PATH).
  */
 
-const LOCK_FILE = join(NONCE_STORE_DIR, '.nonces.lock');
-const LOCK_OWNER_FILE = join(LOCK_FILE, 'owner.json');
-const LOCK_STALE_MS = 30 * 1000; // 30 seconds - lock considered stale after this
+// Cross-process mutual exclusion is provided by a dedicated SQLite database:
+// `BEGIN IMMEDIATE TRANSACTION` serializes writers across all processes on the
+// same file, and the OS enforces that only one process can hold the write lock
+// at a time. This replaces the old PID-marker directory lock, which let two
+// processes with different PIDs both "win" the takeover race.
+const LOCK_DB_PATH = join(NONCE_STORE_DIR, '.nonces-lock.db');
+let lockDb: Database.Database | null = null;
 
-interface LockOwner {
-  pid: number;
-  token: string; // Unique token to prevent PID reuse attacks
-  acquired: number; // Timestamp when lock was acquired
+function getLockDb(): Database.Database {
+  if (lockDb) return lockDb;
+  mkdirSync(NONCE_STORE_DIR, { recursive: true, mode: DIR_MODE });
+  lockDb = new Database(LOCK_DB_PATH, { verbose: undefined });
+  lockDb.pragma('journal_mode = WAL');
+  lockDb.pragma('busy_timeout = 30000');
+  lockDb.exec(`
+    CREATE TABLE IF NOT EXISTS nonce_lock (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      owner_pid INTEGER NOT NULL,
+      owner_token TEXT NOT NULL,
+      acquired_at INTEGER NOT NULL
+    )
+  `);
+  return lockDb;
+}
+
+function closeLockDb(): void {
+  if (lockDb) {
+    try { lockDb.close(); } catch {}
+    lockDb = null;
+  }
+}
+
+// Remove the lock database file so a fresh lock is always used. Leftover
+// .db-wal/.db-shm files are harmless: SQLite treats an empty/missing main file
+// as a new database, and the lock table is recreated by getLockDb().
+export function resetNonceLockStore(): void {
+  closeLockDb();
+  for (const suffix of ['', '-wal', '-shm']) {
+    const p = LOCK_DB_PATH + suffix;
+    try { if (existsSync(p)) unlinkSync(p); } catch {}
+  }
 }
 
 /**
@@ -105,173 +184,123 @@ export function initNonceStore(): void {
 
 /**
  * Generate a unique ownership token for this lock acquisition.
- * Combines PID, timestamp, and random bytes to prevent PID reuse attacks.
+ * Combines PID, timestamp, and random bytes.
  */
 function generateLockToken(): string {
   return `${process.pid}-${Date.now()}-${crypto.randomBytes(8).toString('hex')}`;
 }
 
 /**
- * Write ownership metadata atomically.
- * Must succeed for lock acquisition to be valid.
- * @throws on failure - caller must clean up lock directory
+ * Acquire cross-process exclusive lock using SQLite's BEGIN IMMEDIATE.
+ * Returns ownership token on success, null on failure (lock held or timeout).
+ * Ownership token MUST be passed to releaseNonceLock() for safe release.
+ *
+ * SQLite's IMMEDIATE transaction serializes all writers on the same file.
+ * The busy_timeout (30s) controls how long we wait before giving up.
+ * This replaces the PID-marker directory protocol which had a TOCTOU race
+ * in the takeover marker (two different PIDs could both create their own marker).
  */
-function writeLockOwner(token: string): void {
-  const owner: LockOwner = {
-    pid: process.pid,
-    token,
-    acquired: Date.now()
-  };
-  // Write atomically via temp file + rename
-  const tmpFile = LOCK_OWNER_FILE + '.tmp';
-  writeFileSync(tmpFile, JSON.stringify(owner), { mode: FILE_MODE });
-  renameSync(tmpFile, LOCK_OWNER_FILE);
-}
-
-/**
- * Read and validate lock ownership metadata.
- * Returns owner info if valid, null if missing/corrupt.
- */
-function readLockOwner(): LockOwner | null {
+export function acquireNonceLock(): string | null {
   try {
-    if (!existsSync(LOCK_OWNER_FILE)) return null;
-    const data = readFileSync(LOCK_OWNER_FILE, 'utf-8');
-    const owner = JSON.parse(data) as LockOwner;
-    // Validate required fields
-    if (typeof owner.pid !== 'number' || typeof owner.token !== 'string' || typeof owner.acquired !== 'number') {
-      return null;
+    const db = getLockDb();
+    const token = generateLockToken();
+
+    // BEGIN IMMEDIATE acquires the write lock, blocking if another
+    // process holds it. If busy_timeout expires, it throws.
+    const tx = db.prepare('BEGIN IMMEDIATE TRANSACTION');
+    tx.run();
+
+    // Check if lock table has an owner we don't own
+    const existing = db.prepare('SELECT owner_token, acquired_at FROM nonce_lock WHERE id = 1').get();
+    if (existing && (existing as any).owner_token) {
+      // Lock is held by another process (or stale entry from crash)
+      // We still own the IMMEDIATE tx, so we can overwrite if stale
+      const ageMs = Date.now() - ((existing as any).acquired_at || 0);
+      if (ageMs < LOCK_STALE_MS) {
+        db.prepare('ROLLBACK').run();
+        return null;
+      }
     }
-    return owner;
-  } catch {
+
+    // Write our ownership atomically within the same transaction
+    db.prepare(`
+      INSERT INTO nonce_lock (id, owner_pid, owner_token, acquired_at)
+      VALUES (1, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        owner_pid = excluded.owner_pid,
+        owner_token = excluded.owner_token,
+        acquired_at = excluded.acquired_at
+    `).run(process.pid, token, Date.now());
+
+    db.prepare('COMMIT').run();
+    return token;
+  } catch (error: any) {
+    // Lock acquisition failed (timeout, busy, or other error)
+    try { getLockDb().prepare('ROLLBACK').run(); } catch {}
     return null;
   }
 }
 
 /**
- * Check if lock is stale (owner process crashed).
- * Uses token validation to prevent PID reuse false positives.
- * A lock is stale ONLY if:
- * - Owner metadata is missing/corrupt, AND lock directory is old, OR
- * - Owner process is confirmed dead (signal 0 fails) AND token matches expected format
- * Permission errors and ambiguous states fail closed (return false = not stale).
+ * Check if the lock is stale (owner process crashed and lock is old).
+ * Uses SQLite transaction for consistent read.
  */
 export function isLockStale(): boolean {
-  const owner = readLockOwner();
+  try {
+    const db = getLockDb();
+    const tx = db.prepare('BEGIN IMMEDIATE TRANSACTION');
+    tx.run();
 
-  // No valid owner metadata - check directory age as last resort
-  if (!owner) {
-    try {
-      const stat = statSync(LOCK_FILE);
-      // Only consider stale if directory is older than threshold
-      // and we can't read valid owner info (fail-closed: ambiguous = not stale)
-      return Date.now() - stat.mtimeMs > LOCK_STALE_MS;
-    } catch {
-      // Can't stat - treat as stale to allow recovery
+    const existing = db.prepare('SELECT owner_pid, owner_token, acquired_at FROM nonce_lock WHERE id = 1').get();
+    db.prepare('ROLLBACK').run();
+
+    if (!existing || !(existing as any).owner_token) {
+      // No owner - lock is free, not "stale" in the sense of needing recovery
+      // Return true to allow acquisition if the caller checks this
       return true;
     }
-  }
 
-  // Valid owner metadata exists - check if process is alive
-  try {
-    // Signal 0 checks process existence without sending a signal
-    // This can have false positives due to PID reuse, but combined with token
-    // and timestamp checks, it's acceptable for crash recovery
-    process.kill(owner.pid, 0);
-    // Process exists - not stale (even if it's a different process with recycled PID,
-    // the token mismatch will prevent false stale detection in acquireNonceLock)
+    const ageMs = Date.now() - (existing as any).acquired_at;
+    if (ageMs > LOCK_STALE_MS) {
+      return true;
+    }
+
+    // Process might still be alive; fail-closed (don't treat as stale)
     return false;
   } catch {
-    // Process dead - stale
+    // If we can't check, treat as stale to allow recovery
     return true;
   }
 }
 
 /**
- * Acquire cross-process exclusive lock with ownership token.
- * Returns ownership token on success, null on failure.
- * Ownership token MUST be passed to releaseNonceLock() for safe release.
- *
- * Algorithm:
- * 1. Try atomic mkdirSync (fails if exists)
- * 2. Write owner.json atomically with unique token
- * 3. If mkdir fails with EEXIST:
- *    - Read existing owner.json and check staleness
- *    - Use unique takeover marker file (O_EXCL semantics via exclusive creat)
- *    - Only one process can create the marker - winner gets the lock
- *    - Winner writes owner.json, loser cleans up and fails
- * 4. On any failure after mkdir, clean up ONLY if we own the lock
+ * Release lock ONLY if we own it.
+ * Verifies ownership token before clearing the lock table.
+ * @param token - The ownership token returned by acquireNonceLock()
+ * @returns true if lock was released, false if not owned by caller or error
  */
-export function acquireNonceLock(): string | null {
+export function releaseNonceLock(token: string | null): boolean {
+  if (!token) return false;
+
   try {
-    // Ensure parent directory exists
-    if (!existsSync(NONCE_STORE_DIR)) {
-      mkdirSync(NONCE_STORE_DIR, { recursive: true, mode: DIR_MODE });
+    const db = getLockDb();
+    const tx = db.prepare('BEGIN IMMEDIATE TRANSACTION');
+    tx.run();
+
+    // Verify we still own the lock
+    const existing = db.prepare('SELECT owner_token FROM nonce_lock WHERE id = 1').get();
+    if (!existing || (existing as any).owner_token !== token) {
+      db.prepare('ROLLBACK').run();
+      return false;
     }
 
-    // Attempt exclusive directory creation - atomic lock acquisition
-    mkdirSync(LOCK_FILE);
-
-    // We got the directory - write ownership atomically
-    const newToken = generateLockToken();
-    try {
-      writeLockOwner(newToken);
-    } catch (e) {
-      // Failed to write owner - clean up our directory and fail
-      try { rmSync(LOCK_FILE, { recursive: true, force: true }); } catch {}
-      return null;
-    }
-
-    return newToken;
-
-  } catch (error: any) {
-    // Directory already exists - check for stale lock
-    if (error.code === 'EEXIST' && existsSync(LOCK_FILE)) {
-      // Check if existing lock is stale
-      if (!isLockStale()) {
-        return null;
-      }
-
-      // Stale lock detected - use exclusive takeover marker for atomic CAS
-      // Only one process should succeed; others fail immediately
-      const takeoverToken = generateLockToken();
-      const takeoverMarker = LOCK_OWNER_FILE + '.takeover-' + process.pid;
-
-      try {
-        // Create exclusive takeover marker file - only one process succeeds
-        // This provides the atomic compare-and-swap semantics we need
-        const markerFd = openSync(takeoverMarker, 'wx');
-
-        // We created the marker - we are the winner of the takeover race
-        // Write our ownership immediately
-        const takeoverOwner: LockOwner = {
-          pid: process.pid,
-          token: takeoverToken,
-          acquired: Date.now()
-        };
-
-        try {
-          writeLockOwner(takeoverToken);
-        } catch (writeErr) {
-          // Failed to write owner - clean up marker and fail
-          try { closeSync(markerFd); } catch {}
-          try { unlinkSync(takeoverMarker); } catch {}
-          return null;
-        }
-
-        // Clean up our marker file
-        try { closeSync(markerFd); } catch {}
-        try { unlinkSync(takeoverMarker); } catch {}
-
-        return takeoverToken;
-
-      } catch (markerErr: any) {
-        // Failed to create marker - someone else won the takeover race
-        // Clean up any stray temp file
-        try { rmSync(LOCK_OWNER_FILE + '.tmp', { force: true }); } catch {}
-        return null;
-      }
-    }
-    return null;
+    // Clear our ownership
+    db.prepare('UPDATE nonce_lock SET owner_token = \'\', owner_pid = 0, acquired_at = 0 WHERE id = 1').run();
+    db.prepare('COMMIT').run();
+    return true;
+  } catch {
+    try { getLockDb().prepare('ROLLBACK').run(); } catch {}
+    return false;
   }
 }
 
@@ -326,35 +355,8 @@ export function writeNonceRecordsSync(records: Map<string, NonceRecord>): boolea
 }
 
 /**
- * Release lock ONLY if we own it.
- * Verifies ownership token before removing lock directory.
- * @param token - The ownership token returned by acquireNonceLock()
- * @returns true if lock was released, false if not owned by caller or error
- */
-export function releaseNonceLock(token: string | null): boolean {
-  if (!token) return false;
-
-  try {
-    // Verify we still own the lock before releasing
-    const owner = readLockOwner();
-    if (!owner || owner.token !== token) {
-      // Lock doesn't exist, or belongs to another process, or was transferred
-      // Do NOT delete - another process may now own it
-      return false;
-    }
-
-    // We own it - safe to remove
-    try { rmSync(LOCK_OWNER_FILE, { force: true }); } catch {}
-    rmSync(LOCK_FILE, { recursive: true, force: true });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/**
  * Check and consume a nonce atomically for cross-process safety.
- * Uses directory-based lock with ownership token for cross-process atomicity.
+ * Uses the SQLite lock database (BEGIN IMMEDIATE) for cross-process atomicity.
  *
  * @param keyId The founder key ID
  * @param operation The operation name (e.g., 'bootstrap_database')
