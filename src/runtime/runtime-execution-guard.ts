@@ -4,9 +4,13 @@
 
 import { DatabaseInstance } from '../database.js';
 import { AuthContext } from '../auth/index.js';
+import { getAuthConfig } from '../auth/config.js';
 import { randomUUID } from 'node:crypto';
 import { parseUnixMs } from './lifecycle.js';
 import { getRuntimeLifecycleManager } from './lifecycle.js';
+
+// These must be functions, not cached values, because tests change process.env.AUTH_MODE at runtime
+function getConfig() { return getAuthConfig(); }
 
 export type RuntimeId = 'claude' | 'hermes';
 
@@ -60,70 +64,107 @@ export function createRuntimeExecutionGuard(db: DatabaseInstance) {
       // Begin IMMEDIATE transaction for atomic ownership verification and permit acquisition
       db.runPreparedStatement('beginTransaction', []);
 
-      // 1. Resolve authenticated runtime session
+      // 1. Check for bootstrap/local-founder session (bypasses runtime session checks for local single-user mode)
+      // SECURITY: Bootstrap sessions are ONLY allowed in local single-user mode
+      const isLocalMode = getConfig().local_single_user_mode;
+      const isBootstrapSession = requestSessionId === 'local-founder' && isLocalMode;
+
+      if (isBootstrapSession) {
+        // In bootstrap mode, ensure a runtime_sessions row exists for the requested runtime
+        // First, clear any existing connected session to avoid UNIQUE constraint violation
+        // This implements the "single active runtime" invariant for bootstrap sessions
+        const existingActive = db.stmt.getActiveRuntimeSession.get() as
+          | { runtime: RuntimeId; session_id: string; connection_status: string; lease_expires_at: string | null }
+          | undefined;
+
+        if (existingActive?.connection_status === 'connected') {
+          // Disconnect the existing active session to make room for the bootstrap session
+          // This is safe because there's only one active session, and we're taking ownership
+          db.stmt.updateRuntimeSessionStatus.run('disconnected', null, existingActive.session_id);
+        }
+
+        // Now create the bootstrap session row
+        // This is required for the execution_records foreign key constraint
+        const sessionNow = String(now);
+        const leaseExpires = String(now + 10 * 60 * 1000); // 10 minutes lease
+        db.stmt.upsertRuntimeSession.run(
+          requestRuntime,           // runtime (PK)
+          requestSessionId,         // session_id
+          'connected',              // connection_status
+          sessionNow,               // connected_at
+          sessionNow,               // last_heartbeat_at
+          leaseExpires,             // lease_expires_at
+          null,                     // client_ip
+          null,                     // user_agent
+          null,                     // last_error
+          sessionNow,               // created_at
+          sessionNow                // updated_at
+        );
+      }
+
+      // 2. Resolve authenticated runtime session (skip for bootstrap)
       const sessionRow = db.stmt.getRuntimeSessionBySession.get(requestSessionId) as
         | { runtime: RuntimeId; session_id: string; connection_status: string; lease_expires_at: string | null }
         | undefined;
 
-      if (!sessionRow || sessionRow.session_id !== requestSessionId) {
+      if (!isBootstrapSession && (!sessionRow || sessionRow.session_id !== requestSessionId)) {
         db.runPreparedStatement('rollbackTransaction', []);
         return { success: false, error: { code: 'SESSION_NOT_FOUND', message: 'Session not found' } };
       }
 
-      // 2. Confirm it is the active connected session
-      const activeSession = db.stmt.getActiveRuntimeSession.get() as
-        | { runtime: RuntimeId; session_id: string; connection_status: string; lease_expires_at: string | null }
-        | undefined;
+      // 3. For non-bootstrap sessions: confirm it is the active connected session
+      if (!isBootstrapSession) {
+        const activeSession = db.stmt.getActiveRuntimeSession.get() as
+          | { runtime: RuntimeId; session_id: string; connection_status: string; lease_expires_at: string | null }
+          | undefined;
 
-      if (!activeSession || activeSession.connection_status !== 'connected') {
-        db.runPreparedStatement('rollbackTransaction', []);
-        return { success: false, error: { code: 'NO_ACTIVE_SESSION', message: 'No active runtime session' } };
+        if (!activeSession || activeSession.connection_status !== 'connected') {
+          db.runPreparedStatement('rollbackTransaction', []);
+          return { success: false, error: { code: 'NO_ACTIVE_SESSION', message: 'No active runtime session' } };
+        }
+
+        // 4. Verify the session ID matches
+        if (activeSession.session_id !== requestSessionId) {
+          db.runPreparedStatement('rollbackTransaction', []);
+          return {
+            success: false,
+            error: {
+              code: 'RUNTIME_NOT_ACTIVE',
+              message: `This runtime does not own the active Council Bridge session. Active runtime: ${activeSession.runtime}`,
+              activeRuntime: activeSession.runtime
+            }
+          };
+        }
+
+        // 5. Verify the runtime matches
+        if (activeSession.runtime !== requestRuntime) {
+          db.runPreparedStatement('rollbackTransaction', []);
+          return {
+            success: false,
+            error: {
+              code: 'RUNTIME_MISMATCH',
+              message: `Runtime mismatch: authorized as ${requestRuntime}, but active session belongs to ${activeSession.runtime}`,
+              activeRuntime: activeSession.runtime
+            }
+          };
+        }
+
+        // 6. Verify lease is valid - FAIL-CLOSED: reject on any invalid/missing/ expired lease
+        const leaseExpires = activeSession.lease_expires_at;
+        const leaseExpiresMs = parseUnixMs(leaseExpires);
+
+        if (leaseExpiresMs === null) {
+          db.runPreparedStatement('rollbackTransaction', []);
+          return { success: false, error: { code: 'INVALID_SESSION_LEASE', message: 'Runtime session has an invalid or missing lease timestamp' } };
+        }
+
+        if (leaseExpiresMs <= now) {
+          db.runPreparedStatement('rollbackTransaction', []);
+          return { success: false, error: { code: 'SESSION_EXPIRED', message: 'Session lease has expired' } };
+        }
       }
 
-      // 3. Verify the session ID matches
-      if (activeSession.session_id !== requestSessionId) {
-        db.runPreparedStatement('rollbackTransaction', []);
-        return {
-          success: false,
-          error: {
-            code: 'RUNTIME_NOT_ACTIVE',
-            message: `This runtime does not own the active Council Bridge session. Active runtime: ${activeSession.runtime}`,
-            activeRuntime: activeSession.runtime
-          }
-        };
-      }
-
-      // 4. Verify the runtime matches
-      if (activeSession.runtime !== requestRuntime) {
-        db.runPreparedStatement('rollbackTransaction', []);
-        return {
-          success: false,
-          error: {
-            code: 'RUNTIME_MISMATCH',
-            message: `Runtime mismatch: authorized as ${requestRuntime}, but active session belongs to ${activeSession.runtime}`,
-            activeRuntime: activeSession.runtime
-          }
-        };
-      }
-
-      // 5. Verify lease is valid - FAIL-CLOSED: reject on any invalid/missing/ expired lease
-      const leaseExpires = activeSession.lease_expires_at;
-      const leaseExpiresMs = parseUnixMs(leaseExpires);
-
-      if (leaseExpiresMs === null) {
-        db.runPreparedStatement('rollbackTransaction', []);
-        return {
-          success: false,
-          error: { code: 'INVALID_SESSION_LEASE', message: 'Runtime session has an invalid or missing lease timestamp' }
-        };
-      }
-
-      if (leaseExpiresMs <= now) {
-        db.runPreparedStatement('rollbackTransaction', []);
-        return { success: false, error: { code: 'SESSION_EXPIRED', message: 'Session lease has expired' } };
-      }
-
-      // 6. Check if there's already an active execution for this session (prevent concurrent executions)
+      // 7. Check if there's already an active execution for this session (prevent concurrent executions)
       const existingExecution = db.stmt.getExecutionRecordBySession.get(requestSessionId) as
         | { id: string; completed: number; expires_at: number }
         | undefined;
@@ -133,11 +174,20 @@ export function createRuntimeExecutionGuard(db: DatabaseInstance) {
         return { success: false, error: { code: 'EXECUTION_IN_PROGRESS', message: 'Another tool execution is already in progress for this session' } };
       }
 
-      // 7. Insert execution record bound to exact session (atomic within transaction)
+      // 8. Clean up any expired execution records that might block the unique constraint
+      db.stmt.cleanupExpiredExecutionRecords.run(now);
+
+      // 9. Insert execution record bound to exact session (atomic within transaction)
       db.stmt.insertExecutionRecord.run(executionId, requestSessionId, requestRuntime, now, expiresAt);
 
-      // 8. Commit transaction
+      // 10. Commit transaction
       db.runPreparedStatement('commitTransaction', []);
+
+      // Start heartbeat renewal (only for non-bootstrap sessions with active runtime)
+      let heartbeat: { interval: NodeJS.Timeout; stop: () => void } | undefined;
+      if (!isBootstrapSession) {
+        heartbeat = startHeartbeatRenewal(requestSessionId);
+      }
 
       // Return execution context
       return {
@@ -145,7 +195,8 @@ export function createRuntimeExecutionGuard(db: DatabaseInstance) {
         context: {
           runtimeId: requestRuntime,
           sessionId: requestSessionId,
-          executionId
+          executionId,
+          heartbeatInterval: heartbeat?.interval
         }
       };
     } catch (error) {
@@ -217,10 +268,6 @@ export function createRuntimeExecutionGuard(db: DatabaseInstance) {
 
     const context = permitResult.context;
 
-    // Step 1b: Start heartbeat renewal for Claude/Hermes adapters
-    const heartbeat = startHeartbeatRenewal(context.sessionId);
-    context.heartbeatInterval = heartbeat.interval;
-
     try {
       // Step 2: Execute the MCP tool callback
       const result = await toolExecutor(context);
@@ -242,7 +289,9 @@ export function createRuntimeExecutionGuard(db: DatabaseInstance) {
       };
     } finally {
       // Step 5: Stop heartbeat renewal
-      heartbeat.stop();
+      if (context.heartbeatInterval) {
+        clearInterval(context.heartbeatInterval);
+      }
     }
   }
 

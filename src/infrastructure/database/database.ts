@@ -1658,6 +1658,13 @@ function getInstance(): ReturnType<typeof createDatabase> {
   return _databaseInstance;
 }
 
+// Allow explicit database instance to be set (used during initialization)
+// This is called by server.ts after database initialization with custom path
+export function setDatabaseInstance(db: DatabaseInstance): void {
+  _databaseInstance = db;
+  _initializationError = null;
+}
+
 // Export a proxy that provides lazy access to the full DatabaseInstance object
 export const databaseInstance = new Proxy({} as ReturnType<typeof createDatabase>, {
   get(target, prop) {

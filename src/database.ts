@@ -7,6 +7,7 @@ export {
   stmt,
   generateId,
   closeDatabase,
-  getDatabase
+  getDatabase,
+  setDatabaseInstance
 } from './infrastructure/database/database.js';
 export type { DatabaseInstance } from './infrastructure/database/database.js';

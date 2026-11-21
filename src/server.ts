@@ -12,22 +12,22 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 
 import { createDatabase, DatabaseInstance } from './database.js';
 import {
-  validateSessionToken,
-  listActiveSessions,
-  cleanupExpiredSessions,
   startSessionCleanupInterval,
-  stopSessionCleanupInterval
+  stopSessionCleanupInterval,
+  getSessionStats
 } from './auth/session.js';
 
 import {
   verifyFounderOperation,
   getFounderKeyId,
   getFounderPublicKey,
-  setDatabaseInstance,
   startNonceCleanupInterval,
   stopNonceCleanupInterval,
   initializeFounderKeys
 } from './auth/founder.js';
+
+// Import setDatabaseInstance after database.ts to ensure proper initialization order
+import { setDatabaseInstance as setDbInstance } from './database.js';
 
 import {
   getAuthConfig,
@@ -35,25 +35,39 @@ import {
   isDevelopmentMode,
   isLocalSingleUserMode,
   getLocalBindAddress,
-  AuthContext,
   validateAuthMode,
   validateFounderKeyConfiguration,
-  validateLocalSingleUserConfig,
+  validateLocalSingleUserConfig
 } from './auth/index.js';
+
+// Shared error map for founder signature verification errors
+const FOUNDER_ERROR_MAP: Record<string, { status: number; code: string; message: string }> = {
+  'NO_KEYS': { status: 500, code: 'FOUNDER_KEYS_MISSING', message: 'Founder keys not initialized' },
+  'KEY_MISMATCH': { status: 403, code: 'FOUNDER_KEY_MISMATCH', message: 'Key ID mismatch - key rotation may have occurred' },
+  'TIMESTAMP_EXPIRED': { status: 403, code: 'FOUNDER_TIMESTAMP_EXPIRED', message: 'Signature timestamp expired or in future' },
+  'NONCE_MISSING': { status: 403, code: 'FOUNDER_NONCE_MISSING', message: 'Nonce is required' },
+  'NONCE_TOO_LONG': { status: 403, code: 'FOUNDER_NONCE_TOO_LONG', message: 'Nonce exceeds maximum length' },
+  'NONCE_MALFORMED': { status: 403, code: 'FOUNDER_NONCE_MALFORMED', message: 'Nonce contains invalid characters' },
+  'NONCE_REPLAY': { status: 403, code: 'FOUNDER_NONCE_REPLAY', message: 'Nonce already consumed - replay attack detected' },
+  'INVALID_SIGNATURE': { status: 403, code: 'FOUNDER_SIGNATURE_INVALID', message: 'Invalid founder signature' },
+  'VERIFICATION_ERROR': { status: 500, code: 'FOUNDER_VERIFICATION_ERROR', message: 'Signature verification failed' }
+};
+
+function handleFounderVerificationError(res: Response, result: { valid: boolean; error?: string }) {
+  const errorInfo = FOUNDER_ERROR_MAP[result.error || 'INVALID_SIGNATURE'] || FOUNDER_ERROR_MAP['INVALID_SIGNATURE'];
+  return res.status(errorInfo.status).json({
+    error: errorInfo.message,
+    code: errorInfo.code
+  });
+}
 
 import {
   createTaskAutonomyLevel,
   listTaskAutonomyLevels,
-  getTaskAutonomyLevel,
   requestExecution,
   approveExecution,
-  getExecutionRequest,
   getExecutionHistory,
-  listExecutionRequests,
-  listApprovalRequests,
-  setCryptoModule,
-  executeExecutionRequest,
-  cancelExecutionRequest
+  setCryptoModule
 } from './council/operations.js';
 
 import { createRuntimeOwnershipGuard, mcpOwnershipErrorResponse } from './runtime/runtime-ownership.middleware.js';
@@ -84,9 +98,17 @@ import { errorHandler } from './api/middleware/error-handler.js';
 setCryptoModule(crypto);
 
 const app = express();
+
+// CORS configuration - allow environment override for production
+const corsOrigins = process.env.CORS_ORIGINS
+  ? process.env.CORS_ORIGINS.split(',').map(o => o.trim())
+  : ['http://localhost:5173', 'http://localhost:5174'];
+
 app.use(cors({
-  origin: ['http://localhost:5173', 'http://localhost:5174'],
+  origin: corsOrigins,
   credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Accept-Encoding', 'Accept-Language'],
 }));
 app.use(express.json());
 
@@ -222,30 +244,14 @@ function founderSignatureMiddleware(requiredOperations: string[]) {
     );
 
     if (!result.valid) {
-      const errorMap: Record<string, { status: number; code: string; message: string }> = {
-        'NO_KEYS': { status: 500, code: 'FOUNDER_KEYS_MISSING', message: 'Founder keys not initialized' },
-        'KEY_MISMATCH': { status: 403, code: 'FOUNDER_KEY_MISMATCH', message: 'Key ID mismatch - key rotation may have occurred' },
-        'TIMESTAMP_EXPIRED': { status: 403, code: 'FOUNDER_TIMESTAMP_EXPIRED', message: 'Signature timestamp expired or in future' },
-        'NONCE_MISSING': { status: 403, code: 'FOUNDER_NONCE_MISSING', message: 'Nonce is required' },
-        'NONCE_TOO_LONG': { status: 403, code: 'FOUNDER_NONCE_TOO_LONG', message: 'Nonce exceeds maximum length' },
-        'NONCE_MALFORMED': { status: 403, code: 'FOUNDER_NONCE_MALFORMED', message: 'Nonce contains invalid characters' },
-        'NONCE_REPLAY': { status: 403, code: 'FOUNDER_NONCE_REPLAY', message: 'Nonce already consumed - replay attack detected' },
-        'INVALID_SIGNATURE': { status: 403, code: 'FOUNDER_SIGNATURE_INVALID', message: 'Invalid founder signature' },
-        'VERIFICATION_ERROR': { status: 500, code: 'FOUNDER_VERIFICATION_ERROR', message: 'Signature verification failed' }
-      };
-
-      const errorInfo = errorMap[result.error || 'INVALID_SIGNATURE'] || errorMap['INVALID_SIGNATURE'];
-      return res.status(errorInfo.status).json({
-        error: errorInfo.message,
-        code: errorInfo.code
-      });
+      return handleFounderVerificationError(res, result);
     }
 
     (req as any).authContext = {
       owner_type: 'founder',
       owner_id: 'founder',
       runtime: 'claude',
-      session_id: 'founder-signed',
+      session_id: 'dev-fallback',
       permissions: [],
       expires_at: Infinity,
       issued_at: Date.now(),
@@ -313,23 +319,7 @@ app.post('/api/auth/session', founderSignatureRateLimit, async (req, res) => {
       );
 
       if (!result.valid) {
-        const errorMap: Record<string, { status: number; code: string; message: string }> = {
-          'NO_KEYS': { status: 500, code: 'FOUNDER_KEYS_MISSING', message: 'Founder keys not initialized' },
-          'KEY_MISMATCH': { status: 403, code: 'FOUNDER_KEY_MISMATCH', message: 'Key ID mismatch - key rotation may have occurred' },
-          'TIMESTAMP_EXPIRED': { status: 403, code: 'FOUNDER_TIMESTAMP_EXPIRED', message: 'Signature timestamp expired or in future' },
-          'NONCE_MISSING': { status: 403, code: 'FOUNDER_NONCE_MISSING', message: 'Nonce is required' },
-          'NONCE_TOO_LONG': { status: 403, code: 'FOUNDER_NONCE_TOO_LONG', message: 'Nonce exceeds maximum length' },
-          'NONCE_MALFORMED': { status: 403, code: 'FOUNDER_NONCE_MALFORMED', message: 'Nonce contains invalid characters' },
-          'NONCE_REPLAY': { status: 403, code: 'FOUNDER_NONCE_REPLAY', message: 'Nonce already consumed - replay attack detected' },
-          'INVALID_SIGNATURE': { status: 403, code: 'FOUNDER_SIGNATURE_INVALID', message: 'Invalid founder signature' },
-          'VERIFICATION_ERROR': { status: 500, code: 'FOUNDER_VERIFICATION_ERROR', message: 'Signature verification failed' }
-        };
-
-        const errorInfo = errorMap[result.error || 'INVALID_SIGNATURE'] || errorMap['INVALID_SIGNATURE'];
-        return res.status(errorInfo.status).json({
-          error: errorInfo.message,
-          code: errorInfo.code
-        });
+        return handleFounderVerificationError(res, result);
       }
 
       // Validate requested identity against database
@@ -470,6 +460,11 @@ import runtimeRoutes from './api/routes/runtime.routes.js';
 app.use('/api/runtime', runtimeRoutes);
 
 // MCP endpoint - create new server+transport per request for stateless operation
+// NOTE: OPTIONS preflight must be handled BEFORE auth middleware
+app.options('/mcp', (req, res) => {
+  res.status(200).json({ success: true });
+});
+
 app.all('/mcp', authMiddleware, async (req, res) => {
   // Runtime ownership check - enforce single active runtime at MCP boundary
   const authContext = getAuthContext(req);
@@ -531,7 +526,7 @@ app.use(errorHandler);
 const PORT = parseInt(process.env.PORT || '3334', 10);
 
 initDb().then(async () => {
-  setDatabaseInstance(db);
+  setDbInstance(db);
 
   // Register Founder as the canonical communication identity
   try {

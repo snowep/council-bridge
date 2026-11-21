@@ -127,12 +127,6 @@ export function setFounderKeyCache(keyPair: FounderKeyPair): void {
   cachedKeyPairMtime = getKeyFileMtime();
 }
 
-let dbInstance: DatabaseInstance | null = null;
-
-export function setDatabaseInstance(db: DatabaseInstance): void {
-  dbInstance = db;
-}
-
 /**
  * Cross-process safe file-based nonce store.
  * Uses atomic file operations instead of JavaScript Set (which is insufficient
@@ -414,11 +408,11 @@ export function getKeyFileMtime(): number {
   }
 }
 
+import { getDatabase } from '../database.js';
+
 function getDb(): DatabaseInstance {
-  if (!dbInstance) {
-    throw new Error('Database instance not initialized for founder nonce store');
-  }
-  return dbInstance;
+  const db = getDatabase();
+  return db;
 }
 
 export function checkAndConsumeNonce(keyId: string, operation: string, nonce: string, now: number): boolean {
@@ -444,8 +438,7 @@ export function startNonceCleanupInterval(): void {
   if (cleanupInterval !== null) return;
   cleanupInterval = setInterval(() => {
     try {
-      if (!dbInstance) return; // Database instance cleared, skip cleanup
-      const db = dbInstance;
+      const db = getDatabase();
       db.stmt.cleanupFounderNonces.run();
     } catch (error) {
       // Silent cleanup failure - database may be closing/closed
