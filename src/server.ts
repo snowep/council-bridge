@@ -57,6 +57,7 @@ import {
 } from './council/operations.js';
 
 import { createRuntimeOwnershipGuard, mcpOwnershipErrorResponse } from './runtime/runtime-ownership.middleware.js';
+import { createRuntimeExecutionGuard } from './runtime/runtime-execution-guard.js';
 
 import { registerMcpTools } from './mcp/tools.js';
 
@@ -493,11 +494,34 @@ app.all('/mcp', authMiddleware, async (req, res) => {
   // Attach ownership info for tools to use if needed
   (req as any).runtimeOwnership = ownershipResult;
 
-  const requestTransport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
-  const requestMcpServer = new McpServer({ name: 'council-bridge', version: '1.0.0' }, { capabilities: { tools: {} } });
-  await requestMcpServer.connect(requestTransport);
-  registerMcpTools(requestMcpServer, db, () => authContext);
-  await requestTransport.handleRequest(req, res, req.body);
+  // Acquire execution permit for TOCTOU protection
+  const executionGuard = createRuntimeExecutionGuard(db);
+  const permitResult = await executionGuard.acquireExecutionPermit(authContext);
+
+  if (!permitResult.success || !permitResult.context) {
+    res.status(403).json({
+      error: permitResult.error?.code || 'DATABASE_ERROR',
+      message: permitResult.error?.message || 'Failed to acquire execution permit'
+    });
+    return;
+  }
+
+  const executionContext = permitResult.context;
+
+  try {
+    const requestTransport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+    const requestMcpServer = new McpServer({ name: 'council-bridge', version: '1.0.0' }, { capabilities: { tools: {} } });
+    await requestMcpServer.connect(requestTransport);
+    registerMcpTools(requestMcpServer, db, () => authContext);
+    await requestTransport.handleRequest(req, res, req.body);
+
+    // Release execution permit on success
+    await executionGuard.releaseExecutionPermit(executionContext.executionId);
+  } catch (error) {
+    // Release execution permit on error
+    await executionGuard.releaseExecutionPermit(executionContext.executionId);
+    throw error;
+  }
 });
 
 // Global error handler (must be last)
