@@ -2,7 +2,7 @@
 // Phase 10: Single Active Runtime Management
 
 import { Router, Request, Response } from 'express';
-import { RuntimeLifecycleManager } from '../../runtime/lifecycle.js';
+import { getRuntimeLifecycleManager } from '../../runtime/lifecycle.js';
 import { authMiddleware, requireFounder } from '../middleware/authentication.js';
 import { asyncHandler } from '../middleware/error-handler.js';
 import { z } from 'zod/v4';
@@ -40,7 +40,7 @@ const heartbeatSchema = z.object({
 
 // GET /api/runtime - Get current runtime state
 router.get('/', authMiddleware, asyncHandler(async (req: Request, res: Response) => {
-  const lifecycle = new RuntimeLifecycleManager(db);
+  const lifecycle = getRuntimeLifecycleManager(db);
   const state = lifecycle.getState();
 
   res.json({
@@ -59,7 +59,7 @@ router.get('/', authMiddleware, asyncHandler(async (req: Request, res: Response)
 
 // POST /api/runtime/connect - Connect a runtime
 router.post('/connect', authMiddleware, asyncHandler(async (req: Request, res: Response) => {
-  const lifecycle = new RuntimeLifecycleManager(db);
+  const lifecycle = getRuntimeLifecycleManager(db);
 
   // Validate request
   const result = connectSchema.safeParse(req.body);
@@ -105,7 +105,7 @@ router.post('/connect', authMiddleware, asyncHandler(async (req: Request, res: R
 
 // POST /api/runtime/disconnect - Disconnect current runtime
 router.post('/disconnect', authMiddleware, asyncHandler(async (req: Request, res: Response) => {
-  const lifecycle = new RuntimeLifecycleManager(db);
+  const lifecycle = getRuntimeLifecycleManager(db);
 
   // Validate request
   const result = disconnectSchema.safeParse(req.body);
@@ -136,7 +136,7 @@ router.post('/disconnect', authMiddleware, asyncHandler(async (req: Request, res
 
 // POST /api/runtime/switch - Switch between runtimes
 router.post('/switch', authMiddleware, asyncHandler(async (req: Request, res: Response) => {
-  const lifecycle = new RuntimeLifecycleManager(db);
+  const lifecycle = getRuntimeLifecycleManager(db);
 
   // Validate request
   const result = switchSchema.safeParse(req.body);
@@ -182,7 +182,7 @@ router.post('/switch', authMiddleware, asyncHandler(async (req: Request, res: Re
 
 // POST /api/runtime/heartbeat - Renew session lease
 router.post('/heartbeat', authMiddleware, asyncHandler(async (req: Request, res: Response) => {
-  const lifecycle = new RuntimeLifecycleManager(db);
+  const lifecycle = getRuntimeLifecycleManager(db);
 
   // Validate request
   const result = heartbeatSchema.safeParse(req.body);
@@ -223,7 +223,7 @@ router.post('/heartbeat', authMiddleware, asyncHandler(async (req: Request, res:
 
 // POST /api/runtime/recover - Recover stale sessions (admin/authorized only)
 router.post('/recover', authMiddleware, requireFounder, asyncHandler(async (req: Request, res: Response) => {
-  const lifecycle = new RuntimeLifecycleManager(db);
+  const lifecycle = getRuntimeLifecycleManager(db);
   const result = lifecycle.recoverStaleSessions();
 
   res.json({
