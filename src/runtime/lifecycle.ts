@@ -148,11 +148,27 @@ export class RuntimeLifecycleManager {
       const existing = this.db.stmt.getRuntimeSessionByRuntime.get(runtime) as RuntimeSessionRow | undefined;
       const active = this.db.stmt.getActiveRuntimeSession.get() as RuntimeSessionRow | undefined;
 
-      // If same runtime already active with same session, be idempotent
+      // If same runtime already active with same session, be idempotent or reconnect
       if (existing && existing.session_id === newSessionId) {
+        if (existing.connection_status === 'connected') {
+          // Already connected - idempotent success
+          this.db.runPreparedStatement('commitTransaction', []);
+          const state = this.getState();
+          return { success: true, state };
+        }
+        // Session exists but not connected - reactivate it with fresh timestamps
+        this.db.db.prepare(`
+          UPDATE runtime_sessions
+          SET connection_status = 'connected',
+              connected_at = ?,
+              last_heartbeat_at = ?,
+              lease_expires_at = ?,
+              updated_at = datetime('now')
+          WHERE session_id = ?
+        `).run(now, now, leaseExpires, newSessionId);
         this.db.runPreparedStatement('commitTransaction', []);
-        const state = this.getState();
-        return { success: true, state };
+        const newState = this.getState();
+        return { success: true, state: newState };
       }
 
       // If another runtime is active, reject

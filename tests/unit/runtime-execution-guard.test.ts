@@ -1,11 +1,11 @@
 // Runtime Execution Guard Unit Tests
 // Phase 10: Verify TOCTOU protection at MCP tool execution boundary
 
-import { describe, it, before, after, beforeEach } from 'node:test';
+import { describe, it, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { createDatabase } from '../../src/database.js';
 import { RuntimeLifecycleManager, resetRuntimeLifecycleManager } from '../../src/runtime/lifecycle.js';
-import { createRuntimeExecutionGuard, RuntimeExecutionContext, cleanupExpiredExecutionRecords } from '../../src/runtime/runtime-execution-guard.js';
+import { createRuntimeExecutionGuard, cleanupExpiredExecutionRecords } from '../../src/runtime/runtime-execution-guard.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import { randomUUID } from 'node:crypto';
@@ -153,7 +153,7 @@ describe('Runtime Execution Guard - Unit Tests', () => {
 
       // Should fail - no active connected session
       assert.strictEqual(result.success, false);
-      assert.ok(['NO_ACTIVE_SESSION', 'SESSION_EXPIRED'].includes(result.error?.code));
+      assert.ok(result.error?.code === 'NO_ACTIVE_SESSION' || result.error?.code === 'SESSION_EXPIRED');
     });
 
     it('should reject missing session ID', async () => {
@@ -179,20 +179,22 @@ describe('Runtime Execution Guard - Unit Tests', () => {
       const authContext = createAuthContext({ session_id: sessionId });
 
       let toolExecuted = false;
+      let capturedExecutionId: string | undefined;
       const result = await guard.executeWithGuard(authContext, async (ctx) => {
         toolExecuted = true;
         assert.strictEqual(ctx.runtimeId, 'claude');
         assert.strictEqual(ctx.sessionId, sessionId);
+        capturedExecutionId = ctx.executionId;
         return { success: true, data: 'tool result' };
       });
 
       assert.strictEqual(result.success, true);
       assert.strictEqual(toolExecuted, true);
-      assert.deepStrictEqual(result.result, { success: true, data: 'tool result' });
+      assert.strictEqual(result.result!.data, 'tool result');
 
       // Verify permit was released (completed = 1)
-      const execRecord = db.stmt.getExecutionRecordById.get(result.result!.executionId);
-      // Note: We can't directly check because we don't have executionId from result
+      const execRecord = db.stmt.getExecutionRecordById.get(capturedExecutionId!);
+      assert.ok(execRecord);
       // But we can verify no active execution remains
       const activeExec = db.stmt.getActiveExecutionRecord.get(Date.now());
       assert.strictEqual(activeExec, undefined);
@@ -245,6 +247,22 @@ describe('Runtime Execution Guard - Unit Tests', () => {
       // Wait for first to complete
       const result1 = await executionPromise;
       assert.strictEqual(result1.success, true);
+    });
+
+    it('should provide heartbeatInterval in execution context', async () => {
+      const sessionId = await setupActiveSession('claude');
+      const authContext = createAuthContext({ session_id: sessionId });
+
+      let capturedContext: any = null;
+      const result = await guard.executeWithGuard(authContext, async (ctx) => {
+        capturedContext = ctx;
+        return { data: 'test' };
+      });
+
+      assert.strictEqual(result.success, true);
+      assert.ok(capturedContext);
+      assert.ok(capturedContext.heartbeatInterval);
+      assert.strictEqual(typeof capturedContext.heartbeatInterval.clear, 'function');
     });
   });
 

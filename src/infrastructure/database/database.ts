@@ -245,6 +245,14 @@ export interface DatabaseInstance {
     getRuntimeSessionsExpiring: PreparedStatement;
     updateRuntimeSessionStatus: PreparedStatement;
     updateRuntimeSessionHeartbeat: PreparedStatement;
+
+    // Phase 10: Execution Records for MCP Tool Execution Guard
+    insertExecutionRecord: PreparedStatement;
+    getActiveExecutionRecord: PreparedStatement;
+    getExecutionRecordById: PreparedStatement;
+    getExecutionRecordBySession: PreparedStatement;
+    completeExecutionRecord: PreparedStatement;
+    cleanupExpiredExecutionRecords: PreparedStatement;
   };
   query: (sql: string, params?: any[]) => QueryResult;
   runPreparedStatement: (name: string, params?: any[]) => any;
@@ -253,9 +261,10 @@ export interface DatabaseInstance {
 }
 
 // Phase 4 schema version. Bumped when createDatabase() adds tables.
-// Current version: 17.0.0 - runtime_sessions table for Phase 10
+// Current version: 18.0.0 - execution_records table for MCP execution guard
+// Previous: 17.0.0 for runtime_sessions table (Phase 10)
 // Previous: 16.0.0 for Task 5: task_audit table
-export const SCHEMA_VERSION = '17.0.0';
+export const SCHEMA_VERSION = '18.0.0';
 
 function createDatabase(dbPath?: string): DatabaseInstance {
   const isProduction = process.env.NODE_ENV === 'production';
@@ -1067,6 +1076,45 @@ function createDatabase(dbPath?: string): DatabaseInstance {
   db.prepare(`CREATE INDEX IF NOT EXISTS idx_runtime_sessions_session_id ON runtime_sessions(session_id)`).run();
   db.prepare(`CREATE INDEX IF NOT EXISTS idx_runtime_sessions_lease ON runtime_sessions(lease_expires_at)`).run();
 
+  // Ensure execution_records table exists (Migration 018)
+  db.prepare(`
+    CREATE TABLE IF NOT EXISTS execution_records (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      runtime_id TEXT NOT NULL,
+      started_at INTEGER NOT NULL,
+      expires_at INTEGER NOT NULL,
+      completed INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (runtime_id) REFERENCES runtime_sessions(runtime) ON DELETE CASCADE
+    )
+  `).run();
+
+  db.prepare(`
+    CREATE INDEX IF NOT EXISTS idx_execution_records_session
+    ON execution_records(session_id, completed)
+    WHERE completed = 0
+  `).run();
+
+  db.prepare(`
+    CREATE INDEX IF NOT EXISTS idx_execution_records_expires
+    ON execution_records(expires_at)
+    WHERE completed = 0
+  `).run();
+
+  db.prepare(`
+    CREATE INDEX IF NOT EXISTS idx_execution_records_runtime
+    ON execution_records(runtime_id, completed)
+    WHERE completed = 0
+  `).run();
+
+  db.prepare(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_single_active_execution_per_session
+    ON execution_records(session_id)
+    WHERE completed = 0
+  `).run();
+
   const stmt = {
     insertAgent: db.prepare(`
       INSERT INTO agents (id, agent_id, display_name, runtime, created_at, updated_at)
@@ -1511,6 +1559,36 @@ function createDatabase(dbPath?: string): DatabaseInstance {
       WHERE session_id = ?
       AND connection_status = 'connected'
       AND (lease_expires_at IS NULL OR CAST(lease_expires_at AS INTEGER) > CAST(strftime('%s', 'now') || '000' AS INTEGER))
+    `) as PreparedStatement,
+
+    // Phase 10: Execution Records for MCP Execution Guard
+    insertExecutionRecord: db.prepare(`
+      INSERT INTO execution_records (id, session_id, runtime_id, started_at, expires_at, completed, created_at)
+      VALUES (?, ?, ?, ?, ?, 0, datetime('now'))
+    `) as PreparedStatement,
+
+    getActiveExecutionRecord: db.prepare(`
+      SELECT * FROM execution_records
+      WHERE completed = 0 AND expires_at > ?
+    `) as PreparedStatement,
+
+    getExecutionRecordById: db.prepare(`
+      SELECT * FROM execution_records WHERE id = ?
+    `) as PreparedStatement,
+
+    getExecutionRecordBySession: db.prepare(`
+      SELECT * FROM execution_records
+      WHERE session_id = ? AND completed = 0
+    `) as PreparedStatement,
+
+    completeExecutionRecord: db.prepare(`
+      UPDATE execution_records SET completed = 1, updated_at = datetime('now')
+      WHERE id = ?
+    `) as PreparedStatement,
+
+    cleanupExpiredExecutionRecords: db.prepare(`
+      DELETE FROM execution_records
+      WHERE completed = 0 AND expires_at <= ?
     `) as PreparedStatement,
   };
 

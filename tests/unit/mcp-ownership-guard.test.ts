@@ -378,4 +378,327 @@ describe('MCP Runtime Ownership Guard - Phase 10', () => {
       assert.strictEqual(ownershipResult.activeRuntime, 'claude');
     });
   });
+
+  describe('Lease Validation - Fail-Closed', () => {
+    it('should allow request when lease is valid future timestamp', async () => {
+      const futureTime = String(Date.now() + 600000);
+      db.db.prepare(`
+        INSERT INTO runtime_sessions (runtime, session_id, connection_status, connected_at, lease_expires_at, created_at, updated_at)
+        VALUES ('claude', 'session-active', 'connected', '1732123456789', ?, datetime('now'), datetime('now'))
+      `).run(futureTime);
+
+      const guard = createRuntimeOwnershipGuard(db);
+      const authContext = {
+        owner_type: 'founder' as const,
+        owner_id: 'founder',
+        runtime: 'claude' as const,
+        session_id: 'session-active',
+        permissions: [],
+        expires_at: Infinity,
+        issued_at: Date.now(),
+        founder_signed: true
+      };
+
+      const result = guard(authContext);
+      assert.strictEqual(result.allowed, true);
+    });
+
+    it('should reject request when lease has expired', async () => {
+      const pastTime = String(Date.now() - 10000);
+      db.db.prepare(`
+        INSERT INTO runtime_sessions (runtime, session_id, connection_status, connected_at, lease_expires_at, created_at, updated_at)
+        VALUES ('claude', 'session-1', 'connected', '1732123456789', ?, datetime('now'), datetime('now'))
+      `).run(pastTime);
+
+      const guard = createRuntimeOwnershipGuard(db);
+      const authContext = {
+        owner_type: 'founder' as const,
+        owner_id: 'founder',
+        runtime: 'claude' as const,
+        session_id: 'session-1',
+        permissions: [],
+        expires_at: Infinity,
+        issued_at: Date.now(),
+        founder_signed: true
+      };
+
+      const result = guard(authContext);
+      assert.strictEqual(result.allowed, false);
+      assert.strictEqual(result.errorCode, 'SESSION_EXPIRED');
+    });
+
+    it('should reject request when timestamp equals current time', async () => {
+      const now = String(Date.now());
+      db.db.prepare(`
+        INSERT INTO runtime_sessions (runtime, session_id, connection_status, connected_at, lease_expires_at, created_at, updated_at)
+        VALUES ('claude', 'session-1', 'connected', '1732123456789', ?, datetime('now'), datetime('now'))
+      `).run(now);
+
+      const guard = createRuntimeOwnershipGuard(db);
+      const authContext = {
+        owner_type: 'founder' as const,
+        owner_id: 'founder',
+        runtime: 'claude' as const,
+        session_id: 'session-1',
+        permissions: [],
+        expires_at: Infinity,
+        issued_at: Date.now(),
+        founder_signed: true
+      };
+
+      const result = guard(authContext);
+      assert.strictEqual(result.allowed, false);
+      assert.strictEqual(result.errorCode, 'SESSION_EXPIRED');
+    });
+
+    it('should reject request when lease timestamp is missing', async () => {
+      db.db.prepare(`
+        INSERT INTO runtime_sessions (runtime, session_id, connection_status, connected_at, lease_expires_at, created_at, updated_at)
+        VALUES ('claude', 'session-1', 'connected', '1732123456789', null, datetime('now'), datetime('now'))
+      `).run();
+
+      const guard = createRuntimeOwnershipGuard(db);
+      const authContext = {
+        owner_type: 'founder' as const,
+        owner_id: 'founder',
+        runtime: 'claude' as const,
+        session_id: 'session-1',
+        permissions: [],
+        expires_at: Infinity,
+        issued_at: Date.now(),
+        founder_signed: true
+      };
+
+      const result = guard(authContext);
+      assert.strictEqual(result.allowed, false);
+      assert.strictEqual(result.errorCode, 'INVALID_SESSION_LEASE');
+    });
+
+    it('should reject request when lease timestamp is null', async () => {
+      db.db.prepare(`
+        INSERT INTO runtime_sessions (runtime, session_id, connection_status, connected_at, lease_expires_at, created_at, updated_at)
+        VALUES ('claude', 'session-1', 'connected', '1732123456789', null, datetime('now'), datetime('now'))
+      `).run();
+
+      const guard = createRuntimeOwnershipGuard(db);
+      const authContext = {
+        owner_type: 'founder' as const,
+        owner_id: 'founder',
+        runtime: 'claude' as const,
+        session_id: 'session-1',
+        permissions: [],
+        expires_at: Infinity,
+        issued_at: Date.now(),
+        founder_signed: true
+      };
+
+      const result = guard(authContext);
+      assert.strictEqual(result.allowed, false);
+      assert.strictEqual(result.errorCode, 'INVALID_SESSION_LEASE');
+    });
+
+    it('should reject request when lease timestamp is empty string', async () => {
+      db.db.prepare(`
+        INSERT INTO runtime_sessions (runtime, session_id, connection_status, connected_at, lease_expires_at, created_at, updated_at)
+        VALUES ('claude', 'session-1', 'connected', '1732123456789', '', datetime('now'), datetime('now'))
+      `).run();
+
+      const guard = createRuntimeOwnershipGuard(db);
+      const authContext = {
+        owner_type: 'founder' as const,
+        owner_id: 'founder',
+        runtime: 'claude' as const,
+        session_id: 'session-1',
+        permissions: [],
+        expires_at: Infinity,
+        issued_at: Date.now(),
+        founder_signed: true
+      };
+
+      const result = guard(authContext);
+      assert.strictEqual(result.allowed, false);
+      assert.strictEqual(result.errorCode, 'INVALID_SESSION_LEASE');
+    });
+
+    it('should reject request when lease timestamp contains whitespace', async () => {
+      db.db.prepare(`
+        INSERT INTO runtime_sessions (runtime, session_id, connection_status, connected_at, lease_expires_at, created_at, updated_at)
+        VALUES ('claude', 'session-1', 'connected', '1732123456789', '  ', datetime('now'), datetime('now'))
+      `).run();
+
+      const guard = createRuntimeOwnershipGuard(db);
+      const authContext = {
+        owner_type: 'founder' as const,
+        owner_id: 'founder',
+        runtime: 'claude' as const,
+        session_id: 'session-1',
+        permissions: [],
+        expires_at: Infinity,
+        issued_at: Date.now(),
+        founder_signed: true
+      };
+
+      const result = guard(authContext);
+      assert.strictEqual(result.allowed, false);
+      assert.strictEqual(result.errorCode, 'INVALID_SESSION_LEASE');
+    });
+
+    it('should reject request when lease timestamp is malformed (123abc)', async () => {
+      db.db.prepare(`
+        INSERT INTO runtime_sessions (runtime, session_id, connection_status, connected_at, lease_expires_at, created_at, updated_at)
+        VALUES ('claude', 'session-1', 'connected', '1732123456789', '123abc', datetime('now'), datetime('now'))
+      `).run();
+
+      const guard = createRuntimeOwnershipGuard(db);
+      const authContext = {
+        owner_type: 'founder' as const,
+        owner_id: 'founder',
+        runtime: 'claude' as const,
+        session_id: 'session-1',
+        permissions: [],
+        expires_at: Infinity,
+        issued_at: Date.now(),
+        founder_signed: true
+      };
+
+      const result = guard(authContext);
+      assert.strictEqual(result.allowed, false);
+      assert.strictEqual(result.errorCode, 'INVALID_SESSION_LEASE');
+    });
+
+    it('should reject request when lease timestamp is ISO format', async () => {
+      db.db.prepare(`
+        INSERT INTO runtime_sessions (runtime, session_id, connection_status, connected_at, lease_expires_at, created_at, updated_at)
+        VALUES ('claude', 'session-1', 'connected', '1732123456789', '2026-01-01T00:00:00Z', datetime('now'), datetime('now'))
+      `).run();
+
+      const guard = createRuntimeOwnershipGuard(db);
+      const authContext = {
+        owner_type: 'founder' as const,
+        owner_id: 'founder',
+        runtime: 'claude' as const,
+        session_id: 'session-1',
+        permissions: [],
+        expires_at: Infinity,
+        issued_at: Date.now(),
+        founder_signed: true
+      };
+
+      const result = guard(authContext);
+      assert.strictEqual(result.allowed, false);
+      assert.strictEqual(result.errorCode, 'INVALID_SESSION_LEASE');
+    });
+
+    it('should reject request when lease timestamp is NaN', async () => {
+      db.db.prepare(`
+        INSERT INTO runtime_sessions (runtime, session_id, connection_status, connected_at, lease_expires_at, created_at, updated_at)
+        VALUES ('claude', 'session-1', 'connected', '1732123456789', 'NaN', datetime('now'), datetime('now'))
+      `).run();
+
+      const guard = createRuntimeOwnershipGuard(db);
+      const authContext = {
+        owner_type: 'founder' as const,
+        owner_id: 'founder',
+        runtime: 'claude' as const,
+        session_id: 'session-1',
+        permissions: [],
+        expires_at: Infinity,
+        issued_at: Date.now(),
+        founder_signed: true
+      };
+
+      const result = guard(authContext);
+      assert.strictEqual(result.allowed, false);
+      assert.strictEqual(result.errorCode, 'INVALID_SESSION_LEASE');
+    });
+
+    it('should reject request when lease timestamp is Infinity', async () => {
+      db.db.prepare(`
+        INSERT INTO runtime_sessions (runtime, session_id, connection_status, connected_at, lease_expires_at, created_at, updated_at)
+        VALUES ('claude', 'session-1', 'connected', '1732123456789', 'Infinity', datetime('now'), datetime('now'))
+      `).run();
+
+      const guard = createRuntimeOwnershipGuard(db);
+      const authContext = {
+        owner_type: 'founder' as const,
+        owner_id: 'founder',
+        runtime: 'claude' as const,
+        session_id: 'session-1',
+        permissions: [],
+        expires_at: Infinity,
+        issued_at: Date.now(),
+        founder_signed: true
+      };
+
+      const result = guard(authContext);
+      assert.strictEqual(result.allowed, false);
+      assert.strictEqual(result.errorCode, 'INVALID_SESSION_LEASE');
+    });
+
+    it('should reject request when lease timestamp is negative', async () => {
+      db.db.prepare(`
+        INSERT INTO runtime_sessions (runtime, session_id, connection_status, connected_at, lease_expires_at, created_at, updated_at)
+        VALUES ('claude', 'session-1', 'connected', '1732123456789', '-1000', datetime('now'), datetime('now'))
+      `).run();
+
+      const guard = createRuntimeOwnershipGuard(db);
+      const authContext = {
+        owner_type: 'founder' as const,
+        owner_id: 'founder',
+        runtime: 'claude' as const,
+        session_id: 'session-1',
+        permissions: [],
+        expires_at: Infinity,
+        issued_at: Date.now(),
+        founder_signed: true
+      };
+
+      const result = guard(authContext);
+      assert.strictEqual(result.allowed, false);
+      assert.strictEqual(result.errorCode, 'INVALID_SESSION_LEASE');
+    });
+
+    it('should reject request when lease timestamp is zero', async () => {
+      db.db.prepare(`
+        INSERT INTO runtime_sessions (runtime, session_id, connection_status, connected_at, lease_expires_at, created_at, updated_at)
+        VALUES ('claude', 'session-1', 'connected', '1732123456789', '0', datetime('now'), datetime('now'))
+      `).run();
+
+      const guard = createRuntimeOwnershipGuard(db);
+      const authContext = {
+        owner_type: 'founder' as const,
+        owner_id: 'founder',
+        runtime: 'claude' as const,
+        session_id: 'session-1',
+        permissions: [],
+        expires_at: Infinity,
+        issued_at: Date.now(),
+        founder_signed: true
+      };
+
+      const result = guard(authContext);
+      assert.strictEqual(result.allowed, false);
+      assert.strictEqual(result.errorCode, 'INVALID_SESSION_LEASE');
+    });
+
+    it('should reject request when database cannot establish validity', async () => {
+      // Unknown session should be rejected at the session check (step 4), not lease check
+      // But if it gets past that, lease should also be rejected fail-closed
+      const guard = createRuntimeOwnershipGuard(db);
+      const authContext = {
+        owner_type: 'founder' as const,
+        owner_id: 'founder',
+        runtime: 'claude' as const,
+        session_id: 'nonexistent-session',
+        permissions: [],
+        expires_at: Infinity,
+        issued_at: Date.now(),
+        founder_signed: true
+      };
+
+      const result = guard(authContext);
+      assert.strictEqual(result.allowed, false);
+      assert.strictEqual(result.errorCode, 'NO_ACTIVE_SESSION');
+    });
+  });
 });

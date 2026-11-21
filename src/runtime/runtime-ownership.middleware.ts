@@ -1,7 +1,7 @@
 // Runtime Ownership Middleware for MCP Tool Execution
 // Phase 10: Enforce single active runtime at the MCP execution boundary
 
-import { RuntimeLifecycleManager } from './lifecycle.js';
+import { RuntimeLifecycleManager, getRuntimeLifecycleManager } from './lifecycle.js';
 import { DatabaseInstance } from '../database.js';
 import { AuthContext } from '../auth/index.js';
 import { parseUnixMs } from './lifecycle.js';
@@ -25,7 +25,8 @@ export interface RuntimeOwnershipResult {
  * @returns Function that checks runtime ownership
  */
 export function createRuntimeOwnershipGuard(db: DatabaseInstance) {
-  const lifecycle = new RuntimeLifecycleManager(db);
+  // Use singleton lifecycle manager to share state with test and runtime activation
+  const lifecycle = getRuntimeLifecycleManager(db);
 
   return function checkRuntimeOwnership(authContext: AuthContext): RuntimeOwnershipResult {
     // 1. Verify session identity from auth context
@@ -40,10 +41,10 @@ export function createRuntimeOwnershipGuard(db: DatabaseInstance) {
     }
 
     // 2. Get the authoritative active session from SQLite
-    const activeSession = lifecycle.getState();
+    const state = lifecycle.getState();
 
     // 3. Verify there is an active session
-    if (!activeSession.sessionId || !activeSession.activeRuntime) {
+    if (!state.sessionId || !state.activeRuntime) {
       return {
         allowed: false,
         reason: 'No active runtime session',
@@ -52,42 +53,49 @@ export function createRuntimeOwnershipGuard(db: DatabaseInstance) {
     }
 
     // 4. Verify the session is connected
-    if (activeSession.connectionStatus !== 'connected') {
+    if (state.connectionStatus !== 'connected') {
       return {
         allowed: false,
-        reason: `Session is not connected (status: ${activeSession.connectionStatus})`,
+        reason: `Session is not connected (status: ${state.connectionStatus})`,
         errorCode: 'SESSION_NOT_CONNECTED'
       };
     }
 
-    // 5. Verify lease has not expired
-    const leaseExpires = activeSession.leaseExpiresAt;
-    if (leaseExpires) {
-      const leaseExpiresMs = parseUnixMs(leaseExpires);
-      if (leaseExpiresMs !== null && leaseExpiresMs < Date.now()) {
-        return {
-          allowed: false,
-          reason: 'Session lease has expired',
-          errorCode: 'SESSION_EXPIRED'
-        };
-      }
+    // 5. Verify lease has not expired (fail-closed: reject on invalid/missing/expired lease)
+    const leaseExpires = state.leaseExpiresAt;
+    const leaseExpiresMs = parseUnixMs(leaseExpires);
+
+    if (leaseExpiresMs === null) {
+      return {
+        allowed: false,
+        reason: 'Runtime session has an invalid or missing lease timestamp',
+        errorCode: 'INVALID_SESSION_LEASE'
+      };
+    }
+
+    if (leaseExpiresMs <= Date.now()) {
+      return {
+        allowed: false,
+        reason: 'Session lease has expired',
+        errorCode: 'SESSION_EXPIRED'
+      };
     }
 
     // 6. Verify the active session belongs to the requesting session ID
-    if (activeSession.sessionId !== requestSessionId) {
+    if (state.sessionId !== requestSessionId) {
       return {
         allowed: false,
-        reason: `This runtime does not own the active Council Bridge session. Active runtime: ${activeSession.activeRuntime}`,
-        activeRuntime: activeSession.activeRuntime,
+        reason: `This runtime does not own the active Council Bridge session. Active runtime: ${state.activeRuntime}`,
+        activeRuntime: state.activeRuntime,
         errorCode: 'RUNTIME_NOT_ACTIVE'
       };
     }
 
     // 7. Verify the runtime matches (claude/hermes)
-    if (activeSession.activeRuntime !== requestRuntime) {
+    if (state.activeRuntime !== requestRuntime) {
       return {
         allowed: false,
-        reason: `Runtime mismatch: authorized as ${requestRuntime}, but active session belongs to ${activeSession.activeRuntime}`,
+        reason: `Runtime mismatch: authorized as ${requestRuntime}, but active session belongs to ${state.activeRuntime}`,
         errorCode: 'RUNTIME_MISMATCH'
       };
     }
@@ -95,8 +103,8 @@ export function createRuntimeOwnershipGuard(db: DatabaseInstance) {
     // Ownership verified
     return {
       allowed: true,
-      activeRuntime: activeSession.activeRuntime,
-      activeSessionId: activeSession.sessionId
+      activeRuntime: state.activeRuntime,
+      activeSessionId: state.sessionId
     };
   };
 }

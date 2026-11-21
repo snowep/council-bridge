@@ -6,6 +6,7 @@ import { DatabaseInstance } from '../database.js';
 import { AuthContext } from '../auth/index.js';
 import { randomUUID } from 'node:crypto';
 import { parseUnixMs } from './lifecycle.js';
+import { getRuntimeLifecycleManager } from './lifecycle.js';
 
 export type RuntimeId = 'claude' | 'hermes';
 
@@ -13,6 +14,7 @@ export interface RuntimeExecutionContext {
   runtimeId: RuntimeId;
   sessionId: string;
   executionId: string;
+  heartbeatInterval?: NodeJS.Timeout;
 }
 
 export type RuntimeToolExecutor<T> = (context: RuntimeExecutionContext) => Promise<T>;
@@ -31,9 +33,11 @@ export interface ExecutionGuardResult<T> {
  * Creates an execution guard that authenticates the runtime, validates the session,
  * validates the lease, acquires an execution permit via atomic transaction,
  * executes the MCP tool callback, and releases the permit in a finally block.
+ * Automatically renews heartbeat during long-running executions.
  */
 export function createRuntimeExecutionGuard(db: DatabaseInstance) {
   const EXECUTION_PERMIT_DURATION_MS = 30 * 1000; // 30 seconds max execution time
+  const HEARTBEAT_RENEWAL_INTERVAL_MS = 300 * 1000; // Renew heartbeat every 5 minutes
 
   /**
    * Acquires an execution permit via atomic SQLite transaction
@@ -173,7 +177,29 @@ export function createRuntimeExecutionGuard(db: DatabaseInstance) {
   }
 
   /**
+   * Starts a heartbeat renewal interval for the given session
+   * Returns the interval handle and a cleanup function
+   */
+  function startHeartbeatRenewal(sessionId: string): { interval: NodeJS.Timeout; stop: () => void } {
+    const lifecycle = getRuntimeLifecycleManager(db);
+    const interval = setInterval(() => {
+      const result = lifecycle.heartbeat({ sessionId });
+      // Heartbeat failures are non-fatal - they just allow the session to expire
+      if (!result.success) {
+        // Session may have expired or closed - stop renewal
+        clearInterval(interval);
+      }
+    }, HEARTBEAT_RENEWAL_INTERVAL_MS);
+
+    return {
+      interval,
+      stop: () => clearInterval(interval)
+    };
+  }
+
+  /**
    * Main execution guard function that wraps MCP tool execution
+   * Automatically renews heartbeat during long-running executions
    */
   async function executeWithGuard<T>(
     authContext: AuthContext,
@@ -190,6 +216,10 @@ export function createRuntimeExecutionGuard(db: DatabaseInstance) {
     }
 
     const context = permitResult.context;
+
+    // Step 1b: Start heartbeat renewal for Claude/Hermes adapters
+    const heartbeat = startHeartbeatRenewal(context.sessionId);
+    context.heartbeatInterval = heartbeat.interval;
 
     try {
       // Step 2: Execute the MCP tool callback
@@ -210,6 +240,9 @@ export function createRuntimeExecutionGuard(db: DatabaseInstance) {
           message: error instanceof Error ? error.message : 'Tool execution failed'
         }
       };
+    } finally {
+      // Step 5: Stop heartbeat renewal
+      heartbeat.stop();
     }
   }
 
