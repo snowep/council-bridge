@@ -1056,11 +1056,11 @@ function createDatabase(dbPath?: string): DatabaseInstance {
   `).run();
 
   // Ensure only one session can be 'connected' at a time
-  // Using a partial unique index on runtime where status is connected/connecting/switching
+  // Using a partial unique index - only one row can have connection_status = 'connected'
   db.prepare(`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_single_active_runtime
-    ON runtime_sessions(runtime)
-    WHERE connection_status IN ('connecting', 'connected', 'switching')
+    ON runtime_sessions(connection_status)
+    WHERE connection_status = 'connected'
   `).run();
 
   db.prepare(`CREATE INDEX IF NOT EXISTS idx_runtime_sessions_active ON runtime_sessions(connection_status) WHERE connection_status IN ('connecting', 'connected', 'switching')`).run();

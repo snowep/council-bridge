@@ -161,3 +161,6 @@ The automatic heartbeat renewal mechanism is NOT yet integrated into the actual 
 - MCP adapters (`src/mcp/hermes-bridge.ts`) exist but do not invoke heartbeat
 - This needs to be added to the actual Claude/Hermes client connection paths
 - Dashboard polling is NOT lease renewal (as specified)
+### MCP Runtime Ownership Enforcement (NEW)
+
+**Implementation:** `src/runtime/runtime-ownership.middleware.ts`

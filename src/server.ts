@@ -56,6 +56,8 @@ import {
   cancelExecutionRequest
 } from './council/operations.js';
 
+import { createRuntimeOwnershipGuard, mcpOwnershipErrorResponse } from './runtime/runtime-ownership.middleware.js';
+
 import { registerMcpTools } from './mcp/tools.js';
 
 // Import route modules
@@ -468,10 +470,32 @@ app.use('/api/runtime', runtimeRoutes);
 
 // MCP endpoint - create new server+transport per request for stateless operation
 app.all('/mcp', authMiddleware, async (req, res) => {
+  // Runtime ownership check - enforce single active runtime at MCP boundary
+  const authContext = getAuthContext(req);
+  if (!authContext) {
+    res.status(401).json({
+      error: 'AUTHENTICATION_REQUIRED',
+      message: 'Authentication required to access MCP tools'
+    });
+    return;
+  }
+
+  const checkOwnership = createRuntimeOwnershipGuard(db);
+  const ownershipResult = checkOwnership(authContext);
+
+  if (!ownershipResult.allowed) {
+    // Return MCP-formatted error for ownership violations
+    const errorResponse = mcpOwnershipErrorResponse(ownershipResult);
+    res.status(403).json(errorResponse);
+    return;
+  }
+
+  // Attach ownership info for tools to use if needed
+  (req as any).runtimeOwnership = ownershipResult;
+
   const requestTransport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
   const requestMcpServer = new McpServer({ name: 'council-bridge', version: '1.0.0' }, { capabilities: { tools: {} } });
   await requestMcpServer.connect(requestTransport);
-  const authContext = getAuthContext(req);
   registerMcpTools(requestMcpServer, db, () => authContext);
   await requestTransport.handleRequest(req, res, req.body);
 });

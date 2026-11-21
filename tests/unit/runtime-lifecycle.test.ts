@@ -475,3 +475,66 @@ describe('Runtime Switching Safety', () => {
     }
   });
 });
+
+import { parseUnixMs } from '../../src/runtime/lifecycle.js';
+
+describe('Strict Timestamp Parsing', () => {
+  it('should accept valid Unix millisecond timestamps', () => {
+    assert.strictEqual(parseUnixMs('1732123456789'), 1732123456789);
+    assert.strictEqual(parseUnixMs(1732123456789), 1732123456789);
+  });
+
+  it('should reject partial numeric strings', () => {
+    assert.strictEqual(parseUnixMs('123abc'), null);
+    assert.strictEqual(parseUnixMs('abc123'), null);
+  });
+
+  it('should reject ISO datetime strings', () => {
+    assert.strictEqual(parseUnixMs('2026-11-20T10:00:00.000Z'), null);
+  });
+
+  it('should reject empty strings', () => {
+    assert.strictEqual(parseUnixMs(''), null);
+  });
+
+  it('should reject whitespace-only strings', () => {
+    assert.strictEqual(parseUnixMs('   '), null);
+    assert.strictEqual(parseUnixMs('\t\n'), null);
+  });
+
+  it('should reject NaN string', () => {
+    assert.strictEqual(parseUnixMs('NaN'), null);
+  });
+
+  it('should reject Infinity', () => {
+    assert.strictEqual(parseUnixMs('Infinity'), null);
+    assert.strictEqual(parseUnixMs('-Infinity'), null);
+    assert.strictEqual(parseUnixMs(Infinity), null);
+  });
+
+  it('should reject negative values', () => {
+    assert.strictEqual(parseUnixMs(-1), null);
+    assert.strictEqual(parseUnixMs('-1000'), null);
+  });
+
+  it('should reject zero', () => {
+    assert.strictEqual(parseUnixMs(0), null);
+    assert.strictEqual(parseUnixMs('0'), null);
+  });
+
+  it('should reject unsafe integers (outside JS safe integer range)', () => {
+    assert.strictEqual(parseUnixMs(Number.MAX_SAFE_INTEGER + 1), null);
+    assert.strictEqual(parseUnixMs(Number.MIN_SAFE_INTEGER - 1), null);
+  });
+
+  it('should reject null and undefined', () => {
+    assert.strictEqual(parseUnixMs(null), null);
+    assert.strictEqual(parseUnixMs(undefined), null);
+  });
+
+  it('should reject objects and arrays', () => {
+    assert.strictEqual(parseUnixMs({}), null);
+    assert.strictEqual(parseUnixMs([]), null);
+    assert.strictEqual(parseUnixMs([123456]), null);
+  });
+});

@@ -64,11 +64,22 @@ function getCurrentTimestamp(): string {
   return String(Date.now());
 }
 
-function parseUnixMs(s: string | null): number | null {
-  if (!s) return null;
-  const ms = parseInt(s, 10);
-  if (isNaN(ms)) return null;
-  return ms;
+export function parseUnixMs(value: unknown): number | null {
+  // Strict validation: accept only valid Unix millisecond integers
+  if (typeof value !== 'string' && typeof value !== 'number') {
+    return null;
+  }
+
+  const parsed = typeof value === 'number'
+    ? value
+    : Number(value);
+
+  // Reject non-integers, NaN, Infinity, negative, zero
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+    return null;
+  }
+
+  return parsed;
 }
 
 export class RuntimeLifecycleManager {
@@ -100,13 +111,14 @@ export class RuntimeLifecycleManager {
   }
 
   checkOwnership(sessionId: string): boolean {
+    // Use atomic query to verify ownership
     const row = this.db.stmt.getRuntimeSessionBySession.get(sessionId) as RuntimeSessionRow | undefined;
     if (!row || row.session_id !== sessionId) {
       return false;
     }
-    // Verify the session is still the active runtime owner
+    // Verify the session is connected and owns the active runtime
     const activeSession = this.db.stmt.getActiveRuntimeSession.get() as RuntimeSessionRow | undefined;
-    return activeSession?.session_id === sessionId;
+    return activeSession?.session_id === sessionId && activeSession?.connection_status === 'connected';
   }
 
   getSessionOwnership(sessionId: string): { runtime: RuntimeType | null; isOwner: boolean } {
