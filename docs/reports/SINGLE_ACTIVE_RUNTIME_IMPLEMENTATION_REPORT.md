@@ -375,8 +375,25 @@ CREATE TABLE IF NOT EXISTS execution_records (
 
 1. ✅ **COMPLETE:** Schema bug fixed - removed invalid FK reference
 2. ⏳ **IN PROGRESS:** Implement automatic heartbeat renewal in Claude/Hermes adapters
+3. ✅ **COMPLETE:** Server.ts uses execution guard for TOCTOU protection
 
 ## File Manifest
+
+| File | Status | Purpose | Related Requirement |
+|------|--------|---------|---------------------|
+| `migrations/018_add_execution_records.sql` | Added | Execution records table for TOCTOU protection | MCP Execution Guard |
+| `src/runtime/runtime-execution-guard.ts` | Added | Atomic execution permit acquisition | TOCTOU Protection |
+| `src/runtime/server.ts` | Modified | Integrated execution guard for MCP endpoint | MCP TOCTOU Protection |
+| `tests/helpers/concurrency-worker.ts` | Added | Fork-based concurrency testing helper | Cross-Process Tests |
+| `tests/helpers/worker.js` | Added | Worker for cross-process tests | Concurrency Testing |
+| `tests/integration/runtime-concurrency.test.ts` | Added | 8 cross-process concurrency test scenarios | Concurrency |
+| `tests/integration/runtime-shared-memory.test.ts` | Added | 11 shared memory integration tests | Shared Memory |
+| `tests/integration/mcp-execution-guard.test.ts` | Added | MCP execution guard integration tests | TOCTOU Protection |
+| `tests/unit/runtime-execution-guard.test.ts` | Added | Execution guard unit tests | Execution Guard |
+| `src/runtime/lifecycle.ts` | Modified | Added singleton, reconnect fix, timestamps | Single Active Runtime |
+| `src/runtime/runtime-ownership.middleware.ts` | Modified | Fail-closed lease validation, singleton use | Ownership Enforcement |
+| `src/infrastructure/database/database.ts` | Modified | Added execution_records statements | Execution Records |
+| `tests/unit/mcp-ownership-guard.test.ts` | Modified | Added lease timestamp validation tests | Lease Validation |
 
 | File | Status | Purpose | Related Requirement |
 |------|--------|---------|---------------------|
