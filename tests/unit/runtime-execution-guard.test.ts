@@ -37,6 +37,8 @@ describe('Runtime Execution Guard - Unit Tests', () => {
   });
 
   after(async () => {
+    // Clear any active heartbeats from previous tests
+    // The heartbeat intervals run for 5 minutes, we need to clean up
     if (db) {
       try {
         db.db.pragma('wal_checkpoint(TRUNCATE)');
@@ -89,6 +91,8 @@ describe('Runtime Execution Guard - Unit Tests', () => {
       assert.strictEqual(result.context!.runtimeId, 'claude');
       assert.strictEqual(result.context!.sessionId, sessionId);
       assert.ok(result.context!.executionId);
+      // Release the permit to avoid leaving heartbeat interval running
+      await guard.releaseExecutionPermit(result.context!.executionId);
     });
 
     it('should reject when session is disconnected', async () => {
@@ -261,8 +265,10 @@ describe('Runtime Execution Guard - Unit Tests', () => {
 
       assert.strictEqual(result.success, true);
       assert.ok(capturedContext);
+      // heartbeatInterval should be defined (it's a NodeJS.Timeout object)
+      // In Node.js, setInterval returns an object with internal ref counting
+      // The important thing is that it exists so we can clear it in finally block
       assert.ok(capturedContext.heartbeatInterval);
-      assert.strictEqual(typeof capturedContext.heartbeatInterval.clear, 'function');
     });
   });
 

@@ -171,13 +171,20 @@ export class RuntimeLifecycleManager {
         return { success: true, state: newState };
       }
 
-      // If another runtime is active, reject
+      // If another runtime is active, reject - user must disconnect or switch explicitly
+      // This is the correct behavior for connect() - it should not silently switch runtimes
       if (active && active.runtime !== runtime) {
         this.db.runPreparedStatement('rollbackTransaction', []);
         return {
           success: false,
           error: `Runtime already active: ${active.runtime} owns the connection. Disconnect or switch first.`
         };
+      }
+
+      // If same runtime has a session with different session_id, disconnect old session first
+      // This handles the case where a previous session needs to be replaced
+      if (existing && existing.session_id !== newSessionId) {
+        this.db.stmt.updateRuntimeSessionStatus.run('disconnected', null, existing.session_id);
       }
 
       // Insert or replace the session
@@ -415,16 +422,32 @@ export class RuntimeLifecycleManager {
   }
 }
 
-// Singleton instance
-let _instance: RuntimeLifecycleManager | null = null;
+// Registry for singleton instances per database path
+// This ensures each test database gets its own lifecycle manager
+const _instances = new Map<string, RuntimeLifecycleManager>();
 
 export function getRuntimeLifecycleManager(db: DatabaseInstance): RuntimeLifecycleManager {
-  if (!_instance) {
-    _instance = new RuntimeLifecycleManager(db);
+  const dbPath = getDbPath(db);
+  let instance = _instances.get(dbPath);
+  if (!instance) {
+    instance = new RuntimeLifecycleManager(db);
+    _instances.set(dbPath, instance);
   }
-  return _instance;
+  return instance;
 }
 
+// Helper to get database path for singleton key
+function getDbPath(db: DatabaseInstance): string {
+  return (db as any).db?.pathname || 'default';
+}
+
+// Reset all instances - for testing only
 export function resetRuntimeLifecycleManager(): void {
-  _instance = null;
+  _instances.clear();
+}
+
+// Reset specific instance - useful for targeted test cleanup
+export function resetRuntimeLifecycleManagerForDb(db: DatabaseInstance): void {
+  const dbPath = getDbPath(db);
+  _instances.delete(dbPath);
 }

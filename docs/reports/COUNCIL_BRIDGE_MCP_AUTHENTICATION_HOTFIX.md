@@ -48,7 +48,9 @@ VALUES ('claude', 'local-founder', 'connected', ...)
 | `src/server.ts` | Updated import to use `setDbInstance` from database.ts instead of founder.ts |
 | `src/auth/founder.ts` | Removed duplicate `dbInstance` variable and `setDatabaseInstance()` function; updated `getDb()` to use centralized instance |
 | `src/runtime/runtime-execution-guard.ts` | Added logic to disconnect existing active session before creating bootstrap session |
+| `src/api/middleware/authentication.ts` | Fixed bootstrap session to always use `local-founder` session_id |
 | `tests/integration/local-founder-bootstrap.test.ts` | Added tests for bootstrap session flow |
+| `tests/integration/mcp-bootstrap-integration.test.ts` | Added HTTP endpoint integration tests |
 
 ## Database Changes
 

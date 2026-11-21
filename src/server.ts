@@ -516,6 +516,12 @@ app.all('/mcp', authMiddleware, async (req, res) => {
     // Release execution permit on error
     await executionGuard.releaseExecutionPermit(executionContext.executionId);
     throw error;
+  } finally {
+    // Stop heartbeat renewal interval if it was started
+    // For bootstrap sessions, no heartbeat is started, but we clean up anyway for safety
+    if (executionContext.heartbeatInterval) {
+      clearInterval(executionContext.heartbeatInterval);
+    }
   }
 });
 

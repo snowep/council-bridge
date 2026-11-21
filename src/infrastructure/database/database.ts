@@ -245,6 +245,7 @@ export interface DatabaseInstance {
     getRuntimeSessionsExpiring: PreparedStatement;
     updateRuntimeSessionStatus: PreparedStatement;
     updateRuntimeSessionHeartbeat: PreparedStatement;
+    clearExpiredConnectedSessions: PreparedStatement;
 
     // Phase 10: Execution Records for MCP Tool Execution Guard
     insertExecutionRecord: PreparedStatement;
@@ -1536,8 +1537,18 @@ function createDatabase(dbPath?: string): DatabaseInstance {
     getConnectedRuntimeSession: db.prepare(`
       SELECT * FROM runtime_sessions
       WHERE connection_status IN ('connecting', 'connected', 'switching')
+      AND (lease_expires_at IS NULL OR CAST(lease_expires_at AS INTEGER) > CAST(strftime('%s', 'now') || '000' AS INTEGER))
       ORDER BY updated_at DESC
       LIMIT 1
+    `) as PreparedStatement,
+
+    // Clear expired connected sessions (used before bootstrap to prevent UNIQUE constraint failure)
+    clearExpiredConnectedSessions: db.prepare(`
+      UPDATE runtime_sessions
+      SET connection_status = 'disconnected', last_error = ?, updated_at = datetime('now')
+      WHERE connection_status = 'connected'
+      AND lease_expires_at IS NOT NULL
+      AND CAST(lease_expires_at AS INTEGER) <= CAST(strftime('%s', 'now') || '000' AS INTEGER)
     `) as PreparedStatement,
 
     getRuntimeSessionsExpiring: db.prepare(`

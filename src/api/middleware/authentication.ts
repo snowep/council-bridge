@@ -3,13 +3,12 @@
 // Phase 10: Local single-user Founder mode with loopback restriction
 
 import { Request, Response, NextFunction } from 'express';
-import { validateSessionToken } from '../../auth/session.js';
-import { getAuthConfig, isProductionMode, isDevelopmentMode, isLocalSingleUserMode as isLocalSingleUserModeFn, getLocalBindAddress as getLocalBindAddressFn, AuthContext } from '../../auth/index.js';
+import { validateSessionToken, getAuthConfig, getLocalBindAddress as getLocalBindAddressFn, AuthContext } from '../../auth/index.js';
+import { databaseInstance } from '../../database.js';
 
 // These must be functions, not cached values, because tests change process.env.AUTH_MODE at runtime
 function getConfig() { return getAuthConfig(); }
 function isProd() { return getConfig().mode === 'production'; }
-function isDev() { return getConfig().mode === 'development'; }
 function isLocal() { return getConfig().local_single_user_mode; }
 
 function isLoopbackAddress(ip: string | undefined): boolean {
@@ -79,11 +78,27 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction):
     }
 
     // Auto-authenticate as Founder for loopback requests (local mode only)
+    // BOOTSTRAP SESSION: Always use local-founder session_id for local mode
+    // The execution guard will handle handoff from any existing session
+    const db = databaseInstance;
+
+    // Get the active session to determine what runtime to target
+    const activeSession = db.stmt.getActiveRuntimeSession.get() as {
+      runtime: 'claude' | 'hermes';
+      session_id: string;
+      connection_status: string;
+      lease_expires_at: string | null;
+    } | undefined;
+
+    // In local mode, always bootstrap as local-founder for the requested runtime
+    // The execution guard will disconnect any existing session and establish ownership
     const authContext = {
       owner_type: 'founder' as const,
       owner_id: 'founder',
-      runtime: 'claude' as const,
-      session_id: 'local-founder',
+      // Default to claude, but if there's an active session we'll switch to its runtime
+      // The execution guard handles the actual handoff
+      runtime: activeSession?.runtime || 'claude' as const,
+      session_id: 'local-founder',  // ALWAYS local-founder for bootstrap
       permissions: [],
       expires_at: Infinity,
       issued_at: Date.now(),
@@ -106,13 +121,20 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction):
 
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     // Production mode is fail-closed - always require valid token
-    if (isProd() || !currentConfig.allow_hardcoded_fallback) {
+    if (isProd()) {
       return res.status(401).json({
         error: 'Authentication required',
         code: 'AUTH_REQUIRED'
       });
     }
-    // Development mode without hardcoded fallback - still require auth but allow migration path
+    // Development mode without hardcoded fallback - require auth
+    if (!currentConfig.allow_hardcoded_fallback) {
+      return res.status(401).json({
+        error: 'Authentication required',
+        code: 'AUTH_REQUIRED'
+      });
+    }
+    // Development mode with hardcoded fallback enabled - auto-auth as founder
     (req as any).authContext = {
       owner_type: 'founder',
       owner_id: 'founder',

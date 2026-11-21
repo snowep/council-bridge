@@ -1,10 +1,14 @@
 // Runtime Ownership Middleware for MCP Tool Execution
 // Phase 10: Enforce single active runtime at the MCP execution boundary
 
-import { RuntimeLifecycleManager, getRuntimeLifecycleManager } from './lifecycle.js';
+import { getRuntimeLifecycleManager } from './lifecycle.js';
 import { DatabaseInstance } from '../database.js';
 import { AuthContext } from '../auth/index.js';
 import { parseUnixMs } from './lifecycle.js';
+import { getAuthConfig } from '../auth/config.js';
+
+// These must be functions, not cached values, because tests change process.env.AUTH_MODE at runtime
+function getConfig() { return getAuthConfig(); }
 
 export interface RuntimeOwnershipContext {
   runtimeId: 'claude' | 'hermes';
@@ -43,8 +47,12 @@ export function createRuntimeOwnershipGuard(db: DatabaseInstance) {
     // 2. Get the authoritative active session from SQLite
     const state = lifecycle.getState();
 
-    // 3. Verify there is an active session
-    if (!state.sessionId || !state.activeRuntime) {
+    // 3. Check for bootstrap/local-founder session (bypasses active session requirement for local single-user mode)
+    const isLocalMode = getConfig().local_single_user_mode;
+    const isBootstrapSession = isLocalMode && requestSessionId === 'local-founder';
+
+    // 4. Verify there is an active session (skip for bootstrap/local mode)
+    if (!isBootstrapSession && (!state.sessionId || !state.activeRuntime)) {
       return {
         allowed: false,
         reason: 'No active runtime session',
@@ -52,59 +60,62 @@ export function createRuntimeOwnershipGuard(db: DatabaseInstance) {
       };
     }
 
-    // 4. Verify the session is connected
-    if (state.connectionStatus !== 'connected') {
-      return {
-        allowed: false,
-        reason: `Session is not connected (status: ${state.connectionStatus})`,
-        errorCode: 'SESSION_NOT_CONNECTED'
-      };
+    if (!isBootstrapSession) {
+      // 4b. Verify the session is connected
+      if (state.connectionStatus !== 'connected') {
+        return {
+          allowed: false,
+          reason: `Session is not connected (status: ${state.connectionStatus})`,
+          errorCode: 'SESSION_NOT_CONNECTED'
+        };
+      }
+
+      // 4c. Verify lease has not expired (fail-closed: reject on invalid/missing/expired lease)
+      const leaseExpires = state.leaseExpiresAt;
+      const leaseExpiresMs = parseUnixMs(leaseExpires);
+
+      if (leaseExpiresMs === null) {
+        return {
+          allowed: false,
+          reason: 'Runtime session has an invalid or missing lease timestamp',
+          errorCode: 'INVALID_SESSION_LEASE'
+        };
+      }
+
+      if (leaseExpiresMs <= Date.now()) {
+        return {
+          allowed: false,
+          reason: 'Session lease has expired',
+          errorCode: 'SESSION_EXPIRED'
+        };
+      }
+
+      // 5. Verify the active session belongs to the requesting session ID
+      if (state.sessionId !== requestSessionId) {
+        return {
+          allowed: false,
+          reason: `This runtime does not own the active Council Bridge session. Active runtime: ${state.activeRuntime}`,
+          activeRuntime: state.activeRuntime! as 'claude' | 'hermes',
+          errorCode: 'RUNTIME_NOT_ACTIVE'
+        };
+      }
+
+      // 6. Verify the runtime matches (claude/hermes)
+      if (state.activeRuntime !== requestRuntime) {
+        return {
+          allowed: false,
+          reason: `Runtime mismatch: authorized as ${requestRuntime}, but active session belongs to ${state.activeRuntime}`,
+          activeRuntime: state.activeRuntime! as 'claude' | 'hermes',
+          errorCode: 'RUNTIME_MISMATCH'
+        };
+      }
     }
 
-    // 5. Verify lease has not expired (fail-closed: reject on invalid/missing/expired lease)
-    const leaseExpires = state.leaseExpiresAt;
-    const leaseExpiresMs = parseUnixMs(leaseExpires);
-
-    if (leaseExpiresMs === null) {
-      return {
-        allowed: false,
-        reason: 'Runtime session has an invalid or missing lease timestamp',
-        errorCode: 'INVALID_SESSION_LEASE'
-      };
-    }
-
-    if (leaseExpiresMs <= Date.now()) {
-      return {
-        allowed: false,
-        reason: 'Session lease has expired',
-        errorCode: 'SESSION_EXPIRED'
-      };
-    }
-
-    // 6. Verify the active session belongs to the requesting session ID
-    if (state.sessionId !== requestSessionId) {
-      return {
-        allowed: false,
-        reason: `This runtime does not own the active Council Bridge session. Active runtime: ${state.activeRuntime}`,
-        activeRuntime: state.activeRuntime,
-        errorCode: 'RUNTIME_NOT_ACTIVE'
-      };
-    }
-
-    // 7. Verify the runtime matches (claude/hermes)
-    if (state.activeRuntime !== requestRuntime) {
-      return {
-        allowed: false,
-        reason: `Runtime mismatch: authorized as ${requestRuntime}, but active session belongs to ${state.activeRuntime}`,
-        errorCode: 'RUNTIME_MISMATCH'
-      };
-    }
-
-    // Ownership verified
+    // Ownership verified (or bootstrap mode)
     return {
       allowed: true,
-      activeRuntime: state.activeRuntime,
-      activeSessionId: state.sessionId
+      activeRuntime: state.activeRuntime as 'claude' | 'hermes' | undefined,
+      activeSessionId: state.sessionId ?? undefined
     };
   };
 }

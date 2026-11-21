@@ -71,13 +71,18 @@ export function createRuntimeExecutionGuard(db: DatabaseInstance) {
 
       if (isBootstrapSession) {
         // In bootstrap mode, ensure a runtime_sessions row exists for the requested runtime
-        // First, clear any existing connected session to avoid UNIQUE constraint violation
+        // SECURITY: This clears any connected sessions (including expired ones) to prevent
+        // UNIQUE constraint violation on idx_single_active_runtime
+        // First, clear any expired connected sessions
+        db.stmt.clearExpiredConnectedSessions.run('expired-lease');
+
+        // Then, check for and disconnect any still-active connected session
         // This implements the "single active runtime" invariant for bootstrap sessions
         const existingActive = db.stmt.getActiveRuntimeSession.get() as
           | { runtime: RuntimeId; session_id: string; connection_status: string; lease_expires_at: string | null }
           | undefined;
 
-        if (existingActive?.connection_status === 'connected') {
+        if (existingActive && existingActive.connection_status === 'connected') {
           // Disconnect the existing active session to make room for the bootstrap session
           // This is safe because there's only one active session, and we're taking ownership
           db.stmt.updateRuntimeSessionStatus.run('disconnected', null, existingActive.session_id);
