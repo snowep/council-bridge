@@ -8,11 +8,12 @@ import {
   CircularProgress,
   Alert,
   Drawer,
-  useMediaQuery,
   Tooltip,
   IconButton,
   InputAdornment,
   Avatar,
+  useMediaQuery,
+  useTheme,
 } from '@mui/material';
 import {
   ChatOutlined,
@@ -23,7 +24,6 @@ import {
 import { apiClient, getErrorMessage } from '@shared/api/client';
 import type { Message as ApiMessage } from '@shared/types/api';
 import { useAppAuth } from '@app/use-app-auth';
-import { useTheme } from '@mui/material/styles';
 import { AgentSelectionDialog } from '../components/AgentSelectionDialog';
 import { ConversationList } from '../components/ConversationList';
 import { MessageBubble } from '../components/MessageBubble';
@@ -38,6 +38,12 @@ import { transformMessage } from '../types';
 // Polling configuration
 const POLLING_INTERVAL = 3000;
 const POLLING_BACKOFF_MAX = 30000;
+
+// Capped exponential backoff: 3s min, max 30s, prevents Infinity from rapid errors
+function getBackoffDelay(errorCount: number): number {
+  const cappedCount = Math.min(errorCount, 6); // 2^6 = 64, so max 64 * 3000 = 192s, then capped
+  return Math.min(POLLING_INTERVAL * Math.pow(2, cappedCount), POLLING_BACKOFF_MAX);
+}
 
 export default function ChatPage() {
   const { authContext } = useAppAuth();
@@ -142,7 +148,7 @@ export default function ChatPage() {
     handleSelectConversation(newConv);
   };
 
-  const sendMessage = async (e: React.FormEvent) => {
+  const sendMessage = async (e: React.SyntheticEvent) => {
     e.preventDefault();
     const content = newMessage.trim();
     if (!content || !selectedConversation || sending) return;
@@ -236,7 +242,7 @@ export default function ChatPage() {
     const poll = () => {
       if (selectedConversation && pollingActive) {
         fetchMessages(selectedConversation.participant_id);
-        const delay = POLLING_INTERVAL * Math.min(Math.pow(2, pollingErrorCount), POLLING_BACKOFF_MAX / POLLING_INTERVAL);
+        const delay = getBackoffDelay(pollingErrorCount);
         conversationPollRef.current = setTimeout(poll, delay);
       }
     };

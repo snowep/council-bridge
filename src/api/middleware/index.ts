@@ -1,0 +1,3 @@
+// Middleware barrel exports
+export { authMiddleware, getAuthContext, requireAuth, requireFounder, requireStaff, requireDivision, requireDivisionHead, validateLocalSingleUserConfig, isLocalSingleUserMode, getLocalBindAddress, isLocalSingleUserModeEnabled, getLocalSingleUserBindAddress } from './authentication.js';
+export { errorHandler, asyncHandler, ValidationError, AuthorizationError, NotFoundError, ConflictError, ApiError } from './error-handler.js';

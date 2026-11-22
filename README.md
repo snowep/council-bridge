@@ -68,7 +68,7 @@ ALLOW_HARDCODED_FALLBACK=true # Dev only: allow fallback auth
 
 ### Founder Signature Verification
 Required for privileged operations in production:
-- Ed25519 signatures over canonical JSON
+- RSA-2048 signatures over canonical JSON
 - Timestamp (5 min window), nonce (replay protection), key ID
 - Endpoints: `/api/task-autonomy`, `/api/auth/session` (production)
 

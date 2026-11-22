@@ -4,7 +4,6 @@
 
 import { Request, Response, NextFunction } from 'express';
 import { validateSessionToken, getAuthConfig, getLocalBindAddress as getLocalBindAddressFn, AuthContext } from '../../auth/index.js';
-import { databaseInstance } from '../../database.js';
 
 // These must be functions, not cached values, because tests change process.env.AUTH_MODE at runtime
 function getConfig() { return getAuthConfig(); }
@@ -80,24 +79,17 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction):
     // Auto-authenticate as Founder for loopback requests (local mode only)
     // BOOTSTRAP SESSION: Always use local-founder session_id for local mode
     // The execution guard will handle handoff from any existing session
-    const db = databaseInstance;
 
-    // Get the active session to determine what runtime to target
-    const activeSession = db.stmt.getActiveRuntimeSession.get() as {
-      runtime: 'claude' | 'hermes';
-      session_id: string;
-      connection_status: string;
-      lease_expires_at: string | null;
-    } | undefined;
-
-    // In local mode, always bootstrap as local-founder for the requested runtime
-    // The execution guard will disconnect any existing session and establish ownership
+    // In local single-user mode, always bootstrap as local-founder with explicit runtime identity.
+    // SECURITY: Runtime identity is NEVER inferred from the active session - it's always 'claude'
+    // for local development/bootstrap. The execution guard handles handoff to establish ownership.
+    // This ensures correct runtime attribution regardless of which runtime is currently active.
     const authContext = {
       owner_type: 'founder' as const,
       owner_id: 'founder',
-      // Default to claude, but if there's an active session we'll switch to its runtime
-      // The execution guard handles the actual handoff
-      runtime: activeSession?.runtime || 'claude' as const,
+      // Always use 'claude' as the bootstrap runtime identity in local mode.
+      // This is the primary development runtime. Handoff is handled by execution guard.
+      runtime: 'claude' as const,
       session_id: 'local-founder',  // ALWAYS local-founder for bootstrap
       permissions: [],
       expires_at: Infinity,

@@ -168,23 +168,25 @@ export default function DashboardPage() {
           break;
         }
         case 'executions': {
-          try {
-            const res = await apiClient.get<{ executions: ExecutionRequest[] }>('/api/executions');
-            setExecutions(Array.isArray(res?.executions) ? res.executions : []);
-          } catch {
-            setExecutions([]);
-          }
-          break;
-        }
-        case 'activity': {
-          try {
-            const res = await apiClient.get<{ activity: ActivityItem[] }>('/api/activity');
-            setActivity(Array.isArray(res?.activity) ? res.activity : []);
-          } catch {
-            setActivity([]);
-          }
-          break;
-        }
+                  try {
+                    const res = await apiClient.get<{ executions: ExecutionRequest[] }>('/api/executions');
+                    setExecutions(Array.isArray(res?.executions) ? res.executions : []);
+                  } catch (err: any) {
+                    setExecutions([]);
+                    console.error(`Dashboard fetch error (executions):`, err);
+                  }
+                  break;
+                }
+                case 'activity': {
+                  try {
+                    const res = await apiClient.get<{ activity: ActivityItem[] }>('/api/activity');
+                    setActivity(Array.isArray(res?.activity) ? res.activity : []);
+                  } catch (err: any) {
+                    setActivity([]);
+                    console.error(`Dashboard fetch error (activity):`, err);
+                  }
+                  break;
+                }
       }
     } catch (err: any) {
       setErrors(prev => ({ ...prev, [section]: getErrorMessage(err, `Failed to fetch ${section}`) }));

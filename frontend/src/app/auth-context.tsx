@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { apiClient } from '../shared/api/client';
-import type { AuthContext } from '../shared/types/api';
+import { apiClient } from '@shared/api/client';
+import type { AuthContext } from '@shared/types/api';
 import { LOCAL_SINGLE_USER_MODE } from './constants';
 import { AppAuthContext } from './auth-context-type';
 
@@ -13,21 +13,22 @@ export function AppAuthProvider({ children, navigateAfterLogin = () => {} }: App
   const [authContext, setAuthContext] = useState<AuthContext | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
+  const localFounderContext: AuthContext = {
+    owner_type: 'founder',
+    owner_id: 'founder',
+    runtime: 'claude',
+    session_id: 'dev-fallback',
+    permissions: [],
+    expires_at: Infinity,
+    issued_at: Date.now(),
+    founder_signed: true
+  };
+
   const refreshAuth = async () => {
     try {
       if (LOCAL_SINGLE_USER_MODE) {
-        // In local single-user mode, auto-authenticate as Founder without API call
-        const localAuthContext: AuthContext = {
-          owner_type: 'founder',
-          owner_id: 'founder',
-          runtime: 'claude',
-          session_id: 'local-founder',
-          permissions: [],
-          expires_at: Infinity,
-          issued_at: Date.now(),
-          founder_signed: true
-        };
-        setAuthContext(localAuthContext);
+        // In local single-user mode, always use founder context
+        setAuthContext(localFounderContext);
       } else if (apiClient.isAuthenticated()) {
         const status = await apiClient.getAuthStatus();
         setAuthContext(status.session);
@@ -38,17 +39,7 @@ export function AppAuthProvider({ children, navigateAfterLogin = () => {} }: App
       console.error('Failed to refresh auth:', error);
       if (LOCAL_SINGLE_USER_MODE) {
         // Fallback to local Founder context on error
-        const localAuthContext: AuthContext = {
-          owner_type: 'founder',
-          owner_id: 'founder',
-          runtime: 'claude',
-          session_id: 'local-founder',
-          permissions: [],
-          expires_at: Infinity,
-          issued_at: Date.now(),
-          founder_signed: true
-        };
-        setAuthContext(localAuthContext);
+        setAuthContext(localFounderContext);
       } else {
         setAuthContext(null);
       }

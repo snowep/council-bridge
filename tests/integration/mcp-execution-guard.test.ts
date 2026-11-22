@@ -15,6 +15,7 @@ import { randomUUID } from 'node:crypto';
 import { AuthContext } from '../../src/auth/index.js';
 
 const TEST_DB_DIR = path.join(process.cwd(), 'test-dbs-mcp-exec');
+let currentTestDbPath: string = '';
 
 function createTestDatabase(): { instance: ReturnType<typeof createDatabase>; path: string } {
   if (!fs.existsSync(TEST_DB_DIR)) {
@@ -36,6 +37,7 @@ describe('MCP Execution Guard - Integration Tests', () => {
     resetRuntimeLifecycleManager();
     const testDb = createTestDatabase();
     db = testDb.instance;
+    currentTestDbPath = testDb.path;
     lifecycle = new RuntimeLifecycleManager(db);
     guard = createRuntimeExecutionGuard(db);
   });
@@ -47,10 +49,14 @@ describe('MCP Execution Guard - Integration Tests', () => {
       } catch {}
       db.close();
     }
-    if (fs.existsSync(TEST_DB_DIR)) {
-      try {
-        fs.rmSync(TEST_DB_DIR, { recursive: true, force: true });
-      } catch {}
+    resetRuntimeLifecycleManager();
+
+    // Only delete this test's specific database files, not entire directory
+    // This prevents race conditions with concurrent tests
+    if (currentTestDbPath && fs.existsSync(currentTestDbPath)) {
+      try { fs.unlinkSync(currentTestDbPath); } catch {}
+      try { fs.unlinkSync(currentTestDbPath + '-wal'); } catch {}
+      try { fs.unlinkSync(currentTestDbPath + '-shm'); } catch {}
     }
   });
 

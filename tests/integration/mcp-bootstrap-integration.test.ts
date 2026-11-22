@@ -17,15 +17,18 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { authMiddleware, getAuthContext } from '../../src/api/middleware/authentication.js';
 import * as fs from 'fs';
 import * as path from 'path';
+import { randomUUID } from 'node:crypto';
 
 const TEST_DB_DIR = path.join(process.cwd(), 'test-dbs-mcp-bootstrap');
+let currentTestDbPath: string = '';
 
 function createTestDatabase(): { instance: DatabaseInstance; path: string } {
   if (!fs.existsSync(TEST_DB_DIR)) {
     fs.mkdirSync(TEST_DB_DIR, { recursive: true });
   }
 
-  const dbPath = path.join(TEST_DB_DIR, `mcp-bootstrap-${Date.now()}.db`);
+  // Use crypto-random unique identifier for each test database
+  const dbPath = path.join(TEST_DB_DIR, `mcp-bootstrap-${Date.now()}-${randomUUID().slice(0, 8)}.db`);
   const instance = createDatabase(dbPath);
 
   return { instance, path: dbPath };
@@ -44,6 +47,7 @@ describe('MCP Bootstrap Integration Tests', () => {
 
     const testDb = createTestDatabase();
     db = testDb.instance;
+    currentTestDbPath = testDb.path;
 
     // Set the centralized database instance
     setDatabaseInstance(db);
@@ -63,9 +67,17 @@ describe('MCP Bootstrap Integration Tests', () => {
     delete process.env.LOCAL_SINGLE_USER_MODE;
     delete process.env.AUTH_MODE;
 
-    if (fs.existsSync(TEST_DB_DIR)) {
+    // Only delete this test's specific database files, not entire directory
+    // This prevents race conditions with concurrent tests
+    if (currentTestDbPath && fs.existsSync(currentTestDbPath)) {
       try {
-        fs.rmSync(TEST_DB_DIR, { recursive: true, force: true });
+        fs.unlinkSync(currentTestDbPath);
+      } catch {}
+      try {
+        fs.unlinkSync(currentTestDbPath + '-wal');
+      } catch {}
+      try {
+        fs.unlinkSync(currentTestDbPath + '-shm');
       } catch {}
     }
   });
@@ -98,14 +110,19 @@ describe('MCP Bootstrap Integration Tests', () => {
         return res.status(403).json(errorResponse);
       }
 
-      // Acquire execution permit
-      const permitResult = await guard.acquireExecutionPermit(authContext);
+      // Attach ownership info for tools to use if needed
+      (req as any).runtimeOwnership = ownershipResult;
+
+      // Acquire execution permit for TOCTOU protection
+      const executionGuard = createRuntimeExecutionGuard(db);
+      const permitResult = await executionGuard.acquireExecutionPermit(authContext);
 
       if (!permitResult.success || !permitResult.context) {
-        return res.status(403).json({
+        res.status(403).json({
           error: permitResult.error?.code || 'DATABASE_ERROR',
           message: permitResult.error?.message || 'Failed to acquire execution permit'
         });
+        return;
       }
 
       const executionContext = permitResult.context;
@@ -117,11 +134,15 @@ describe('MCP Bootstrap Integration Tests', () => {
         registerMcpTools(requestMcpServer, db, () => authContext);
         await requestTransport.handleRequest(req, res, req.body);
 
-        await guard.releaseExecutionPermit(executionContext.executionId);
+        // Release execution permit on success
+        await executionGuard.releaseExecutionPermit(executionContext.executionId);
       } catch (error) {
-        await guard.releaseExecutionPermit(executionContext.executionId);
+        // Release execution permit on error
+        await executionGuard.releaseExecutionPermit(executionContext.executionId);
         throw error;
       } finally {
+        // Stop heartbeat renewal interval if it was started
+        // For bootstrap sessions, no heartbeat is started, but we clean up anyway for safety
         if (executionContext.heartbeatInterval) {
           clearInterval(executionContext.heartbeatInterval);
         }

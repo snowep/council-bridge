@@ -1,1519 +1,1010 @@
-# SINGLE ACTIVE RUNTIME — COMPLETE REMEDIATION & INTEGRATION PROMPT
+# COUNCIL BRIDGE — COMPREHENSIVE MCP AUTHENTICATION & RUNTIME IDENTITY REMEDIATION
 
-## Project
-
-**Repository:** `snowep/council-bridge`  
-**Working branch:** `refactor/repository-structure`  
-**Baseline commit:** `d610a2a`  
-**Scope:** Complete and harden the Single Active Runtime implementation.  
-**Primary objective:** Guarantee that only one runtime (Claude Code OR Hermes Agent) can actively communicate with Council Bridge at any given time, while both runtimes retain access to the same persistent organizational memory, identities, Council knowledge, and historical records.
+**Target repository:** `C:\Projects\council-bridge`  
+**GitHub repository:** `snowep/council-bridge`  
+**Audited commit:** `20e7418d45ccf1be9f1894e756881ecd6072ab8d`  
+**Previous audit verdict:** REJECT — remediation required  
+**Objective:** Resolve every finding from the audit of commit `20e7418`, establish correct Claude Code/Hermes runtime identity, and verify the complete production MCP connection and runtime handoff workflow.
 
 ---
 
-# 1. EXECUTION RULES
+# 1. EXECUTION AUTHORIZATION
 
-Follow these instructions strictly.
+You are authorized to inspect, modify, test, and document the code necessary to resolve the findings in this prompt.
 
-1. Inspect the current repository and actual implementation before modifying anything.
-2. Treat commit `d610a2a` as the starting baseline. Do not assume previous reports accurately describe the current code.
-3. Preserve all existing user changes.
-4. Do not perform unrelated refactoring.
-5. Do not redesign the application.
-6. Do not modify Council governance, membership, divisions, staff identities, permissions, tasks, deliverables, or organizational structure.
-7. Do not create a separate Bridge instance or database for either runtime.
-8. Do not create separate canonical memory stores for Claude and Hermes.
-9. Do not remove existing functionality unless a specific defect requires it and the removal is documented.
-10. Do not weaken authentication, authorization, signature verification, or Founder security.
-11. Do not introduce Redis or another external infrastructure dependency.
-12. Do not modify production data or apply production migrations without explicit Founder authorization.
-13. Do not commit, push, merge, rebase, force-push, or rewrite Git history.
-14. Do not begin M4.
-15. Do not mark M3 or Single Active Runtime as accepted. Only the Founder can formally accept them.
+This authorization covers the MCP authentication and runtime lifecycle remediation only.
 
-Before implementation, produce a short source-based baseline report identifying the actual files, current behavior, and exact implementation gaps.
+Do not expand the task into M4 or unrelated architectural work.
 
-Then implement the corrections in controlled steps.
+## Mandatory repository safeguards
 
----
+1. Inspect the current branch, HEAD, working tree, and uncommitted changes before modifying anything.
+2. Preserve every existing user modification, including untracked files.
+3. Do not run:
+   - `git reset`
+   - `git clean`
+   - `git checkout --`
+   - `git restore`
+   - destructive stash operations
+   - history rewriting
+4. Do not overwrite user changes merely to simplify implementation.
+5. Do not modify production database records manually.
+6. Do not drop, weaken, or bypass the `idx_single_active_runtime` unique index.
+7. Do not delete existing memories, agent identities, Council records, messages, tasks, deliverables, or historical data.
+8. Do not create a second Council Bridge database for either runtime.
+9. Do not commit, push, merge, deploy, or rewrite Git history.
+10. Do not modify unrelated frontend components or visual styling.
 
-# 2. ORIGINAL ARCHITECTURAL REQUIREMENT
-
-The system must support two interchangeable execution environments:
-
-- Claude Code
-- Hermes Agent
-
-Only one runtime may be active at a time.
-
-The intended workflow is:
-
-**Option A**
-1. Open Claude Code.
-2. Claude connects to the existing Council Bridge.
-3. Claude operates using the existing agent identities and shared organizational memory.
-4. Close or disconnect Claude.
-5. Open Hermes.
-6. Hermes connects to the same Council Bridge.
-7. Hermes retrieves the same persistent organizational memory and continues working.
-
-**Option B**
-
-The exact reverse sequence must work.
-
-The runtime is an execution environment, not the owner of an agent identity or organizational memory.
-
-Council Bridge owns:
-- Agent identities.
-- Council membership and governance.
-- Division and staff identities.
-- Shared Council knowledge.
-- Persistent organizational memory.
-- Approved agent memories.
-- Message history.
-- Tasks and delegation records.
-- Deliverables and approvals.
-- Runtime connection state and ownership.
-
-Claude and Hermes are interchangeable runtime adapters.
-
-Switching runtimes must never reset, duplicate, delete, or isolate the shared organizational state.
-
-## Non-negotiable invariant
-
-At any given time:
-
-`ACTIVE_RUNTIME_COUNT <= 1`
-
-This must be enforced by the backend and database, not merely by frontend controls.
-
-A second runtime must not be able to bypass the restriction by calling MCP endpoints directly.
+If existing user changes conflict with this task, inspect the conflict and preserve the user's work. Report any issue that cannot safely be resolved without additional authorization.
 
 ---
 
-# 3. PRIORITY 0 — ENFORCE SINGLE ACTIVE RUNTIME AT THE MCP BOUNDARY
+# 2. REQUIRED SOURCE INSPECTION
 
-## Current known defect
+Inspect the current working tree, not merely the audited commit.
 
-The implementation at `d610a2a` still showed the `/mcp` endpoint registering and executing MCP tools without checking whether the requesting runtime owns the active runtime session.
+At minimum, inspect:
 
-The current pattern was:
+### Authentication
+- `src/api/middleware/authentication.ts`
+- `src/auth/index.ts`
+- `src/auth/config.ts`
+- `src/auth/founder.ts`
+- `src/auth/session.ts`
+- `src/api/middleware/index.ts`, if present
 
-```ts
-app.all('/mcp', authMiddleware, async (req, res) => {
-  const requestTransport = new StreamableHTTPServerTransport({
-    sessionIdGenerator: undefined,
-  });
-
-  const requestMcpServer = new McpServer(...);
-
-  await requestMcpServer.connect(requestTransport);
-
-  const authContext = getAuthContext(req);
-
-  registerMcpTools(requestMcpServer, db, () => authContext);
-
-  await requestTransport.handleRequest(req, res, req.body);
-});
-```
-
-This means REST lifecycle protection alone does not guarantee runtime exclusivity.
-
-Both Claude and Hermes could potentially invoke MCP tools while the database reports one active runtime.
-
-## Required implementation
-
-### 3.1 Identify the authenticated runtime
-
-Inspect:
-- `src/server.ts`
-- `src/auth/`
+### Runtime lifecycle and ownership
 - `src/runtime/lifecycle.ts`
-- MCP authentication middleware.
-- Runtime registration and identity resolution.
-- MCP tool registration and execution paths.
+- `src/runtime/runtime-ownership.middleware.ts`
+- `src/runtime/runtime-execution-guard.ts`
+- `src/api/routes/runtime.routes.ts`
 
-Determine how an authenticated MCP request identifies its runtime.
+### Server and database
+- `src/server.ts`
+- `src/database.ts`
+- `src/infrastructure/database/database.ts`
+- All runtime-related migrations
+- All runtime session prepared statements
 
-Implement a trustworthy runtime identity resolution mechanism.
+### MCP integration
+- MCP server construction and registration
+- MCP HTTP transport initialization
+- MCP tool registration
+- Claude Code MCP configuration
+- Hermes MCP configuration
+- Runtime identity initialization and connection lifecycle
 
-The runtime identity must come from authenticated server-side context, not:
-- A user-controlled request body.
-- A frontend selection.
-- An arbitrary HTTP header without authentication.
-- A client-provided agent ID.
-- An unverified query parameter.
+### Tests and documentation
+- `tests/integration/local-founder-bootstrap.test.ts`
+- `tests/integration/mcp-bootstrap-integration.test.ts`
+- `tests/integration/runtime-concurrency.test.ts`
+- `tests/unit/runtime-execution-guard.test.ts`
+- Relevant authentication and lifecycle tests
+- `docs/reports/COUNCIL_BRIDGE_MCP_AUTHENTICATION_HOTFIX.md`
+- Previous runtime audit and implementation reports
 
-Do not confuse:
-- Runtime identity.
-- Agent identity.
-- Council persona identity.
-- Runtime session identity.
+Produce an initial source map identifying the actual production request path and all places where runtime identity is assigned, inferred, validated, or changed.
 
-These are separate concepts.
+Do not assume the current implementation matches the previously audited GitHub version.
 
-### 3.2 Enforce ownership before MCP tool execution
+---
 
-Add a reusable backend guard.
+# 3. P0 — FIX CLAUDE/HERMES RUNTIME IDENTITY
 
-Suggested file:
-
-`src/runtime/runtime-ownership.middleware.ts`
-
-Suggested contract:
+**Finding:** `authentication.ts` derives the runtime identity from the currently active database session:
 
 ```ts
-interface RuntimeOwnershipContext {
-  runtimeId: string;
-  sessionId: string;
-}
-
-interface RuntimeOwnershipResult {
-  allowed: boolean;
-  activeRuntimeId?: string;
-  reason?: string;
-}
+runtime: activeSession?.runtime || 'claude'
 ```
 
-The exact types may be adjusted to match existing conventions.
+This is incorrect.
 
-The guard must:
+The runtime making the request must not be identified by whichever runtime happens to own the active session.
 
-1. Resolve the authenticated runtime.
-2. Resolve its current runtime session.
-3. Read the authoritative active session from SQLite.
-4. Verify that the session belongs to the requesting runtime.
-5. Verify that its status is `connected`.
-6. Verify that the session lease has not expired.
-7. Reject requests without a valid active session.
-8. Reject requests from another runtime.
-9. Reject stale sessions.
-10. Fail closed if the database cannot establish ownership.
+## 3.1 Separate the identity layers
 
-### 3.3 Enforce the guard at the correct execution boundary
+The architecture must distinguish:
 
-Do not rely exclusively on Express route middleware if MCP tools can be registered or executed through another path.
+1. **Founder identity**
+   - Represents the human owner of Council Bridge.
+   - Owns Founder-level authorization.
+   - Is not a runtime identity.
+   - Is not an additional Council voting seat.
 
-Inspect the MCP server architecture and identify every path through which an MCP tool can execute.
+2. **Runtime identity**
+   - Identifies the execution environment making the request.
+   - Allowed values: `claude` or `hermes`.
+   - Must be established independently of active database ownership.
 
-Enforce runtime ownership at the shared MCP tool execution boundary wherever possible.
+3. **Runtime session**
+   - Identifies one connection/session belonging to a specific runtime.
+   - Must be validated against the authoritative SQLite database.
 
-If tools are registered through:
+4. **MCP transport session**
+   - Represents the MCP protocol connection or transport state.
+   - Must not be confused with Founder identity or runtime ownership.
 
-`registerMcpTools(...)`
+5. **Agent/persona identity**
+   - Represents the Council or division identity acting through a runtime.
+   - Must remain independent of the runtime connection lifecycle.
 
-inspect the registration mechanism and determine whether a shared wrapper can protect every tool.
+Do not conflate these layers in `AuthContext` or lifecycle operations.
 
-If so, implement a central wrapper rather than manually duplicating ownership checks across dozens of tools.
+## 3.2 Establish trustworthy runtime identification
 
-If certain tools require different permissions, preserve their existing authorization checks and add runtime ownership as an additional requirement.
-
-Required execution sequence:
-
-```text
-Incoming MCP request
-        |
-        v
-Authentication
-        |
-        v
-Authenticated runtime resolution
-        |
-        v
-Active session resolution
-        |
-        v
-Runtime ownership validation
-        |
-        v
-Existing tool-specific authorization
-        |
-        v
-MCP tool execution
-```
-
-No tool should execute before the ownership check succeeds.
-
-### 3.4 Reject unauthorized runtime requests
-
-When a runtime does not own the active session:
-
-- Do not execute the requested tool.
-- Do not modify memory.
-- Do not create messages.
-- Do not create tasks.
-- Do not modify deliverables.
-- Do not modify Council records.
-- Do not create a replacement session automatically.
-- Return a structured authorization error.
-
-Use an appropriate HTTP status and MCP error representation consistent with the existing protocol implementation.
-
-Suggested error:
-
-```json
-{
-  "error": "RUNTIME_NOT_ACTIVE",
-  "message": "This runtime does not own the active Council Bridge session.",
-  "activeRuntime": "claude"
-}
-```
-
-Do not expose private session tokens, internal secrets, or sensitive runtime metadata.
-
-### 3.5 Protect every MCP transport path
-
-Inspect:
-- `/mcp`
-- Any legacy MCP endpoints.
-- Any alternate MCP transport.
-- Internal MCP tool invocation paths.
-- Webhook-triggered MCP execution, if applicable.
-
-Ensure there is no unprotected execution path.
-
-### 3.6 Required tests
-
-Add tests proving:
-
-1. Active Claude can execute MCP tools.
-2. Inactive Hermes cannot execute MCP tools.
-3. Active Hermes can execute MCP tools after a valid switch.
-4. Inactive Claude cannot execute MCP tools after the switch.
-5. Missing runtime identity is rejected.
-6. Missing session identity is rejected.
-7. Expired sessions are rejected.
-8. Disconnected sessions are rejected.
-9. Unknown sessions are rejected.
-10. Database errors fail closed.
-11. A request cannot impersonate another runtime through request-body fields.
-12. A request cannot impersonate another runtime through arbitrary headers.
-13. Existing tool-level authorization remains effective.
-14. Existing MCP functionality still works for the active runtime.
-
-Include a test that attempts to invoke a real registered MCP tool through the actual MCP HTTP transport.
-
-A unit test of the ownership helper alone is insufficient.
-
-**Acceptance condition:** No MCP tool can execute through an inactive runtime.
-
----
-
-# 4. PRIORITY 0 — IMPLEMENT REAL HEARTBEAT RENEWAL
-
-## Current known gap
-
-The lifecycle API supports heartbeat renewal, but there is no established evidence that the actual active runtime connection periodically invokes it.
-
-Dashboard polling is not heartbeat renewal.
-
-A frontend polling the runtime status every five seconds does not renew the lease.
-
-The system currently uses approximately:
-- 10-minute runtime lease.
-- 30-second heartbeat interval.
-
-Preserve these values unless the existing architecture provides a documented reason to change them.
-
-## Required implementation
-
-### 4.1 Identify the real runtime connection owner
-
-Inspect:
-- MCP transport creation.
-- Runtime registration.
-- Runtime lifecycle manager.
-- Claude MCP configuration and connection flow.
-- Hermes MCP configuration and connection flow.
-- Server-side runtime session ownership.
-
-Determine which component actually knows when a runtime connects and disconnects.
-
-Do not implement a fake heartbeat in the Dashboard.
-
-Do not treat browser polling as proof of runtime liveness.
-
-### 4.2 Add a runtime heartbeat manager
-
-Suggested file:
-
-`src/runtime/heartbeat-manager.ts`
-
-Suggested responsibilities:
-
-- Start heartbeat renewal after successful runtime activation.
-- Renew the exact active session.
-- Use the session ID and runtime ID associated with that connection.
-- Run approximately every 30 seconds.
-- Stop when the runtime disconnects.
-- Stop when the session is replaced.
-- Stop when the runtime loses ownership.
-- Prevent duplicate heartbeat loops.
-- Avoid overlapping heartbeat requests.
-- Handle temporary database or network failures.
-- Emit structured operational logs without exposing credentials.
-
-Example conceptual interface:
-
-```ts
-interface RuntimeHeartbeatManager {
-  start(runtimeId: string, sessionId: string): void;
-  stop(sessionId: string): void;
-  stopAll(): void;
-  isRunning(sessionId: string): boolean;
-}
-```
-
-Adapt this to the existing project architecture.
-
-### 4.3 Heartbeat renewal requirements
-
-Every heartbeat must verify:
-
-- Runtime ID matches the session owner.
-- Session ID matches the active session.
-- Session is connected.
-- Lease has not already expired.
-- The session has not been superseded.
-- The update affects exactly the intended session.
-
-Use an atomic SQL update.
-
-Do not:
-1. Read a session.
-2. Release the database transaction.
-3. Update a session later without rechecking ownership.
-
-The ownership and expiry conditions must be part of the actual UPDATE statement.
-
-A heartbeat must not revive an expired or revoked session.
-
-### 4.4 Handle heartbeat failure
-
-Define explicit behavior.
-
-If a heartbeat fails because:
-- The session is disconnected.
-- The session has expired.
-- The session was replaced.
-- Another runtime owns the active lease.
-- The database is unavailable.
-
-The old heartbeat loop must not continue renewing a session.
-
-The runtime must transition to a safe disconnected or ownership-lost state.
-
-A transient database failure must not silently create a new runtime session.
-
-Do not automatically reactivate a runtime after losing ownership.
-
-Require a deliberate reconnect or recovery operation.
-
-### 4.5 Handle connection termination
-
-When a runtime disconnects:
-
-1. Stop its heartbeat loop.
-2. Release its exact session.
-3. Mark the session disconnected.
-4. Prevent future heartbeat renewal.
-5. Ensure an old heartbeat cannot revive the session.
-
-Use exact session ownership in SQL.
-
-### 4.6 Required tests
-
-Add tests for:
-
-- Heartbeat starts after successful activation.
-- Heartbeat renews the correct session.
-- Heartbeat uses the correct runtime identity.
-- Heartbeat stops after disconnect.
-- Heartbeat stops after switching.
-- Heartbeat does not renew a replaced session.
-- Heartbeat does not renew an expired session.
-- Heartbeat does not renew another runtime's session.
-- Duplicate heartbeat loops are prevented.
-- Overlapping heartbeat calls are prevented.
-- Temporary database failures are handled safely.
-- Recovery after a temporary failure does not create duplicate sessions.
-
-Include at least one test that exercises the actual connection lifecycle rather than testing only the heartbeat helper.
-
-**Acceptance condition:** A genuinely connected runtime renews its lease automatically without relying on Dashboard polling.
-
----
-
-# 5. PRIORITY 0 — COMPLETE RUNTIME SWITCHING
-
-## Required behavior
-
-Switching from Claude to Hermes, or Hermes to Claude, must be a controlled lifecycle operation.
-
-A database update alone is not sufficient to prove that the old runtime has disconnected or that the new runtime is operational.
-
-## 5.1 Implement an explicit switching state machine
-
-Define and document the valid states.
-
-Suggested states:
-
-```text
-disconnected
-    |
-    v
-connecting
-    |
-    v
-connected
-    |
-    v
-switching
-    |
-    v
-disconnected
-    |
-    v
-connecting
-    |
-    v
-connected
-```
-
-Error and recovery states must also be defined.
-
-Do not allow invalid transitions.
-
-Suggested transition rules:
-
-| Current state | Operation | Expected result |
-|---|---|---|
-| disconnected | connect | connecting |
-| connecting | successful activation | connected |
-| connecting | failed activation | disconnected or error |
-| connected | disconnect | disconnected |
-| connected | switch | switching |
-| switching | old session released | disconnected |
-| switching | new runtime activated | connected |
-| switching | new activation fails | disconnected or recoverable error |
-| connected | lease expires | disconnected |
-| connected | ownership revoked | disconnected |
-
-Use the existing status model where possible.
-
-Do not add unnecessary state names if existing schema can express the required transitions.
-
-## 5.2 Switching sequence
-
-Implement the following logical sequence:
-
-1. Authenticate the Founder or authorized caller.
-2. Validate the requested target runtime.
-3. Acquire the lifecycle transaction/lock.
-4. Read the authoritative current session.
-5. Mark the transition as switching.
-6. Stop the previous runtime's heartbeat manager.
-7. Revoke or disconnect the previous session.
-8. Confirm the old session no longer owns the active lease.
-9. Establish the new runtime session.
-10. Initialize the new runtime connection using the actual available transport mechanism.
-11. Confirm successful initialization.
-12. Start the new heartbeat manager.
-13. Mark the new session connected.
-14. Commit the transition.
-15. Return the actual final state.
-
-If the new runtime cannot initialize, do not report it as connected.
-
-If the runtime transport cannot be actively controlled by Council Bridge, explicitly distinguish:
-- Database session revocation.
-- Server-side request rejection.
-- Physical process termination.
-
-Do not claim that the Bridge can terminate an external Claude or Hermes process unless the implementation genuinely has that capability.
-
-The old runtime must still be blocked from tool execution after revocation, even if its process remains open.
-
-## 5.3 Atomicity and failure recovery
-
-Use SQLite transactions and the existing `BEGIN IMMEDIATE` approach where appropriate.
-
-Prevent:
-- Two concurrent switch operations.
-- Duplicate active sessions.
-- Stale session ownership.
-- An old runtime reclaiming ownership.
-- A failed switch leaving two active sessions.
-- A failed connection being displayed as connected.
-- Heartbeat renewal during revocation.
-
-Ensure database rollback leaves a consistent recoverable state.
-
-## 5.4 Session ownership
-
-Every disconnect, heartbeat, switch, and recovery operation must use the exact session ID.
-
-Do not update sessions by runtime ID alone where multiple historical sessions may exist.
-
-Do not let a caller disconnect another session by omitting the session ID.
-
-If a session ID is mandatory, enforce it at the schema/API boundary.
-
-## 5.5 Required tests
-
-Test:
-- Claude → Hermes.
-- Hermes → Claude.
-- Switching while already disconnected.
-- Switching to the currently active runtime.
-- Switching during a heartbeat.
-- Switching during another switch.
-- Switching when the target runtime fails initialization.
-- Switching when the old session has expired.
-- Switching with a stale session ID.
-- Switching with an invalid runtime ID.
-- Concurrent switch requests.
-- Rollback after failed activation.
-- Old runtime cannot execute MCP tools after switching.
-- New runtime can execute MCP tools after successful switching.
-
-**Acceptance condition:** Switching never produces two active runtime owners, and the new runtime is not reported as connected before successful activation.
-
----
-
-# 6. PRIORITY 1 — HARDEN SQLITE SESSION OWNERSHIP AND CONCURRENCY
-
-## Current known implementation
-
-The `d610a2a` implementation uses SQLite-backed runtime sessions and `BEGIN IMMEDIATE`.
-
-It also uses Unix millisecond timestamps in `connect()` and `switch()`, atomic heartbeat SQL, and conditional stale recovery.
-
-Preserve the existing architecture.
-
-Do not replace it with an external lock service.
-
-## 6.1 Inspect all lifecycle SQL
-
-Inspect every query related to:
-- Session creation.
-- Session activation.
-- Session disconnection.
-- Heartbeat renewal.
-- Session switching.
-- Stale-session recovery.
-- Ownership lookup.
-- Runtime recovery.
-
-Ensure all operations use consistent timestamp representation.
-
-Use Unix milliseconds consistently.
-
-Do not mix:
-- ISO strings.
-- SQLite datetime strings.
-- Unix seconds.
-- Unix milliseconds.
-
-### 6.2 Strict timestamp parsing
-
-The existing `parseUnixMs()` implementation was reported to use permissive `parseInt()` behavior.
-
-Replace permissive parsing with strict numeric validation.
+Implement an explicit, secure mechanism for identifying the requesting runtime.
 
 Requirements:
 
-- Accept only a valid integer representation of Unix milliseconds.
-- Reject partially numeric strings.
-- Reject empty strings.
-- Reject whitespace-only values.
-- Reject `NaN`.
-- Reject `Infinity`.
-- Reject negative values where invalid.
-- Reject malformed timestamps.
-- Never silently reinterpret an invalid timestamp.
+- Claude Code must identify itself as `claude`.
+- Hermes must identify itself as `hermes`.
+- The identity must not be inferred from the active runtime session.
+- The identity must not be selected by trusting an arbitrary request header.
+- The identity must not be selected from an unauthenticated request-body field.
+- Do not introduce hardcoded credentials or identity fallbacks.
+- Do not expose private keys or long-lived secrets to frontend code.
+- Do not use the Founder identity as a substitute for runtime authentication.
+- Do not allow a caller to claim the other runtime's identity.
 
-Suggested approach:
+Inspect the existing authentication/session infrastructure before choosing the implementation.
+
+Prefer the smallest secure extension of the existing authentication architecture.
+
+If runtime-specific credentials are required:
+
+- Issue separate credentials for Claude and Hermes.
+- Bind each credential to exactly one runtime.
+- Validate the credential server-side.
+- Support revocation.
+- Ensure disconnected or revoked credentials cannot continue executing tools.
+- Keep credential material out of source control, logs, browser code, and reports.
+- Do not silently fall back to local Founder bootstrap when a supplied credential is invalid.
+
+If the local single-user mode uses a trusted local registration mechanism instead, establish how the server distinguishes the two clients without relying on spoofable headers or client-controlled runtime values.
+
+Document the trust boundary and threat model.
+
+## 3.3 Correct authentication middleware
+
+Modify `src/api/middleware/authentication.ts`.
+
+Remove runtime inference based on:
 
 ```ts
-function parseUnixMs(value: unknown): number | null {
-  if (typeof value !== 'string' && typeof value !== 'number') {
-    return null;
-  }
-
-  const parsed = typeof value === 'number'
-    ? value
-    : Number(value);
-
-  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
-    return null;
-  }
-
-  return parsed;
-}
+activeSession?.runtime
 ```
 
-Adjust according to actual schema and timestamp requirements.
+Authentication must establish the requesting runtime before runtime ownership is evaluated.
 
-Do not copy this blindly if the project has a stronger existing validation convention.
+The middleware must not silently convert an invalid or unidentified runtime into Claude.
 
-Add tests for:
-- `"123abc"`
-- `"2026-11-20T10:00:00.000Z"`
-- `""`
-- `" "`
-- `"NaN"`
-- `"Infinity"`
-- `-1`
-- `0`
-- unsafe integers
-- valid Unix millisecond timestamps.
+For local single-user mode:
 
-### 6.3 SQLite uniqueness and invariants
+- Keep the loopback-only restriction.
+- Continue using the actual socket remote address.
+- Do not trust `X-Forwarded-For` or equivalent forwarded headers.
+- Keep local single-user mode prohibited in production.
+- Preserve fail-closed production authentication.
+- Do not reintroduce hardcoded identity fallback.
+- Do not permit arbitrary callers to acquire a Founder identity merely by supplying `session_id: 'local-founder'`.
 
-Inspect the runtime session schema and migration 017.
+The synthetic `local-founder` session may remain as an internal bootstrap mechanism, but it must not function as a runtime credential.
 
-Ensure the database enforces the single-active-runtime invariant.
+## 3.4 Required identity tests
 
-A transaction-only implementation is not sufficient if a future code path can bypass the lifecycle manager.
+Add tests proving:
 
-Evaluate whether the schema should include a partial unique index or another database-level constraint ensuring that only one active session can exist.
+| Requesting client | Expected runtime identity |
+|---|---|
+| Claude Code | `claude` |
+| Hermes Agent | `hermes` |
+| Claude while Hermes is active | `claude` |
+| Hermes while Claude is active | `hermes` |
+| Missing runtime authentication | Rejected |
+| Invalid runtime credential | Rejected |
+| Revoked runtime credential | Rejected |
+| Claude credential claiming Hermes | Rejected |
+| Hermes credential claiming Claude | Rejected |
+| Production request without valid authentication | Rejected |
 
-For example, where compatible with the existing schema:
+Specifically test that the active runtime database record cannot change the runtime identity established by authentication.
+
+---
+
+# 4. P1 — NARROW THE LOCAL-FOUNDER BOOTSTRAP EXCEPTION
+
+**Finding:** Both ownership and execution guards broadly bypass normal authorization when they receive:
+
+```ts
+session_id === 'local-founder'
+```
+
+This is insufficiently constrained.
+
+## 4.1 Bootstrap must be an explicit operation
+
+Treat local Founder bootstrap as a narrowly authorized lifecycle transition.
+
+It must not be a general execution authorization bypass.
+
+Requirements:
+
+- Bootstrap is allowed only when local single-user mode is enabled.
+- Bootstrap is allowed only for genuine loopback requests.
+- Bootstrap must require a valid, independently identified runtime.
+- Bootstrap must establish a specific runtime/session transition.
+- Bootstrap must not grant permission to impersonate another runtime.
+- Bootstrap must not permit arbitrary tool execution without a valid runtime ownership state.
+- Bootstrap must not be accepted in production mode.
+- A caller must not be able to obtain bootstrap privileges simply by setting a request field or session ID.
+
+Separate these operations:
+
+1. Authenticate the Founder.
+2. Identify the requesting runtime.
+3. Authorize a local runtime activation/handoff.
+4. Establish the new runtime session.
+5. Acquire an execution permit.
+6. Execute the MCP request.
+
+Do not merge these steps into a broad bypass condition.
+
+## 4.2 Make handoff atomic
+
+Runtime handoff must be protected by SQLite transaction semantics.
+
+Expected behavior:
+
+1. Authenticate the requesting runtime.
+2. Begin an immediate transaction.
+3. Read the authoritative current runtime session.
+4. Validate the current session and its state.
+5. Reconcile genuinely expired connected sessions.
+6. Disconnect the previous session using its exact session ID.
+7. Create or activate the new runtime session.
+8. Verify the resulting active session and uniqueness invariant.
+9. Commit.
+10. Only then allow execution under the new runtime identity.
+
+If any operation fails, roll back the transaction.
+
+Never leave two connected sessions.
+
+Never disconnect a different or newer session because a stale request used an outdated session ID.
+
+Use conditional SQL updates that verify the expected runtime, session ID, and connection status.
+
+## 4.3 Ownership middleware
+
+Modify `src/runtime/runtime-ownership.middleware.ts`.
+
+The ownership guard must distinguish:
+
+- Normal authenticated runtime requests.
+- Explicitly authorized bootstrap/handoff requests.
+- Invalid bootstrap requests.
+- Expired sessions.
+- Disconnected sessions.
+- Runtime mismatches.
+- Missing session identity.
+
+Normal MCP tool execution must always require an active, connected, unexpired session matching the authenticated runtime and session.
+
+A bootstrap exception may authorize only the controlled activation transition. It must not independently authorize unrestricted tool execution.
+
+## 4.4 Execution guard
+
+Modify `src/runtime/runtime-execution-guard.ts`.
+
+Ensure that:
+
+- Bootstrap is authorized using the explicit lifecycle operation.
+- Runtime identity is checked against the independently authenticated identity.
+- Session identity is checked against the database.
+- Lease validation is fail-closed.
+- Execution permits cannot be acquired by a disconnected runtime.
+- A stale session cannot execute after a handoff.
+- A previous runtime cannot continue executing after ownership has transferred.
+- Failed handoffs do not leave partial session state.
+
+Do not weaken the TOCTOU protections already implemented.
+
+---
+
+# 5. P1 — VERIFY THE ACTUAL PRODUCTION MCP ENDPOINT
+
+**Finding:** The new integration tests construct a separate Express application that reproduces the middleware flow rather than proving the real production server composition.
+
+This is insufficient.
+
+## 5.1 Make production composition testable
+
+Refactor only as much as necessary to expose the actual application/server composition for tests.
+
+Acceptable approaches include:
+
+- Exporting an application factory used by both production startup and tests.
+- Extracting the actual MCP route registration into a shared production module.
+- Providing dependency injection for the production database and runtime lifecycle manager.
+
+The tests must use the same production middleware and route registration.
+
+Do not maintain a separate test-only implementation of the MCP request pipeline.
+
+Do not create duplicate mock middleware that can pass while production remains broken.
+
+## 5.2 Test actual MCP protocol behavior
+
+The tests must perform real HTTP requests through the production MCP endpoint.
+
+Cover:
+
+### Initialization
+- Valid Claude runtime authentication.
+- Valid Hermes runtime authentication.
+- MCP initialization request.
+- Correct protocol response.
+- Correct session behavior.
+- Invalid authentication rejection.
+
+### Tool discovery
+- Claude successfully requests tool discovery.
+- Hermes successfully requests tool discovery.
+- Tool list is returned in the expected MCP response structure.
+
+### Tool execution
+- Claude executes an actual registered, safe, read-only MCP tool.
+- Hermes executes the same tool.
+- The response contains a successful JSON-RPC result.
+- The test asserts the tool's actual result, not merely HTTP 200.
+
+### Failure behavior
+- Invalid runtime credentials.
+- Missing runtime credentials.
+- Expired sessions.
+- Disconnected sessions.
+- Runtime mismatch.
+- Stale MCP requests after handoff.
+- Concurrent runtime execution attempts.
+
+Inspect the MCP SDK's actual protocol behavior. Do not assume every successful MCP response is a normal JSON response; handle the Streamable HTTP transport correctly.
+
+## 5.3 Do not mistake HTTP 200 for successful tool execution
+
+For tool execution, assert all relevant layers:
+
+1. HTTP status.
+2. JSON-RPC response structure.
+3. Matching request ID.
+4. Absence of JSON-RPC error.
+5. Expected tool result.
+6. Correct runtime/session ownership.
+7. Persisted execution record state.
+
+An HTTP 200 response containing a JSON-RPC error is a failed tool execution.
+
+---
+
+# 6. P1 — IMPLEMENT REAL CONCURRENCY AND HANDOFF TESTS
+
+**Finding:** The test named `should prevent Claude and Hermes from executing concurrently` does not actually make an HTTP request or assert a result.
+
+Remove or replace the ineffective test.
+
+## 6.1 Required scenarios
+
+Implement genuine concurrent tests using separate requests and distinct runtime identities.
+
+### Scenario A — Claude wins initial activation
+
+- Start with no active runtime.
+- Submit concurrent Claude and Hermes activation requests.
+- Verify exactly one activation succeeds.
+- Verify exactly one connected session exists.
+- Verify the losing runtime cannot execute.
+
+### Scenario B — Hermes wins initial activation
+
+Repeat Scenario A with the outcome reversed.
+
+### Scenario C — Claude to Hermes handoff
+
+1. Activate Claude.
+2. Execute a read-only MCP tool as Claude.
+3. Request an authorized handoff to Hermes.
+4. Verify Claude's session is disconnected.
+5. Verify Hermes owns the only connected session.
+6. Verify Hermes can execute a tool.
+7. Verify Claude's old session cannot execute.
+
+### Scenario D — Hermes to Claude handoff
+
+Repeat Scenario C in reverse.
+
+### Scenario E — Concurrent handoff requests
+
+- Start with Claude active.
+- Submit concurrent handoff requests from Claude and Hermes.
+- Verify the final state is valid.
+- Verify no duplicate connected sessions.
+- Verify no stale execution permits survive incorrectly.
+
+### Scenario F — Execution versus handoff
+
+- Begin a long-running controlled test operation.
+- Attempt a runtime handoff while execution is active.
+- Verify the documented execution/handoff policy is enforced.
+- No previous runtime may continue executing after ownership transfer.
+- No execution permit may be assigned to the wrong session.
+
+### Scenario G — Heartbeat versus stale recovery
+
+- Start with an active session.
+- Race heartbeat renewal against stale-session recovery.
+- Verify a valid renewed lease is not incorrectly disconnected.
+- Verify an expired lease cannot be revived by a stale session.
+
+### Scenario H — Process restart
+
+- Activate Claude.
+- Close and reopen the database/server using the production initialization path.
+- Verify persistent memory and historical records remain.
+- Verify stale connection recovery follows the documented policy.
+- Verify a new runtime can establish ownership safely.
+
+## 6.2 Assertions required for every scenario
+
+After each relevant operation, assert:
 
 ```sql
-CREATE UNIQUE INDEX IF NOT EXISTS
-idx_runtime_sessions_single_active
-ON runtime_sessions(connection_status)
+SELECT runtime, session_id, connection_status, lease_expires_at
+FROM runtime_sessions;
+```
+
+And:
+
+```sql
+SELECT COUNT(*) AS connected_count
+FROM runtime_sessions
 WHERE connection_status = 'connected';
 ```
 
-Do not apply this exact index without verifying that the schema's status model and historical data support it.
+The connected count must never exceed one.
 
-If the existing schema requires a different index, implement the correct one.
+Also verify:
 
-The database must prevent multiple connected sessions even if two application requests race.
+- The expected runtime owns the active session.
+- The expected session ID matches exactly.
+- Previous session status is correct.
+- Execution records reference the correct session.
+- No unauthorized runtime executed a tool.
+- Database integrity remains valid.
 
-### 6.4 Atomic stale-session recovery
-
-Recovery must update only sessions that remain expired at the moment of the UPDATE.
-
-Do not:
-1. Read expired sessions.
-2. Later update them by runtime ID alone.
-
-Use an expiry condition inside the UPDATE statement.
-
-Ensure a concurrent heartbeat cannot be overwritten by stale recovery.
-
-### 6.5 Deterministic concurrent process tests
-
-The existing evidence described the heartbeat/recovery race test as passing, but the inspected test was sequential.
-
-A sequential test is not proof of a concurrent race.
-
-Add actual child-process concurrency tests using independent SQLite connections.
-
-Test at least:
-
-**Scenario A — Identical nonce**
-- Start multiple child processes.
-- Submit the same nonce concurrently.
-- Exactly one operation succeeds.
-- All others fail safely.
-- Database contains exactly one accepted operation.
-
-**Scenario B — Distinct nonces**
-- Start multiple child processes.
-- Submit different valid nonces concurrently.
-- All operations that satisfy the business rules succeed.
-- No accidental duplicate or lost records occur.
-
-**Scenario C — Heartbeat versus stale recovery**
-- Process A attempts heartbeat renewal.
-- Process B attempts stale recovery.
-- Force controlled overlapping execution.
-- Verify the final session state is consistent.
-- A valid renewed session must not be disconnected by stale recovery.
-
-**Scenario D — Concurrent runtime activation**
-- Claude and Hermes attempt activation simultaneously.
-- Exactly one obtains active ownership.
-- The other is rejected.
-- Database contains at most one connected session.
-
-**Scenario E — Concurrent switch**
-- Two switch requests run concurrently.
-- Exactly one valid transition wins.
-- No duplicate active session is created.
-
-Use synchronization barriers or another deterministic coordination mechanism.
-
-Do not rely only on `setTimeout()` or timing luck.
-
-Each child process must use an independent database connection.
-
-Clean up child processes, temporary databases, and test directories reliably.
-
-### 6.6 Migration verification
-
-Inspect migration 017 and the migration runner.
-
-Verify:
-- Migration 017 is registered.
-- Fresh database creation applies it.
-- Existing database upgrade applies it.
-- Re-running migration is safe according to project conventions.
-- Migration failures do not leave partial schema changes.
-- Existing session records remain intact.
-- Indexes and constraints are present after migration.
-- Existing database version tracking remains accurate.
-
-Do not apply the migration to the production database.
-
-Use temporary test databases.
-
-**Acceptance condition:** Database constraints, transactions, and independent-process tests establish the single-active-session invariant.
+Do not merely test the lifecycle manager in isolation. At least the core activation, handoff, and rejection scenarios must exercise the production HTTP MCP path.
 
 ---
 
-# 7. PRIORITY 1 — SHARED MEMORY MUST REMAIN RUNTIME-INDEPENDENT
+# 7. P1 — FIX TEST DATABASE ISOLATION AND CLEANUP
 
-## Non-negotiable requirement
+**Finding:** `tests/integration/mcp-bootstrap-integration.test.ts` creates databases in a shared directory and recursively deletes that entire directory in `afterEach`.
 
-Claude and Hermes must use the same persistent organizational memory.
+This can delete another concurrent test's database.
 
-Switching runtimes must not create isolated memory environments.
+## Required changes
 
-Canonical memory must remain owned by Council Bridge.
+1. Create a unique temporary directory for each test.
+2. Use cryptographically unique database filenames or a unique temporary directory.
+3. Do not use `Date.now()` as the only uniqueness mechanism.
+4. Cleanup only the directory created by that specific test.
+5. Close every SQLite connection before deleting files.
+6. Close WAL/checkpoint resources correctly.
+7. Ensure test failure does not leave open database handles.
+8. Ensure cleanup cannot remove another test's files.
+9. Avoid mutating the production database singleton in a way that leaks into other tests.
+10. Restore environment variables to their original values rather than always deleting them.
 
-Do not move canonical memory into:
-- Hermes local memory.
-- Claude Code local memory.
-- Runtime-specific files.
-- Runtime-specific SQLite databases.
-- Separate Council Bridge instances.
+Use `try/finally` or the test framework's reliable lifecycle hooks.
 
-## 7.1 Inspect the existing memory architecture
+Add a test that executes multiple bootstrap integration tests concurrently and confirms their database files remain isolated.
+
+---
+
+# 8. P1 — VERIFY HEARTBEAT AND EXECUTION-PERMIT LIFECYCLE
+
+The previous audit identified heartbeat cleanup as a concern. The latest implementation claims that cleanup already exists in the MCP handler's `finally` block.
+
+Verify the actual production path.
 
 Inspect:
-- Memory services.
-- Memory repositories.
-- Agent memory storage.
-- Shared Council knowledge.
-- Message history.
-- Memory approval/provenance.
-- Agent identity resolution.
-- Database initialization.
-- MCP memory tools.
 
-Identify the authoritative persistent storage for each memory category.
+- `src/runtime/runtime-execution-guard.ts`
+- `src/server.ts`
+- MCP transport lifecycle
+- Runtime lifecycle manager
+- Heartbeat renewal prepared statements
 
-Do not create a second memory architecture.
+Requirements:
 
-## 7.2 Preserve the existing memory boundaries
+1. Every heartbeat interval must have a clearly defined owner.
+2. Every interval must be cleared when its owning execution or connection ends.
+3. An exception must not bypass cleanup.
+4. An aborted HTTP request must not leave an orphaned interval.
+5. A disconnected runtime must not continue renewing its lease.
+6. A stale session must not renew itself after handoff.
+7. Heartbeat renewal must validate the exact runtime and session ID.
+8. Heartbeat renewal must reject expired or disconnected sessions.
+9. A previous runtime must not extend its lease after another runtime has taken ownership.
+10. Server shutdown must release in-memory timers and execution resources safely.
 
-The system must preserve the existing separation:
+## Important distinction
 
-### Private/personal agent memory
-Memory belonging to an individual agent, subject to its existing authorization boundaries.
+Do not confuse:
 
-### Shared Council knowledge
-Approved and properly provenanced organizational knowledge available to authorized agents.
+- Heartbeat renewal while an MCP tool is executing.
+- Idle runtime connection heartbeat renewal.
+- MCP transport liveness.
+- Runtime session lease renewal.
 
-### Historical memory
-Persistent records of prior messages, decisions, meetings, tasks, and other historical events.
+If the architecture requires a runtime to remain connected while idle, implement a clearly owned connection heartbeat mechanism. Do not rely solely on a five-minute timer that starts during tool execution.
 
-Do not automatically convert private agent memory into shared Council knowledge.
+Document the exact lease policy and lifecycle.
 
-Do not weaken existing permissions to make cross-runtime access easier.
+Test:
 
-## 7.3 Runtime-independent memory access
+- Normal request completion.
+- Tool execution error.
+- HTTP abort.
+- Runtime disconnect.
+- Runtime handoff.
+- Server shutdown.
+- Heartbeat/recovery race.
 
-The memory lookup must use stable agent identity and authorization context, not the runtime's local filesystem.
+---
 
-Conceptual relationship:
+# 9. P1 — PRESERVE THE SHARED MEMORY ARCHITECTURE
 
-```text
-Claude Runtime ──────┐
-                     |
-                     v
-              Council Bridge
-                     |
-                     v
-             Shared SQLite DB
-                     |
-        ┌────────────┼────────────┐
-        |            |            |
-   Agent Memory  Council      History
-                 Knowledge
-```
+This is a mandatory architectural invariant.
 
-Hermes must use the same path.
+The runtime lifecycle change must not split or reset organizational memory.
 
-A runtime switch must not:
-- Clone memories.
-- Reinitialize memories.
-- Reset memory IDs.
-- Change agent ownership.
-- Duplicate Council knowledge.
+Both Claude Code and Hermes must use the same Bridge-owned persistent storage.
+
+Requirements:
+
+- One authoritative Council Bridge SQLite database.
+- One shared agent identity registry.
+- One shared Council knowledge store.
+- One shared memory/history system.
+- Shared messages and conversation history according to existing authorization.
+- Shared tasks and deliverables.
+- Shared organizational state.
+- Runtime-specific connection sessions remain separate from persistent memory.
+
+Runtime switching must not:
+
+- Create a new memory database.
+- Duplicate agent identities.
+- Reset memory.
 - Delete history.
-- Change memory approval status.
-- Create runtime-specific copies of canonical memory.
+- Recreate Council members.
+- Reinitialize organizational records.
+- Make memory dependent on one runtime's local files.
+- Copy the entire memory database between runtimes.
 
-## 7.4 Add actual shared-memory integration tests
-
-Implement real integration tests using the existing Bridge memory APIs and the same temporary SQLite database.
-
-Required scenario A:
+## Required integration test
 
 1. Activate Claude.
-2. Authenticate Claude.
-3. Write a memory through the real MCP memory tool.
-4. Verify the memory exists in Bridge-owned SQLite.
-5. Disconnect Claude.
-6. Activate Hermes.
-7. Authenticate Hermes.
-8. Read the memory through the real MCP memory tool.
-9. Verify the exact record is accessible according to its permissions.
+2. Write a test memory/knowledge record using the actual existing Bridge-supported mechanism.
+3. Disconnect Claude and activate Hermes.
+4. Read the same record using the existing authorized mechanism.
+5. Verify the record ID and content are unchanged.
+6. Write a second record using Hermes.
+7. Switch back to Claude.
+8. Verify both records are available.
+9. Verify the database contains only one canonical copy of each record.
 
-Required scenario B:
+Use a dedicated isolated test database.
 
-1. Activate Hermes.
-2. Write an authorized memory.
-3. Disconnect Hermes.
-4. Activate Claude.
-5. Read the same record.
-6. Verify it remains accessible.
+Do not alter production memory data.
 
-Required scenario C — Shared Council knowledge:
-
-1. Write approved Council knowledge through Claude.
-2. Switch to Hermes.
-3. Retrieve the same approved knowledge.
-4. Verify its ID and provenance remain unchanged.
-
-Required scenario D — Private memory isolation:
-
-1. Create private memory for Agent A.
-2. Attempt access through an unauthorized agent using Claude.
-3. Verify access is denied.
-4. Switch to Hermes.
-5. Attempt the same unauthorized access.
-6. Verify access remains denied.
-
-Required scenario E — History persistence:
-
-1. Create messages and a task through Claude.
-2. Switch to Hermes.
-3. Verify authorized history and task records remain accessible.
-4. Verify no duplicate records were created by switching.
-
-Tests must exercise the actual memory services and authorization paths.
-
-Do not use a mocked memory repository as the sole proof.
-
-**Acceptance condition:** Both runtimes access the same persistent Bridge-owned organizational data while preserving private-memory isolation and authorization.
+Do not invent a new memory architecture to satisfy this test. Reuse the existing Bridge-owned storage and permissions.
 
 ---
 
-# 8. PRIORITY 1 — CORRECT THE RUNTIME CONTROL API
+# 10. P2 — CORRECT THE HOTFIX REPORT
 
-Inspect:
+Update:
 
-- `src/api/routes/runtime.routes.ts`
-- `src/runtime/lifecycle.ts`
-- Runtime database repository.
-- Authentication middleware.
-- Frontend runtime control component.
+`docs/reports/COUNCIL_BRIDGE_MCP_AUTHENTICATION_HOTFIX.md`
 
-Ensure the API represents real backend state.
+The current report contains claims that are not established by the source and tests.
 
-## Required API behavior
+The revised report must include:
 
-The API must support the existing lifecycle operations where applicable:
+## A. Original failure
 
-- Get active runtime.
-- Get runtime session state.
-- Connect.
-- Disconnect.
-- Switch.
-- Heartbeat.
-- Recover stale sessions.
+Explain the original:
 
-Do not add redundant endpoints if an existing endpoint already provides the required behavior.
+`UNIQUE constraint failed: runtime_sessions.connection_status`
 
-### 8.1 Validate every request
+Include the verified failing call path and SQL operation. Do not repeat an assumed root cause unless confirmed from the actual code.
 
-Validate:
-- Runtime ID.
-- Session ID.
-- Operation type.
-- Caller authorization.
-- Session ownership.
-- Required fields.
+## B. Runtime identity architecture
 
-Use existing Zod schemas or the project's established validation system.
+Explain the separation between:
 
-Reject malformed input.
+- Founder identity.
+- Claude runtime identity.
+- Hermes runtime identity.
+- Runtime session.
+- MCP transport session.
+- Agent/persona identity.
 
-### 8.2 Prevent ownership bypass
+## C. Authentication trust boundary
 
-A caller must not:
-- Disconnect another runtime's session.
-- Renew another runtime's session.
-- Switch without appropriate authorization.
-- Recover arbitrary sessions.
-- Supply a fake active runtime identity.
-- Omit mandatory ownership information.
+Document:
 
-Founder-only recovery must remain Founder-only.
+- How Claude is identified.
+- How Hermes is identified.
+- How runtime credentials are validated, if used.
+- How local loopback mode is constrained.
+- How production authentication remains fail-closed.
+- How identity spoofing is rejected.
 
-Preserve production authentication fail-closed behavior.
+Do not include actual credentials, private keys, tokens, or secrets.
 
-### 8.3 Accurate status response
+## D. Bootstrap and handoff
 
-Return enough information for the frontend to display the actual state:
+Document:
 
-```ts
-interface RuntimeStatusResponse {
-  activeRuntime: 'claude' | 'hermes' | null;
-  connectionStatus:
-    | 'connected'
-    | 'disconnected'
-    | 'switching'
-    | 'error';
-  sessionId?: string;
-  leaseExpiresAt?: number;
-  lastHeartbeatAt?: number;
-  updatedAt: number;
-}
-```
-
-Adapt to existing conventions.
-
-Do not expose internal secrets or sensitive session tokens.
-
-Do not report `connected` simply because a database row was inserted.
-
-The status must represent the actual verified lifecycle state.
-
----
-
-# 9. PRIORITY 2 — FRONTEND RUNTIME CONTROL
-
-Inspect:
-
-`frontend/src/components/RuntimeControl.tsx`
-
-Also inspect the page/layout that owns this component.
-
-Preserve the current MUI 9 and Google Material Design system.
-
-Use existing vanilla MUI components.
-
-Do not introduce generic AI-dashboard styling.
-
-Do not redesign unrelated pages.
-
-## Required frontend behavior
-
-The runtime control must clearly display:
-
-- Active runtime.
-- Connection status.
-- Current session state.
-- Last successful heartbeat.
-- Lease expiry, if useful and safe to display.
-- Current transition state.
-- Errors returned by the backend.
-
-### 9.1 Switching
-
-When the user switches runtime:
-
-1. Disable duplicate switch actions.
-2. Show switching state.
-3. Call the backend.
-4. Wait for the backend's verified result.
-5. Display the actual new runtime state.
-6. Show an actionable error if activation fails.
-7. Never optimistically display a runtime as connected before backend confirmation.
-
-### 9.2 Polling
-
-Polling may be used to display runtime state.
-
-Polling must not be represented as heartbeat renewal.
-
-Do not implement duplicate frontend heartbeat logic if heartbeat ownership belongs to the server-side runtime connection manager.
-
-### 9.3 Error handling
-
-Handle:
-- Runtime not active.
-- Session expired.
-- Switch failed.
-- Authentication failure.
-- Database unavailable.
-- Runtime initialization failure.
-- Ownership conflict.
-
-Use existing Snackbar patterns.
-
-Do not show success messages for failed or incomplete transitions.
-
-### 9.4 Accessibility and responsiveness
-
-Verify:
-- Keyboard accessibility.
-- Focus management.
-- Accessible labels.
-- Loading state announcements.
-- Error announcements.
-- Mobile and desktop layout.
-
-Preserve the existing approved color palette, theme definitions, design tokens, typography, and styling.
-
-Do not change approved styling as part of this runtime remediation.
-
----
-
-# 10. PRIORITY 2 — OBSERVABILITY AND RECOVERY
-
-Implement useful, minimal operational logging.
-
-Log:
-- Runtime activation requested.
-- Runtime activation succeeded.
-- Runtime activation failed.
-- Runtime disconnected.
-- Runtime switched.
-- Heartbeat succeeded.
-- Heartbeat failed.
-- Ownership rejected.
-- Lease expired.
-- Stale session recovered.
-- Concurrent activation rejected.
-
-Each event should include, where appropriate:
-- Runtime ID.
-- Session ID.
-- Timestamp.
-- Operation.
-- Result.
-- Failure reason.
-
-Never log:
-- Private keys.
-- Authentication tokens.
-- HMAC secrets.
-- Founder private credentials.
-- Sensitive memory contents.
-
-## Recovery behavior
-
-Inspect the existing Founder-only recovery endpoint.
-
-Ensure recovery:
-- Requires the correct authorization.
-- Uses atomic stale-session checks.
-- Does not disconnect valid renewed sessions.
-- Does not arbitrarily reset the active runtime.
-- Does not delete memory or history.
-- Does not create a new active runtime automatically.
-
-Document manual recovery steps for a genuinely stuck session.
-
----
-
-# 11. PRIORITY 2 — TESTING REQUIREMENTS
-
-The final test suite must cover unit, integration, concurrency, MCP transport, memory, and frontend behavior.
-
-Do not claim complete verification based only on lifecycle unit tests.
-
-## 11.1 Unit tests
-
-Cover:
-- Timestamp parsing.
-- Session ownership.
-- Lifecycle transitions.
-- Heartbeat behavior.
-- Expiry.
-- Recovery.
-- Session replacement.
-- Invalid input.
-- Authorization failures.
-
-## 11.2 Integration tests
-
-Cover:
-- Real SQLite session persistence.
+- The authorized bootstrap path.
+- The transaction boundary.
+- Existing session handling.
+- Expired session recovery.
 - Runtime activation.
-- Runtime switching.
-- MCP ownership guard.
-- Runtime disconnect.
-- Heartbeat renewal.
-- Database migration.
-- Shared memory access.
-- Private-memory isolation.
-- Historical data persistence.
+- Execution permit acquisition.
+- Rollback behavior.
 
-## 11.3 Cross-process tests
+## E. Heartbeat lifecycle
 
-Use independent Node.js processes and SQLite connections.
+Document:
 
-Prove:
-- Concurrent activation.
-- Concurrent switching.
-- Heartbeat/recovery race behavior.
-- Nonce uniqueness.
-- No duplicate active sessions.
+- Idle heartbeat policy.
+- Active execution heartbeat policy.
+- Lease duration.
+- Renewal interval.
+- Disconnect behavior.
+- Stale recovery.
+- Shutdown behavior.
 
-The tests must coordinate concurrency deterministically.
+## F. Test evidence
 
-## 11.4 MCP end-to-end tests
+Include exact commands and actual results.
 
-Use the real MCP HTTP transport and actual registered tools.
+Separate:
 
-Prove:
-- Claude can execute when active.
-- Hermes is blocked when inactive.
-- Hermes can execute after a successful switch.
-- Claude is blocked after switching to Hermes.
-- The inactive runtime cannot write memory or modify organizational records.
+- Unit tests.
+- Lifecycle integration tests.
+- Runtime concurrency tests.
+- Production HTTP MCP integration tests.
+- Shared-memory tests.
+- TypeScript compilation.
+- Frontend build, only if relevant.
+- Actual Claude Code client verification.
+- Actual Hermes client verification.
 
-## 11.5 Frontend tests
+Never label a simulated test as a live client test.
 
-Cover:
-- Runtime status display.
-- Switching.
-- Loading.
-- Failed switching.
-- Expired sessions.
-- Ownership conflict.
-- Responsive layout.
-- Keyboard accessibility.
+Never report a test as passing unless it was actually executed.
 
-## 11.6 Regression suite
+## G. Remaining limitations
 
-Run all existing relevant tests.
+List any unverified behavior explicitly.
 
-Do not dismiss previously failing tests as pre-existing without comparing them against the baseline.
+Do not claim the hotfix is complete if actual Claude Code and Hermes MCP client connections have not been tested.
 
-Report:
-- Total tests.
-- Passed.
-- Failed.
-- Skipped.
-- Test suites.
-- Exit code.
-- Duration.
+---
 
-Include exact commands used.
+# 11. REQUIRED ACCEPTANCE TEST MATRIX
 
-## 11.7 Quality gates
+The following matrix must be completed.
 
-Run:
+| ID | Requirement | Expected result |
+|---|---|---|
+| AUTH-01 | Claude runtime identification | Authenticated as Claude |
+| AUTH-02 | Hermes runtime identification | Authenticated as Hermes |
+| AUTH-03 | Runtime identity independent of active session | Pass |
+| AUTH-04 | Invalid credential | Rejected |
+| AUTH-05 | Missing runtime identity | Rejected |
+| AUTH-06 | Cross-runtime impersonation | Rejected |
+| AUTH-07 | Production fail-closed | Pass |
+| AUTH-08 | Loopback restriction | Pass |
+| BOOT-01 | No active session bootstrap | Pass |
+| BOOT-02 | Hermes-to-Claude handoff | Pass |
+| BOOT-03 | Claude-to-Hermes handoff | Pass |
+| BOOT-04 | Unauthorized bootstrap attempt | Rejected |
+| BOOT-05 | Expired connected-session recovery | Pass |
+| BOOT-06 | Failed handoff rollback | Pass |
+| MCP-01 | Production endpoint initialization | Pass |
+| MCP-02 | Production tool discovery | Pass |
+| MCP-03 | Claude actual tool execution | Pass |
+| MCP-04 | Hermes actual tool execution | Pass |
+| MCP-05 | JSON-RPC error detection | Pass |
+| MCP-06 | Stale session rejection | Pass |
+| CON-01 | Concurrent initial activation | Exactly one winner |
+| CON-02 | Concurrent handoff | Valid single owner |
+| CON-03 | Execution versus handoff | Safe documented behavior |
+| CON-04 | Heartbeat versus recovery | Consistent state |
+| CON-05 | Process restart recovery | Pass |
+| HB-01 | Normal heartbeat renewal | Pass |
+| HB-02 | Expired lease rejection | Pass |
+| HB-03 | Disconnect stops renewal | Pass |
+| HB-04 | Handoff stops old heartbeat | Pass |
+| HB-05 | Error/abort cleanup | Pass |
+| MEM-01 | Claude writes, Hermes reads | Same record |
+| MEM-02 | Hermes writes, Claude reads | Same record |
+| MEM-03 | No duplicate canonical memory | Pass |
+| DB-01 | One connected runtime maximum | Pass |
+| DB-02 | SQLite integrity check | `ok` |
+| DB-03 | No foreign-key violations | Pass |
+| TEST-01 | Isolated test databases | Pass |
+| TEST-02 | Concurrent test cleanup safety | Pass |
+
+Do not mark a test complete based only on an existing test name. Inspect what it actually asserts.
+
+---
+
+# 12. LOCAL VERIFICATION
+
+Run the relevant tests against the current working tree.
+
+At minimum:
 
 ```bash
 npx tsc --noEmit
 ```
 
-Run the existing backend test command.
+Run the relevant unit and integration tests using the project's actual scripts and test runner.
 
-Run the existing frontend test command.
+Run:
 
-Run the frontend production build.
+- Authentication tests.
+- Local Founder bootstrap tests.
+- MCP bootstrap integration tests.
+- Runtime execution guard tests.
+- Runtime concurrency tests.
+- Lifecycle tests.
+- Heartbeat tests.
+- Shared-memory integration tests.
 
-Run ESLint and formatting checks according to repository conventions.
+Run the complete backend test suite after targeted tests pass.
 
-Do not modify unrelated tests merely to obtain a passing result.
+If a test fails:
 
-Do not increase timeouts as a substitute for identifying the cause of a hanging test.
+1. Identify the root cause.
+2. Fix the implementation or test.
+3. Rerun the affected test.
+4. Rerun the complete relevant suite.
+5. Record any pre-existing failures separately.
+
+Do not hide failures by increasing timeouts, skipping tests, weakening assertions, or changing expected results without justification.
+
+Verify:
+
+```sql
+PRAGMA integrity_check;
+PRAGMA foreign_key_check;
+```
+
+Use isolated test databases for destructive test scenarios.
+
+Do not run cleanup or migration operations against the production database as part of this task.
 
 ---
 
-# 12. REQUIRED DOCUMENTATION AND REPORTS
+# 13. REAL MCP CLIENT VERIFICATION
 
-Create or update the following files under `docs/reports/`.
+Automated tests alone are insufficient for final connection acceptance.
 
-## 12.1 SINGLE_ACTIVE_RUNTIME_BASELINE_AUDIT.md
+After the implementation and automated tests pass, perform actual local verification if the environment permits.
 
-Document:
-- Baseline commit.
-- Current architecture.
-- Actual runtime lifecycle.
-- Actual MCP execution path.
-- Current memory architecture.
-- Existing database schema.
-- Existing tests.
-- Every identified defect.
-- Exact files affected.
+## Claude Code
 
-## 12.2 SINGLE_ACTIVE_RUNTIME_FILE_MANIFEST.md
+Verify:
 
-List every changed file.
+```cmd
+claude mcp list
+claude mcp get council-bridge
+```
 
-For each file include:
-- Path.
-- Added / modified / deleted.
-- Purpose.
-- Reason for change.
-- Related requirement.
-- Test coverage.
+Then verify:
 
-The manifest must reconcile exactly with the actual Git diff.
+- Server status is connected.
+- Authentication is not required unexpectedly.
+- MCP initialization succeeds.
+- Tool discovery succeeds.
+- At least one safe read-only Council Bridge tool executes successfully.
+- Runtime identity is `claude`.
 
-Do not claim a complete manifest if files are omitted.
+## Hermes Agent
 
-## 12.3 SINGLE_ACTIVE_RUNTIME_IMPLEMENTATION_REPORT.md
+Perform the equivalent checks through the installed Hermes MCP configuration and actual client.
 
-Document:
-- Implemented architecture.
-- Runtime lifecycle.
-- MCP ownership enforcement.
-- Heartbeat integration.
-- Switching behavior.
-- Database invariants.
-- Migration integration.
-- Shared memory behavior.
-- Frontend behavior.
-- Recovery behavior.
-- Known limitations.
+Verify:
 
-Clearly distinguish implemented behavior from planned behavior.
+- Hermes connects to the same Bridge endpoint.
+- Hermes runtime identity is `hermes`.
+- Tool discovery succeeds.
+- A safe read-only tool executes.
+- Shared memory is accessible.
 
-## 12.4 SINGLE_ACTIVE_RUNTIME_TEST_EVIDENCE.md
+## Runtime handoff
 
-For each test category provide:
-- Test file.
-- Exact test name or scenario.
-- Command.
-- Result.
-- Evidence.
-- Whether it was a unit, integration, E2E, or cross-process test.
+Perform both directions:
 
-Do not label sequential tests as concurrent race tests.
+1. Claude → Hermes.
+2. Hermes → Claude.
 
-Do not label mocked tests as actual MCP integration tests.
+Verify that:
 
-Do not label a lifecycle unit test as proof of actual runtime heartbeat integration.
+- The old runtime is disconnected.
+- The new runtime owns the active session.
+- The old runtime cannot continue executing.
+- The new runtime can execute.
+- Shared memory remains intact.
+- No duplicate connected sessions exist.
 
-## 12.5 SINGLE_ACTIVE_RUNTIME_FINAL_AUDIT.md
+If either actual client is unavailable during this task, report the integration test results and explicitly mark live client verification as pending. Do not claim successful real-client verification.
+
+---
+
+# 14. IMPLEMENTATION REPORT AND CHANGE MANIFEST
+
+Create or update:
+
+`docs/reports/MCP_RUNTIME_IDENTITY_REMEDIATION_REPORT.md`
 
 Include:
-- Requirements checklist.
-- Source verification.
-- Test verification.
-- Migration verification.
-- Security review.
-- Regression review.
-- Remaining limitations.
-- Unresolved defects.
-- Final readiness recommendation.
 
-## 12.6 Update the implementation prompt
+1. Executive summary.
+2. Audited commit and actual starting HEAD.
+3. Original audit findings.
+4. Root cause of each finding.
+5. Files changed and why.
+6. Runtime identity design.
+7. Authentication design.
+8. Bootstrap/handoff design.
+9. Execution ownership design.
+10. Heartbeat lifecycle.
+11. MCP endpoint integration changes.
+12. Shared-memory verification.
+13. Test matrix with actual results.
+14. TypeScript results.
+15. Database integrity results.
+16. Actual Claude Code verification.
+17. Actual Hermes verification.
+18. Known limitations.
+19. Remaining risks.
+20. Final implementation verdict.
 
-Update the relevant `NEXT_PROMPT.md` only if it is the canonical project workflow document and the changes are appropriate.
+Also create:
 
-Do not overwrite unrelated or pending M3 instructions.
+`docs/reports/MCP_RUNTIME_IDENTITY_CHANGE_MANIFEST.md`
 
-Do not silently remove previous project requirements.
+List every changed file, including:
 
----
+- Added files.
+- Modified files.
+- Deleted files, if any.
+- Reason for each change.
+- Whether the change was necessary for this remediation.
 
-# 13. DEFINITION OF DONE
+The manifest must reconcile with:
 
-Every item must be explicitly classified as:
+```bash
+git status --short
+git diff --stat
+git diff --name-status
+```
 
-- PASS — independently verified from source and/or test evidence.
-- PARTIAL — implemented but not completely verified.
-- FAIL — not implemented or verification failed.
-- NOT APPLICABLE — justified with an explanation.
+Include untracked files.
 
-## A. Runtime exclusivity
-
-- [ ] Only one runtime can own an active session.
-- [ ] Database enforces the single-active invariant.
-- [ ] Concurrent activation is safe.
-- [ ] Concurrent switching is safe.
-- [ ] Stale sessions cannot reclaim ownership.
-- [ ] Inactive runtime cannot execute MCP tools.
-- [ ] All MCP execution paths enforce ownership.
-- [ ] Authentication remains fail-closed.
-
-## B. Heartbeat
-
-- [ ] Actual active runtime automatically renews its lease.
-- [ ] Heartbeat interval is approximately 30 seconds.
-- [ ] Lease duration remains approximately 10 minutes.
-- [ ] Heartbeat is tied to exact runtime and session ownership.
-- [ ] Duplicate heartbeat loops are prevented.
-- [ ] Heartbeat stops after disconnect or switching.
-- [ ] Expired sessions cannot be revived.
-- [ ] Heartbeat/recovery race is tested with real concurrency.
-
-## C. Switching
-
-- [ ] Claude → Hermes works.
-- [ ] Hermes → Claude works.
-- [ ] Previous session is revoked.
-- [ ] Old runtime cannot execute tools after switching.
-- [ ] New runtime is verified before being reported connected.
-- [ ] Failed activation is recoverable.
-- [ ] Concurrent switch operations are safe.
-- [ ] Runtime process termination limitations are documented accurately.
-
-## D. Database and migration
-
-- [ ] All timestamps use consistent Unix milliseconds.
-- [ ] Strict timestamp parsing is implemented.
-- [ ] Atomic heartbeat SQL is correct.
-- [ ] Stale recovery is race-safe.
-- [ ] Session ownership uses exact session IDs.
-- [ ] Migration 017 is integrated.
-- [ ] Fresh database migration passes.
-- [ ] Existing database migration passes using a temporary database.
-- [ ] Historical records are preserved.
-- [ ] No production database changes were made.
-
-## E. Shared memory
-
-- [ ] Claude and Hermes use the same Bridge-owned database.
-- [ ] Claude-written memory is readable by Hermes under authorization.
-- [ ] Hermes-written memory is readable by Claude under authorization.
-- [ ] Shared Council knowledge remains shared.
-- [ ] Private memory remains isolated.
-- [ ] Message history persists.
-- [ ] Tasks and deliverables persist.
-- [ ] Runtime switching does not duplicate or reset organizational data.
-- [ ] No runtime-specific canonical memory database exists.
-
-## F. Frontend
-
-- [ ] Runtime status reflects verified backend state.
-- [ ] Switching UI reflects real lifecycle state.
-- [ ] Error handling works.
-- [ ] Duplicate operations are prevented.
-- [ ] Accessibility is verified.
-- [ ] Responsive behavior is verified.
-- [ ] Existing approved palette and styling remain unchanged.
-
-## G. Verification and reporting
-
-- [ ] All relevant unit tests pass.
-- [ ] Integration tests pass.
-- [ ] Cross-process concurrency tests pass.
-- [ ] Real MCP E2E tests pass.
-- [ ] Shared-memory integration tests pass.
-- [ ] Frontend tests pass.
-- [ ] TypeScript passes.
-- [ ] Production build passes.
-- [ ] Existing regression suite is evaluated.
-- [ ] Reports are complete and accurate.
-- [ ] File manifest matches the actual diff.
-- [ ] No unauthorized Git operations occurred.
+Do not omit unrelated existing user changes from the working-tree report. Clearly distinguish pre-existing changes from changes introduced by this remediation.
 
 ---
 
-# 14. REQUIRED EXECUTION ORDER
+# 15. COMPLETION CONDITIONS
 
-Implement in this order:
+The task is complete only when:
 
-| Order | Work package | Priority |
-|---|---|---|
-| 0 | Baseline source audit | Mandatory |
-| 1 | MCP runtime ownership enforcement | P0 |
-| 2 | Actual runtime heartbeat integration | P0 |
-| 3 | Safe runtime switching and state machine | P0 |
-| 4 | SQLite constraints and lifecycle concurrency | P1 |
-| 5 | Shared-memory integration and isolation tests | P1 |
-| 6 | API validation and authorization | P1 |
-| 7 | Frontend runtime control | P2 |
-| 8 | Recovery and observability | P2 |
-| 9 | Complete test and regression suite | Mandatory |
-| 10 | Documentation and final audit | Mandatory |
-
-Do not skip directly to frontend polish.
-
-Do not report the implementation complete while P0 items remain unresolved.
-
-If an implementation requirement cannot be completed because the actual Claude Code or Hermes connection mechanism does not expose the necessary lifecycle event, document the precise technical limitation and implement the strongest safe server-side enforcement available.
-
-Do not fabricate runtime integration.
+- [ ] Claude and Hermes have independently authenticated runtime identities.
+- [ ] Runtime identity never derives from active session state.
+- [ ] Local Founder bootstrap is narrowly authorized.
+- [ ] Bootstrap cannot be used as a general execution bypass.
+- [ ] Handoff is atomic and rollback-safe.
+- [ ] Exactly one connected runtime can exist.
+- [ ] Expired connected sessions are safely reconciled.
+- [ ] The production MCP endpoint is exercised by integration tests.
+- [ ] MCP initialization and tool discovery are verified.
+- [ ] Actual registered tool execution is verified.
+- [ ] Claude-to-Hermes and Hermes-to-Claude handoffs are tested.
+- [ ] Concurrent activation and handoff tests pass.
+- [ ] Heartbeat lifecycle is correct and has no orphaned timers.
+- [ ] Test databases are isolated and cleanup-safe.
+- [ ] Shared Bridge memory is accessible across runtime switches.
+- [ ] No production authentication weakening occurred.
+- [ ] SQLite integrity and foreign-key checks pass.
+- [ ] TypeScript compilation passes.
+- [ ] Relevant complete backend test suite passes, with pre-existing failures separately documented.
+- [ ] Implementation report is accurate.
+- [ ] Change manifest is complete.
+- [ ] No unrelated user changes were lost.
+- [ ] No commit or push was made.
 
 ---
 
-# 15. FINAL RESPONSE FORMAT
+# 16. FINAL RESPONSE FORMAT
 
-When implementation is complete, provide:
+When finished, provide:
 
-## 1. Executive result
-- COMPLETE / PARTIALLY COMPLETE / BLOCKED.
-- Whether Single Active Runtime is ready for Founder acceptance.
+## 1. Execution summary
+What was changed and why.
 
-## 2. Implementation summary
-Explain what changed in the actual code.
+## 2. Finding-by-finding resolution
+Use the original audit finding IDs/categories:
 
-## 3. Architecture confirmation
-Explain how:
-- Claude connects.
-- Hermes connects.
-- Runtime switching works.
-- Shared memory remains persistent.
-- Inactive runtime access is blocked.
+- P0 runtime identity.
+- P1 bootstrap authorization.
+- P1 production MCP endpoint integration.
+- P1 concurrency and handoff.
+- P1 test isolation.
+- P1 heartbeat lifecycle.
+- P1 shared-memory verification.
+- P2 documentation accuracy.
 
-## 4. Changed files
-Provide the complete file manifest.
+For each, report:
+- Resolved.
+- Partially resolved.
+- Not resolved.
+- Evidence.
 
-## 5. Test evidence
-Provide exact commands and actual results.
+## 3. Test results
 
-Separate:
-- Unit tests.
-- Integration tests.
-- Cross-process tests.
-- MCP E2E tests.
-- Shared-memory tests.
-- Frontend tests.
-- TypeScript.
-- Production build.
+Provide exact commands, totals, and exit codes.
 
-## 6. Definition of Done
-Provide the completed PASS / PARTIAL / FAIL checklist.
+Separate actual test execution from source inspection.
 
-## 7. Remaining issues
-List every unresolved issue and its severity.
+## 4. Live MCP client results
 
-## 8. Git status
+Report Claude and Hermes separately.
+
+Do not claim a client connected unless the actual client confirmed it.
+
+## 5. Changed files
+
+Provide the complete change manifest.
+
+## 6. Remaining issues
+
+List anything that remains unverified or requires additional authorization.
+
+## 7. Git status
+
 Report:
 - Current branch.
-- Starting commit.
-- Working tree changes.
-- Whether any commits were created.
-- Whether anything was pushed.
+- Starting HEAD.
+- Current HEAD.
+- Modified files.
+- Untracked files.
+- Confirmation that no commit or push was made.
 
-No commit or push is authorized.
+## 8. Final verdict
 
-## 9. Final recommendation
-Choose one:
-- READY FOR FOUNDER ACCEPTANCE.
-- NOT READY FOR FOUNDER ACCEPTANCE.
-- BLOCKED BY EXTERNAL RUNTIME LIMITATION.
+Choose exactly one:
 
-Do not mark it accepted.
+- READY FOR FOUNDER AUDIT
+- REMEDIATION INCOMPLETE
 
----
+Do not declare the work formally accepted. Final acceptance remains the Founder's decision.
 
-# FINAL ARCHITECTURAL PRINCIPLE
-
-**Council Bridge is the organization. Claude Code and Hermes are interchangeable execution environments.**
-
-The organization must continue to exist independently of whichever runtime is currently connected.
-
-Switching runtimes changes who executes work. It must not change who the agents are, what the Council knows, what the organization remembers, what work is in progress, or what has already happened.
-
-The final implementation must prove this through actual MCP execution, SQLite persistence, cross-process concurrency testing, and real shared-memory integration tests.
-
-Do not settle for a UI that says only one runtime is active. Enforce it at the backend, database, and MCP execution boundary.
+**Priority:** Correct runtime identity first. Then secure bootstrap/handoff. Then prove the actual production MCP path, concurrency behavior, heartbeat lifecycle, and shared memory. Do not report completion based on passing isolated tests while the actual client connection remains unverified.

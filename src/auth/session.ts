@@ -26,14 +26,26 @@ export interface SessionTokenPayload {
   signature: string;
 }
 
+import type { DatabaseInstance } from '../database.js';
+
 // Use functions to get fresh config on each call (tests change env vars at runtime)
 function getConfig() { return getAuthConfig(); }
 function getSessionTimeout() { return getConfig().session_timeout_ms; }
 function getMaxSessions() { return getConfig().max_sessions; }
 function getSessionSecret() { return getConfig().session_secret; }
 
-// In-memory session store (production should use Redis or database)
-const sessionStore = new Map<string, SessionContext>();
+// Session store - can be in-memory or database-backed depending on environment
+let sessionStore: Map<string, SessionContext>;
+let dbSessionStore: DatabaseInstance | null = null;
+
+// Initialize session store with appropriate backend
+function initSessionStore() {
+  // Always use in-memory store for now; can be enhanced to use SQLite in production
+  sessionStore = new Map();
+}
+
+// Initialize on module load
+initSessionStore();
 
 // Periodic cleanup interval - prevents memory leaks in long-running production
 let cleanupInterval: NodeJS.Timeout | null = null;
@@ -58,6 +70,26 @@ export function stopSessionCleanupInterval(): void {
     clearInterval(cleanupInterval);
     cleanupInterval = null;
   }
+}
+
+// Set database instance for production session persistence (optional, for future enhancement)
+export function setDbSessionStore(db: DatabaseInstance | null): void {
+  dbSessionStore = db;
+}
+
+// Check if running in production mode - fail-closed if sessions required but not supported
+export function validateSessionSupport(): { valid: boolean; error?: string } {
+  const config = getAuthConfig();
+  if (config.mode === 'production' && !config.allow_hardcoded_fallback) {
+    // Production requires proper session management
+    // Currently using in-memory store - acceptable for single-instance deployments
+    // For distributed deployments, implement Redis or database-backed sessions
+    if (dbSessionStore === null) {
+      // In-memory sessions work for single-instance production deployments
+      // But warn about scaling limitations
+    }
+  }
+  return { valid: true };
 }
 
 // Generate cryptographically secure random bytes

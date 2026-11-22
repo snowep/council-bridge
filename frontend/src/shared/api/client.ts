@@ -1,5 +1,6 @@
 import axios, { type AxiosInstance, type InternalAxiosRequestConfig, AxiosError } from 'axios';
 import type { SessionTokenResponse, AuthStatusResponse, FounderPublicKeyResponse, ActivityResponse } from '../types/api';
+import { LOCAL_SINGLE_USER_MODE } from '../../app/constants';
 
 // Extract error message from API error response
 export function getErrorMessage(err: any, fallback: string = 'An error occurred'): string {
@@ -44,7 +45,10 @@ class ApiClient {
       (error: AxiosError) => {
         if (error.response?.status === 401) {
           this.clearSession();
-          window.location.href = '/login';
+          localStorage.removeItem('session_token');
+          if (window.location.pathname !== '/login' && !LOCAL_SINGLE_USER_MODE) {
+            window.location.href = '/login';
+          }
         }
         return Promise.reject(error);
       }

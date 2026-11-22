@@ -1,11 +1,25 @@
 // API Types - Shared between frontend and backend
 // Based on backend types in src/council/types.ts
 
+// Runtime types for connection state
+export type RuntimeType = 'claude' | 'hermes';
+export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'disconnecting' | 'switching' | 'error';
+
+export interface RuntimeState {
+  activeRuntime: RuntimeType | null;
+  connectionStatus: ConnectionStatus;
+  sessionId: string | null;
+  connectedAt: string | null;
+  lastHeartbeatAt: string | null;
+  leaseExpiresAt: string | null;
+  lastError: string | null;
+}
+
 // Auth types
 export interface AuthContext {
   owner_type: 'founder' | 'staff' | 'division' | 'seat';
   owner_id: string;
-  runtime: 'claude' | 'hermes';
+  runtime: RuntimeType;
   session_id: string;
   permissions: string[];
   expires_at: number;
