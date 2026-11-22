@@ -3,7 +3,9 @@
 
 import { DatabaseInstance } from '../database.js';
 import { randomUUID } from 'node:crypto';
+import { RuntimeSessionRow, RuntimeControlRow, IdleHeartbeatController } from './runtime-types.js';
 
+// Local alias for consistency with runtime_types exports
 export type RuntimeType = 'claude' | 'hermes';
 
 export interface RuntimeConnectionState {
@@ -42,20 +44,6 @@ export interface SwitchRuntimeOptions {
 
 export interface HeartbeatOptions {
   sessionId: string;
-}
-
-interface RuntimeSessionRow {
-  runtime: RuntimeType;
-  session_id: string;
-  connection_status: string;
-  connected_at: string | null;
-  last_heartbeat_at: string | null;
-  lease_expires_at: string | null;
-  client_ip: string | null;
-  user_agent: string | null;
-  last_error: string | null;
-  created_at: string;
-  updated_at: string;
 }
 
 const LEASE_DURATION_MS = 10 * 60 * 1000; // 10 minutes
@@ -198,6 +186,7 @@ export class RuntimeLifecycleManager {
         clientIp || null,
         userAgent || null,
         null,
+        1,  // generation - initial value for new sessions
         now,
         now
       );
@@ -273,16 +262,16 @@ export class RuntimeLifecycleManager {
       // Get current active session
       const currentActive = this.db.stmt.getActiveRuntimeSession.get() as RuntimeSessionRow | undefined;
 
-      // Check if already active with same session
+      // Check if already active with same session (same runtime, same session_id = idempotent)
       if (currentActive && currentActive.runtime === newRuntime && currentActive.session_id === newSessionId) {
         this.db.runPreparedStatement('commitTransaction', []);
         const state = this.getState();
         return { success: true, state };
       }
 
-      // If another runtime is active, disconnect it first
+      // If another runtime is active, handle switch
       if (currentActive && currentActive.runtime !== newRuntime) {
-        // Verify session ownership if provided
+        // Verify session ownership if provided - only allow switch with ownership
         if (sessionId && currentActive.session_id !== sessionId) {
           this.db.runPreparedStatement('rollbackTransaction', []);
           return {
@@ -291,12 +280,9 @@ export class RuntimeLifecycleManager {
           };
         }
 
-        // Mark current session as switching then disconnected
-        this.db.stmt.updateRuntimeSessionStatus.run(
-          'disconnecting',
-          null,
-          currentActive.session_id
-        );
+        // Delete the old session row to free its session_id for reuse
+        // This is necessary because session_id has a UNIQUE constraint
+        this.db.db.prepare('DELETE FROM runtime_sessions WHERE runtime = ?').run(currentActive.runtime);
       }
 
       // Insert new session
@@ -310,6 +296,7 @@ export class RuntimeLifecycleManager {
         clientIp || null,
         userAgent || null,
         null,
+        1,  // generation - initial value for new sessions
         now,
         now
       );
@@ -420,6 +407,60 @@ export class RuntimeLifecycleManager {
       ? (status as RuntimeConnectionState['connectionStatus'])
       : 'disconnected';
   }
+}
+
+
+/**
+ * Idle heartbeat controller - manages automatic heartbeat during idle periods
+ * Runs every 30 seconds to keep the session alive without active execution
+ */
+const IDLE_HEARTBEAT_INTERVAL_MS = 30 * 1000; // 30 seconds
+
+/**
+ * Creates an idle heartbeat controller for a session
+ * Automatically sends heartbeat every 30 seconds while the session is connected
+ * Stops when the session disconnects or controller.stop() is called
+ * @param db - Database instance
+ * @param sessionId - The session ID to monitor and heartbeat
+ * @returns An IdleHeartbeatController with start/stop/isRunning methods
+ */
+export function createIdleHeartbeat(db: DatabaseInstance, sessionId: string): IdleHeartbeatController {
+  const lifecycle = getRuntimeLifecycleManager(db);
+  let intervalId: NodeJS.Timeout | null = null;
+  let running = false;
+
+  function start() {
+    if (running) return;
+
+    running = true;
+    intervalId = setInterval(() => {
+      // Check if session is still connected before sending heartbeat
+      const state = lifecycle.getState();
+      if (state.sessionId === sessionId && state.connectionStatus === 'connected') {
+        lifecycle.heartbeat({ sessionId });
+      } else {
+        // Session disconnected or changed - stop the interval
+        stop();
+      }
+    }, IDLE_HEARTBEAT_INTERVAL_MS);
+  }
+
+  function stop() {
+    if (intervalId) {
+      clearInterval(intervalId);
+      intervalId = null;
+    }
+    running = false;
+  }
+
+  function isRunning() {
+    return running;
+  }
+
+  // Start immediately
+  start();
+
+  return { start, stop, isRunning };
 }
 
 // Registry for singleton instances per database path

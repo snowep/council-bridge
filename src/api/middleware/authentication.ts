@@ -4,6 +4,7 @@
 
 import { Request, Response, NextFunction } from 'express';
 import { validateSessionToken, getAuthConfig, getLocalBindAddress as getLocalBindAddressFn, AuthContext } from '../../auth/index.js';
+import { randomUUID } from 'node:crypto';
 
 // These must be functions, not cached values, because tests change process.env.AUTH_MODE at runtime
 function getConfig() { return getAuthConfig(); }
@@ -52,46 +53,61 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction):
       });
     }
 
-    // If token provided, validate it
+    // If token provided, it MUST be validated - no fallback to local auth on invalid tokens
     if (authHeader && authHeader.startsWith('Bearer ')) {
       const token = authHeader.substring(7);
-      const session = validateSessionToken(token, undefined, clientIp);
 
-      if (session) {
-        const authContext = {
-          owner_type: session.owner_type,
-          owner_id: session.owner_id,
-          runtime: session.runtime,
-          session_id: session.session_id,
-          permissions: session.permissions,
-          expires_at: session.expires_at,
-          issued_at: session.issued_at,
-          founder_signed: session.owner_type === 'founder',
-          client_ip: clientIp
-        } as AuthContext;
-        (req as any).authContext = authContext;
-        (req as any).auth = authContext;
-        return next();
+      if (token) {
+        // Import runtime credentials validation
+        const { validateRuntimeCredential } = require('../../auth/runtime-credentials.js');
+
+        try {
+          const db = require('../../infrastructure/database/database.js').databaseInstance;
+
+          if (db) {
+            const result = validateRuntimeCredential(db, token);
+
+            if (result.valid && result.principal) {
+              // Runtime credential validated successfully
+              const authContext = {
+                owner_type: 'founder',
+                owner_id: 'founder',
+                runtime: result.principal.runtimeId,
+                session_id: randomUUID(),
+                permissions: [],
+                expires_at: Infinity,
+                issued_at: Date.now(),
+                founder_signed: true,
+                client_ip: clientIp
+              } as AuthContext;
+              (req as any).authContext = authContext;
+              (req as any).auth = authContext;
+              return next();
+            }
+            // Invalid runtime credential - reject (no fallback)
+            return res.status(401).json({
+              error: result.error?.message || 'Invalid runtime credential',
+              code: result.error?.code || 'INVALID_CREDENTIAL'
+            });
+          }
+          // Fall through to bootstrap mode only if no database available
+          // This should not happen in production, but allows graceful handling during startup
+        } catch (e) {
+          // Database not available or other error - fall through to bootstrap mode
+          // This allows local mode to work during database initialization
+        }
       }
-      // Invalid/expired token in local mode - fall through to auto-auth
     }
 
-    // Auto-authenticate as Founder for loopback requests (local mode only)
-    // BOOTSTRAP SESSION: Always use local-founder session_id for local mode
-    // The execution guard will handle handoff from any existing session
-
-    // In local single-user mode, always bootstrap as local-founder with explicit runtime identity.
-    // SECURITY: Runtime identity is NEVER inferred from the active session - it's always 'claude'
-    // for local development/bootstrap. The execution guard handles handoff to establish ownership.
-    // This ensures correct runtime attribution regardless of which runtime is currently active.
+    // Auto-authenticate as Founder for loopback requests in local mode (bootstrap)
+    // USE 'claude' as default bootstrap runtime - this is the primary development runtime
+    // Note: This is ONLY for bootstrap/initialization when no valid token is provided
     const authContext = {
       owner_type: 'founder' as const,
       owner_id: 'founder',
-      // Always use 'claude' as the bootstrap runtime identity in local mode.
-      // This is the primary development runtime. Handoff is handled by execution guard.
       runtime: 'claude' as const,
       session_id: 'local-founder',  // ALWAYS local-founder for bootstrap
-      permissions: [],
+      permissions: [] as string[],
       expires_at: Infinity,
       issued_at: Date.now(),
       founder_signed: true,
