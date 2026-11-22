@@ -4,7 +4,6 @@
 
 import { Request, Response, NextFunction } from 'express';
 import { validateSessionToken, getAuthConfig, getLocalBindAddress as getLocalBindAddressFn, AuthContext } from '../../auth/index.js';
-import { randomUUID } from 'node:crypto';
 
 // These must be functions, not cached values, because tests change process.env.AUTH_MODE at runtime
 function getConfig() { return getAuthConfig(); }
@@ -54,61 +53,36 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
     }
 
     // If token provided, it MUST be validated - no fallback to local auth on invalid tokens
+    // Local mode validates session tokens for HTTP API requests (like normal mode)
+    // Runtime credential validation happens at MCP endpoint level, not here
     if (authHeader && authHeader.startsWith('Bearer ')) {
       const token = authHeader.substring(7);
 
       if (token) {
-        // Import runtime credentials validation using ESM dynamic import
-        try {
-          const dbModule = await import('../../infrastructure/database/database.js');
-          const credModule = await import('../../auth/runtime-credentials.js');
+        // Validate as session token (same as normal mode)
+        const session = validateSessionToken(token, undefined, clientIp);
 
-          const db = dbModule.databaseInstance;
-          const { validateRuntimeCredential } = credModule;
-
-          if (!db) {
-            // Database not available - reject credential validation requests
-            console.error('Database not available for runtime credential validation');
-            return res.status(503).json({
-              error: 'Database unavailable for credential validation',
-              code: 'DATABASE_UNAVAILABLE'
-            });
-          }
-
-          const result = validateRuntimeCredential(db, token);
-
-          if (result.valid && result.principal) {
-            // Runtime credential validated successfully
-            // Runtime ID comes from the credential, NOT from caller choice
-            // Runtime credentials are NOT founder - they operate with runtime privileges only
-            const authContext = {
-              owner_type: 'founder',
-              owner_id: result.principal.runtimeId,  // claude or hermes - NOT 'founder'
-              runtime: result.principal.runtimeId,
-              session_id: randomUUID(),
-              permissions: [],
-              expires_at: Infinity,
-              issued_at: Date.now(),
-              founder_signed: false,  // Runtime credentials are not founder-signed
-              client_ip: clientIp
-            } as AuthContext;
-            (req as any).authContext = authContext;
-            (req as any).auth = authContext;
-            return next();
-          }
-          // Invalid runtime credential - reject (no fallback)
-          return res.status(401).json({
-            error: result.error?.message || 'Invalid runtime credential',
-            code: result.error?.code || 'INVALID_CREDENTIAL'
-          });
-        } catch (e) {
-          // Module load error - log and reject
-          console.error('Failed to load credential validation module:', e);
-          return res.status(500).json({
-            error: 'Authentication module unavailable',
-            code: 'AUTH_MODULE_ERROR'
-          });
+        if (session) {
+          const authContext = {
+            owner_type: session.owner_type,
+            owner_id: session.owner_id,
+            runtime: session.runtime,
+            session_id: session.session_id,
+            permissions: session.permissions,
+            expires_at: session.expires_at,
+            issued_at: session.issued_at,
+            founder_signed: session.owner_type === 'founder',
+            client_ip: clientIp
+          } as AuthContext;
+          (req as any).authContext = authContext;
+          (req as any).auth = authContext;
+          return next();
         }
+        // Invalid session token - reject (no fallback to founder)
+        return res.status(401).json({
+          error: 'Invalid session token',
+          code: 'INVALID_SESSION'
+        });
       }
     }
 

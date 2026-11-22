@@ -61,7 +61,7 @@ describe('Council Database Schema', () => {
 
   test('should have schema_version table with version', () => {
     const version = testDbInstance.db.prepare('SELECT version FROM schema_version').get();
-    assert.strictEqual(version.version, '18.0.0');
+    assert.strictEqual(version.version, '20.1.0');
   });
 });
 

@@ -2,7 +2,7 @@
 // Phase 8: RSA-2048 signatures with operation binding and replay protection
 
 import crypto from 'crypto';
-import { readFileSync, writeFileSync, existsSync, mkdirSync, statSync, chmodSync, appendFileSync, renameSync, rmSync, openSync, closeSync, unlinkSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, statSync, chmodSync, renameSync, unlinkSync } from 'fs';
 import { join } from 'path';
 import Database from 'better-sqlite3';
 import { DatabaseInstance } from '../database.js';

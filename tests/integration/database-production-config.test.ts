@@ -30,8 +30,8 @@ describe('Production Database Configuration', () => {
       NODE_ENV: 'production',
       AUTH_MODE: 'production',
       SESSION_SECRET: 'test-secret-32-characters-minimum-length',
-      // DATABASE_PATH deliberately set to empty - dotenv will respect this
       DATABASE_PATH: '',
+      LOCAL_SINGLE_USER_MODE: 'false', // Explicitly disable to avoid .env inheritance
     }, 3000);
 
     // In tsx/node, process.exit() may not work as expected, so check for the error message
@@ -48,6 +48,7 @@ describe('Production Database Configuration', () => {
       AUTH_MODE: 'production',
       SESSION_SECRET: 'test-secret-32-characters-minimum-length',
       DATABASE_PATH: ':memory:',
+      LOCAL_SINGLE_USER_MODE: 'false', // Explicitly disable to avoid .env inheritance
     }, 3000);
 
     const combinedOutput = result.stdout + result.stderr;
@@ -61,6 +62,7 @@ describe('Production Database Configuration', () => {
       AUTH_MODE: 'production',
       SESSION_SECRET: 'test-secret-32-characters-minimum-length',
       DATABASE_PATH: testDbPath,
+      LOCAL_SINGLE_USER_MODE: 'false', // Explicitly disable to avoid .env inheritance
     }, 3000); // Give it time to start
 
     // Server should be running (we kill it after timeout)
@@ -116,6 +118,7 @@ describe('Production Database Configuration', () => {
       AUTH_MODE: 'production',
       SESSION_SECRET: 'test-secret-32-characters-minimum-length',
       DATABASE_PATH: newDbPath,
+      LOCAL_SINGLE_USER_MODE: 'false', // Explicitly disable to avoid .env inheritance
     }, 5000);
 
     // Server should be running (timedOut) or started successfully
@@ -140,11 +143,11 @@ describe('Production Database Configuration', () => {
 function runServer(env: Record<string, string | undefined>, timeoutMs = 5000): Promise<{ exitCode: number | null; stdout: string; stderr: string; timedOut: boolean }> {
   return new Promise((resolve) => {
     // Create child env for testing
-    // Always remove DATABASE_PATH from process.env to prevent .env inheritance
-    // Only set it if explicitly provided in test env
+    // Always remove DATABASE_PATH and LOCAL_SINGLE_USER_MODE from process.env to prevent .env inheritance
+    // Only set them if explicitly provided in test env
     const childEnv: Record<string, string> = {};
     for (const [key, value] of Object.entries(process.env)) {
-      if (key !== 'DATABASE_PATH') {
+      if (key !== 'DATABASE_PATH' && key !== 'LOCAL_SINGLE_USER_MODE' && value !== undefined) {
         childEnv[key] = value;
       }
     }

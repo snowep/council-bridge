@@ -118,7 +118,7 @@ describe('Auth Middleware HTTP Integration Tests - Wave 3', () => {
     });
 
     it('should validate provided token over auto-auth', async () => {
-      // Generate a staff token
+      // Generate a session token for a staff member
       const token = generateSessionToken({
         owner_type: 'staff',
         owner_id: 'staff-001',
@@ -135,15 +135,15 @@ describe('Auth Middleware HTTP Integration Tests - Wave 3', () => {
       assert.strictEqual(response.body.context.owner_id, 'staff-001');
     });
 
-    it('should fall back to Founder auto-auth for invalid token', async () => {
+    it('should reject invalid token in local mode (no founder fallback)', async () => {
       const response = await request(server)
         .get('/api/test')
         .set('Authorization', 'Bearer invalid-token')
-        .expect(200);
+        .expect(401);
 
-      // Should fall back to local Founder auto-auth
-      assert.strictEqual(response.body.authenticated, true);
-      assert.strictEqual(response.body.context.owner_type, 'founder');
+      // SECURITY: Invalid tokens do NOT fall back to Founder auth
+      // This is required by Phase 1 Problem D: no credential bypass
+      assert.strictEqual(response.body.code, 'INVALID_SESSION');
     });
   });
 
