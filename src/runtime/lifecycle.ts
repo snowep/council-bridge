@@ -3,7 +3,7 @@
 
 import { DatabaseInstance } from '../database.js';
 import { randomUUID } from 'node:crypto';
-import { RuntimeSessionRow, RuntimeControlRow, IdleHeartbeatController } from './runtime-types.js';
+import { RuntimeSessionRow, IdleHeartbeatController } from './runtime-types.js';
 
 // Local alias for consistency with runtime_types exports
 export type RuntimeType = 'claude' | 'hermes';
@@ -280,9 +280,24 @@ export class RuntimeLifecycleManager {
           };
         }
 
-        // Delete the old session row to free its session_id for reuse
-        // This is necessary because session_id has a UNIQUE constraint
-        this.db.db.prepare('DELETE FROM runtime_sessions WHERE runtime = ?').run(currentActive.runtime);
+        // Disconnect the old session instead of deleting it
+        // This preserves historical session data for audit and recovery
+        const nowStr = getCurrentTimestamp();
+        this.db.db.prepare(`
+          UPDATE runtime_sessions
+          SET connection_status = 'disconnected',
+              last_error = 'Session replaced by runtime switch',
+              updated_at = ?
+          WHERE runtime = ? AND session_id = ?
+        `).run(nowStr, currentActive.runtime, currentActive.session_id);
+
+        // Increment generation for the old session to invalidate any pending operations
+        this.db.db.prepare(`
+          UPDATE execution_records
+          SET generation = generation + 1,
+              completed = 1
+          WHERE session_id = ? AND completed = 0
+        `).run(currentActive.session_id);
       }
 
       // Insert new session

@@ -466,6 +466,15 @@ app.options('/mcp', (req, res) => {
 });
 
 app.all('/mcp', authMiddleware, async (req, res) => {
+  // Add text/event-stream to Accept header for Claude Code compatibility
+  // The MCP SDK's handleGetRequest requires this for SSE streaming
+  const acceptHeader = req.headers.accept || '';
+  if (!acceptHeader.includes('text/event-stream')) {
+    req.headers.accept = acceptHeader
+      ? `${acceptHeader}, text/event-stream`
+      : 'text/event-stream';
+  }
+
   // Runtime ownership check - enforce single active runtime at MCP boundary
   const authContext = getAuthContext(req);
   if (!authContext) {
@@ -504,10 +513,14 @@ app.all('/mcp', authMiddleware, async (req, res) => {
   const executionContext = permitResult.context;
 
   try {
-    const requestTransport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+    const requestTransport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: undefined
+    });
+
     const requestMcpServer = new McpServer({ name: 'council-bridge', version: '1.0.0' }, { capabilities: { tools: {} } });
     await requestMcpServer.connect(requestTransport);
     registerMcpTools(requestMcpServer, db, () => authContext);
+
     await requestTransport.handleRequest(req, res, req.body);
 
     // Release execution permit on success

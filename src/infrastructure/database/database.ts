@@ -247,6 +247,19 @@ export interface DatabaseInstance {
     updateRuntimeSessionHeartbeat: PreparedStatement;
     clearExpiredConnectedSessions: PreparedStatement;
 
+    // Phase 10: Runtime Control Table
+    getRuntimeControl: PreparedStatement;
+    getRuntimeControlById: PreparedStatement;
+    updateRuntimeControl: PreparedStatement;
+    updateRuntimeGeneration: PreparedStatement;
+
+    // Phase 10: Runtime Credentials
+    insertRuntimeCredential: PreparedStatement;
+    getRuntimeCredentialByHash: PreparedStatement;
+    getRuntimeCredentialByRuntime: PreparedStatement;
+    updateCredentialStatus: PreparedStatement;
+    updateCredentialLastUsed: PreparedStatement;
+
     // Phase 10: Execution Records for MCP Tool Execution Guard
     insertExecutionRecord: PreparedStatement;
     getActiveExecutionRecord: PreparedStatement;
@@ -262,10 +275,12 @@ export interface DatabaseInstance {
 }
 
 // Phase 4 schema version. Bumped when createDatabase() adds tables.
-// Current version: 18.0.0 - execution_records table for MCP execution guard
+// Current version: 20.1.0 - runtime_control table + generation column + idle heartbeat support (Loop 2-4)
+// Previous: 19.0.0 - runtime_credentials table for independent runtime auth (Loop 1)
+// Previous: 18.0.0 - execution_records table for MCP execution guard
 // Previous: 17.0.0 for runtime_sessions table (Phase 10)
 // Previous: 16.0.0 for Task 5: task_audit table
-export const SCHEMA_VERSION = '18.0.0';
+export const SCHEMA_VERSION = '20.1.0';
 
 function createDatabase(dbPath?: string): DatabaseInstance {
   const isProduction = process.env.NODE_ENV === 'production';
@@ -1046,9 +1061,26 @@ function createDatabase(dbPath?: string): DatabaseInstance {
     );
 
     CREATE INDEX IF NOT EXISTS idx_founder_nonces_expires ON founder_nonces(expires_at);
-    `);
 
-  // Ensure runtime_sessions table exists (Migration 017)
+    -- Ensure runtime_credentials table exists (Migration 019)
+    CREATE TABLE IF NOT EXISTS runtime_credentials (
+      credential_id TEXT NOT NULL PRIMARY KEY,
+      runtime_id TEXT NOT NULL CHECK (runtime_id IN ('claude', 'hermes')),
+      token_hash TEXT NOT NULL UNIQUE,
+      status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'revoked', 'expired')),
+      created_at INTEGER NOT NULL,
+      expires_at INTEGER NOT NULL,
+      last_used_at INTEGER,
+      revoked_at INTEGER
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_runtime_credentials_runtime ON runtime_credentials(runtime_id, status) WHERE status = 'active';
+    CREATE INDEX IF NOT EXISTS idx_runtime_credentials_expires ON runtime_credentials(expires_at);
+    CREATE INDEX IF NOT EXISTS idx_runtime_credentials_revoked ON runtime_credentials(revoked_at) WHERE revoked_at IS NOT NULL;
+  `);
+
+  // Ensure runtime_sessions table exists (Migration 017/020)
+  // With generation column for Loop 3 execution fencing
   db.prepare(`
     CREATE TABLE IF NOT EXISTS runtime_sessions (
       runtime TEXT PRIMARY KEY,
@@ -1060,8 +1092,10 @@ function createDatabase(dbPath?: string): DatabaseInstance {
       client_ip TEXT,
       user_agent TEXT,
       last_error TEXT,
+      generation INTEGER DEFAULT 0,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(session_id)
     )
   `).run();
 
@@ -1073,11 +1107,46 @@ function createDatabase(dbPath?: string): DatabaseInstance {
     WHERE connection_status = 'connected'
   `).run();
 
+  // Ensure unique session_id for ownership queries (Migration 019)
+  db.prepare(`CREATE UNIQUE INDEX IF NOT EXISTS idx_runtime_sessions_session_id_unique ON runtime_sessions(session_id)`).run();
+
   db.prepare(`CREATE INDEX IF NOT EXISTS idx_runtime_sessions_active ON runtime_sessions(connection_status) WHERE connection_status IN ('connecting', 'connected', 'switching')`).run();
   db.prepare(`CREATE INDEX IF NOT EXISTS idx_runtime_sessions_session_id ON runtime_sessions(session_id)`).run();
   db.prepare(`CREATE INDEX IF NOT EXISTS idx_runtime_sessions_lease ON runtime_sessions(lease_expires_at)`).run();
 
+  // Add generation column to existing runtime_sessions tables (Migration 020)
+  const hasRuntimeSessionGeneration = (db.prepare('PRAGMA table_info(runtime_sessions)').all() as Array<{ name: string }>)
+    .some(col => col.name === 'generation');
+  if (!hasRuntimeSessionGeneration) {
+    db.prepare(`ALTER TABLE runtime_sessions ADD COLUMN generation INTEGER DEFAULT 0`).run();
+  }
+
+  // Ensure runtime_control table exists (Migration 020)
+  // Authoritative single-active-runtime enforcement with generation fencing
+  db.prepare(`
+    CREATE TABLE IF NOT EXISTS runtime_control (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      active_runtime TEXT CHECK (active_runtime IN ('claude', 'hermes', NULL)),
+      active_session_id TEXT,
+      generation INTEGER NOT NULL DEFAULT 1,
+      updated_at INTEGER NOT NULL
+    )
+  `).run();
+
+  // Insert initial control row if not exists
+  db.prepare(`
+    INSERT OR IGNORE INTO runtime_control (id, active_runtime, active_session_id, generation, updated_at)
+    VALUES (1, NULL, NULL, 1, CAST(strftime('%s', 'now') || '000' AS INTEGER))
+  `).run();
+
+  // Create indexes for runtime_control
+  db.prepare(`CREATE UNIQUE INDEX IF NOT EXISTS idx_runtime_control_single ON runtime_control(id)`).run();
+  db.prepare(`CREATE INDEX IF NOT EXISTS idx_runtime_control_active_runtime ON runtime_control(active_runtime) WHERE active_runtime IS NOT NULL`).run();
+  db.prepare(`CREATE INDEX IF NOT EXISTS idx_runtime_control_active_session ON runtime_control(active_session_id)`).run();
+
   // Ensure execution_records table exists (Migration 018)
+  // With foreign key to runtime_sessions for TOCTOU protection
+  // Phase 10 Loop 3: Ensure generation column exists (added by migration 019)
   db.prepare(`
     CREATE TABLE IF NOT EXISTS execution_records (
       id TEXT PRIMARY KEY,
@@ -1086,11 +1155,21 @@ function createDatabase(dbPath?: string): DatabaseInstance {
       started_at INTEGER NOT NULL,
       expires_at INTEGER NOT NULL,
       completed INTEGER NOT NULL DEFAULT 0,
+      generation INTEGER NOT NULL DEFAULT 1,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (session_id) REFERENCES runtime_sessions(session_id) ON DELETE CASCADE,
       FOREIGN KEY (runtime_id) REFERENCES runtime_sessions(runtime) ON DELETE CASCADE
     )
   `).run();
+
+  // Add generation column to existing tables created before migration 019
+  // SQLite doesn't support IF NOT EXISTS for ALTER TABLE, so check first
+  const hasGenerationColumn = (db.prepare('PRAGMA table_info(execution_records)').all() as Array<{ name: string }>)
+    .some(col => col.name === 'generation');
+  if (!hasGenerationColumn) {
+    db.prepare(`ALTER TABLE execution_records ADD COLUMN generation INTEGER NOT NULL DEFAULT 1`).run();
+  }
 
   db.prepare(`
     CREATE INDEX IF NOT EXISTS idx_execution_records_session
@@ -1115,6 +1194,9 @@ function createDatabase(dbPath?: string): DatabaseInstance {
     ON execution_records(session_id)
     WHERE completed = 0
   `).run();
+
+  // Index for generation-based execution fencing queries
+  db.prepare(`CREATE INDEX IF NOT EXISTS idx_execution_records_generation ON execution_records(generation)`).run();
 
   const stmt = {
     insertAgent: db.prepare(`
@@ -1506,8 +1588,8 @@ function createDatabase(dbPath?: string): DatabaseInstance {
     // Phase 10: Runtime Session Management
     upsertRuntimeSession: db.prepare(`
       INSERT INTO runtime_sessions
-        (runtime, session_id, connection_status, connected_at, last_heartbeat_at, lease_expires_at, client_ip, user_agent, last_error, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (runtime, session_id, connection_status, connected_at, last_heartbeat_at, lease_expires_at, client_ip, user_agent, last_error, generation, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(runtime) DO UPDATE SET
         session_id = excluded.session_id,
         connection_status = excluded.connection_status,
@@ -1520,13 +1602,9 @@ function createDatabase(dbPath?: string): DatabaseInstance {
         updated_at = datetime('now')
     `) as PreparedStatement,
 
-    getRuntimeSessionByRuntime: db.prepare(`
-      SELECT * FROM runtime_sessions WHERE runtime = ?
-    `) as PreparedStatement,
+    getRuntimeSessionByRuntime: db.prepare('SELECT * FROM runtime_sessions WHERE runtime = ?') as PreparedStatement,
 
-    getRuntimeSessionBySession: db.prepare(`
-      SELECT * FROM runtime_sessions WHERE session_id = ?
-    `) as PreparedStatement,
+    getRuntimeSessionBySession: db.prepare('SELECT * FROM runtime_sessions WHERE session_id = ?') as PreparedStatement,
 
     getActiveRuntimeSession: db.prepare(`
       SELECT * FROM runtime_sessions
@@ -1540,6 +1618,22 @@ function createDatabase(dbPath?: string): DatabaseInstance {
       AND (lease_expires_at IS NULL OR CAST(lease_expires_at AS INTEGER) > CAST(strftime('%s', 'now') || '000' AS INTEGER))
       ORDER BY updated_at DESC
       LIMIT 1
+    `) as PreparedStatement,
+
+    getRuntimeControl: db.prepare('SELECT * FROM runtime_control WHERE id = 1') as PreparedStatement,
+
+    getRuntimeControlById: db.prepare('SELECT * FROM runtime_control WHERE id = ?') as PreparedStatement,
+
+    updateRuntimeControl: db.prepare(`
+      UPDATE runtime_control
+      SET active_runtime = ?, active_session_id = ?, generation = ?, updated_at = ?
+      WHERE id = 1
+    `) as PreparedStatement,
+
+    updateRuntimeGeneration: db.prepare(`
+      UPDATE runtime_sessions
+      SET generation = COALESCE(generation, 1) + 1
+      WHERE session_id = ?
     `) as PreparedStatement,
 
     // Clear expired connected sessions (used before bootstrap to prevent UNIQUE constraint failure)
@@ -1574,8 +1668,8 @@ function createDatabase(dbPath?: string): DatabaseInstance {
 
     // Phase 10: Execution Records for MCP Execution Guard
     insertExecutionRecord: db.prepare(`
-      INSERT INTO execution_records (id, session_id, runtime_id, started_at, expires_at, completed, created_at)
-      VALUES (?, ?, ?, ?, ?, 0, datetime('now'))
+      INSERT INTO execution_records (id, session_id, runtime_id, started_at, expires_at, completed, generation, created_at)
+      VALUES (?, ?, ?, ?, ?, 0, 1, datetime('now'))
     `) as PreparedStatement,
 
     getActiveExecutionRecord: db.prepare(`
@@ -1583,9 +1677,7 @@ function createDatabase(dbPath?: string): DatabaseInstance {
       WHERE completed = 0 AND expires_at > ?
     `) as PreparedStatement,
 
-    getExecutionRecordById: db.prepare(`
-      SELECT * FROM execution_records WHERE id = ?
-    `) as PreparedStatement,
+    getExecutionRecordById: db.prepare('SELECT * FROM execution_records WHERE id = ?') as PreparedStatement,
 
     getExecutionRecordBySession: db.prepare(`
       SELECT * FROM execution_records
@@ -1600,6 +1692,28 @@ function createDatabase(dbPath?: string): DatabaseInstance {
     cleanupExpiredExecutionRecords: db.prepare(`
       DELETE FROM execution_records
       WHERE completed = 0 AND expires_at <= ?
+    `) as PreparedStatement,
+
+    // Phase 10: Runtime Credentials
+    insertRuntimeCredential: db.prepare(`
+      INSERT INTO runtime_credentials (credential_id, runtime_id, token_hash, status, created_at, expires_at, last_used_at, revoked_at)
+      VALUES (?, ?, ?, 'active', ?, ?, NULL, NULL)
+    `) as PreparedStatement,
+
+    getRuntimeCredentialByHash: db.prepare(`
+      SELECT credential_id, runtime_id, status, expires_at, revoked_at, last_used_at FROM runtime_credentials WHERE token_hash = ?
+    `) as PreparedStatement,
+
+    getRuntimeCredentialByRuntime: db.prepare(`
+      SELECT * FROM runtime_credentials WHERE runtime_id = ? AND status = 'active' AND revoked_at IS NULL AND expires_at > strftime('%s', 'now') * 1000
+    `) as PreparedStatement,
+
+    updateCredentialStatus: db.prepare(`
+      UPDATE runtime_credentials SET status = ?, revoked_at = ? WHERE credential_id = ?
+    `) as PreparedStatement,
+
+    updateCredentialLastUsed: db.prepare(`
+      UPDATE runtime_credentials SET last_used_at = ? WHERE credential_id = ?
     `) as PreparedStatement,
   };
 
@@ -1678,20 +1792,20 @@ export function setDatabaseInstance(db: DatabaseInstance): void {
 
 // Export a proxy that provides lazy access to the full DatabaseInstance object
 export const databaseInstance = new Proxy({} as ReturnType<typeof createDatabase>, {
-  get(target, prop) {
+  get(_target, prop) {
     return (getInstance() as any)[prop];
   }
 });
 
 // Re-export the full DatabaseInstance object for compatibility
 export const db = new Proxy({} as ReturnType<typeof createDatabase>, {
-  get(target, prop) {
+  get(_target, prop) {
     return (getInstance() as any)[prop];
   }
 });
 
 export const stmt = new Proxy({} as any, {
-  get(target, prop) {
+  get(_target, prop) {
     return (getInstance().stmt as any)[prop];
   }
 });

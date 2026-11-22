@@ -28,7 +28,7 @@ function getClientIp(req: Request): string {
   return socketIp || 'unknown';
 }
 
-export function authMiddleware(req: Request, res: Response, next: NextFunction): Response | void {
+export async function authMiddleware(req: Request, res: Response, next: NextFunction): Promise<Response | void> {
   const authHeader = req.headers.authorization;
   const clientIp = getClientIp(req);
   const config = getConfig();
@@ -58,54 +58,77 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction):
       const token = authHeader.substring(7);
 
       if (token) {
-        // Import runtime credentials validation
-        const { validateRuntimeCredential } = require('../../auth/runtime-credentials.js');
-
+        // Import runtime credentials validation using ESM dynamic import
         try {
-          const db = require('../../infrastructure/database/database.js').databaseInstance;
+          const dbModule = await import('../../infrastructure/database/database.js');
+          const credModule = await import('../../auth/runtime-credentials.js');
 
-          if (db) {
-            const result = validateRuntimeCredential(db, token);
+          const db = dbModule.databaseInstance;
+          const { validateRuntimeCredential } = credModule;
 
-            if (result.valid && result.principal) {
-              // Runtime credential validated successfully
-              const authContext = {
-                owner_type: 'founder',
-                owner_id: 'founder',
-                runtime: result.principal.runtimeId,
-                session_id: randomUUID(),
-                permissions: [],
-                expires_at: Infinity,
-                issued_at: Date.now(),
-                founder_signed: true,
-                client_ip: clientIp
-              } as AuthContext;
-              (req as any).authContext = authContext;
-              (req as any).auth = authContext;
-              return next();
-            }
-            // Invalid runtime credential - reject (no fallback)
-            return res.status(401).json({
-              error: result.error?.message || 'Invalid runtime credential',
-              code: result.error?.code || 'INVALID_CREDENTIAL'
+          if (!db) {
+            // Database not available - reject credential validation requests
+            console.error('Database not available for runtime credential validation');
+            return res.status(503).json({
+              error: 'Database unavailable for credential validation',
+              code: 'DATABASE_UNAVAILABLE'
             });
           }
-          // Fall through to bootstrap mode only if no database available
-          // This should not happen in production, but allows graceful handling during startup
+
+          const result = validateRuntimeCredential(db, token);
+
+          if (result.valid && result.principal) {
+            // Runtime credential validated successfully
+            // Runtime ID comes from the credential, NOT from caller choice
+            // Runtime credentials are NOT founder - they operate with runtime privileges only
+            const authContext = {
+              owner_type: 'founder',
+              owner_id: result.principal.runtimeId,  // claude or hermes - NOT 'founder'
+              runtime: result.principal.runtimeId,
+              session_id: randomUUID(),
+              permissions: [],
+              expires_at: Infinity,
+              issued_at: Date.now(),
+              founder_signed: false,  // Runtime credentials are not founder-signed
+              client_ip: clientIp
+            } as AuthContext;
+            (req as any).authContext = authContext;
+            (req as any).auth = authContext;
+            return next();
+          }
+          // Invalid runtime credential - reject (no fallback)
+          return res.status(401).json({
+            error: result.error?.message || 'Invalid runtime credential',
+            code: result.error?.code || 'INVALID_CREDENTIAL'
+          });
         } catch (e) {
-          // Database not available or other error - fall through to bootstrap mode
-          // This allows local mode to work during database initialization
+          // Module load error - log and reject
+          console.error('Failed to load credential validation module:', e);
+          return res.status(500).json({
+            error: 'Authentication module unavailable',
+            code: 'AUTH_MODULE_ERROR'
+          });
         }
       }
     }
 
     // Auto-authenticate as Founder for loopback requests in local mode (bootstrap)
-    // USE 'claude' as default bootstrap runtime - this is the primary development runtime
-    // Note: This is ONLY for bootstrap/initialization when no valid token is provided
+    // Allow runtime to be specified in request body for proper identity
+    const body = (req as any).body || {};
+    const runtime = body.runtime || 'claude';
+
+    if (!['claude', 'hermes'].includes(runtime)) {
+      return res.status(400).json({
+        error: 'Invalid runtime for bootstrap session',
+        code: 'INVALID_RUNTIME',
+        allowed_values: ['claude', 'hermes']
+      });
+    }
+
     const authContext = {
       owner_type: 'founder' as const,
       owner_id: 'founder',
-      runtime: 'claude' as const,
+      runtime: runtime as 'claude' | 'hermes',
       session_id: 'local-founder',  // ALWAYS local-founder for bootstrap
       permissions: [] as string[],
       expires_at: Infinity,

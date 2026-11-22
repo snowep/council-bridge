@@ -8,6 +8,7 @@ export * from './config.js';
 export * from './session.js';
 export * from './founder.js';
 export * from './middleware.js';
+export * from './runtime-credentials.js';
 
 export interface AuthContext {
   owner_type: 'founder' | 'staff' | 'division' | 'seat';

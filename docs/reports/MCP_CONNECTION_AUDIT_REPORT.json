@@ -1,0 +1,479 @@
+{
+  "audit_title": "MCP Connection Path Audit Report",
+  "audit_date": "2026-11-22",
+  "auditor": "MCP Builder",
+  "files_investigated": [
+    "src/server.ts",
+    "src/api/middleware/authentication.ts",
+    "src/api/middleware/index.ts",
+    "src/auth/founder.ts",
+    "src/auth/session.ts",
+    "src/auth/runtime-credentials.ts",
+    "src/api/routes/runtime.routes.ts",
+    "src/runtime/lifecycle.ts",
+    "src/runtime/runtime-ownership.middleware.ts",
+    "src/runtime/runtime-execution-guard.ts",
+    "src/runtime/runtime-types.ts",
+    "src/infrastructure/database/database.ts",
+    "src/database.ts",
+    "src/auth/index.ts",
+    "src/auth/config.ts",
+    "src/mcp/tools.ts",
+    "migrations/019_create_runtime_credentials.sql",
+    "migrations/020_create_runtime_control_table.sql",
+    "tests/unit/runtime-authentication.test.ts"
+  ],
+  "connection_flow": {
+    "description": "Trace from MCP client connection to tool execution",
+    "steps": [
+      {
+        "step": 1,
+        "component": "MCP Client (Claude/Hermes)",
+        "action": "Sends HTTP POST to /mcp with Authorization Bearer token (runtime credential)",
+        "details": "The runtime credential is a secret that cryptographically identifies the client as either 'claude' or 'hermes'"
+      },
+      {
+        "step": 2,
+        "component": "server.ts (/mcp endpoint)",
+        "action": "OPTIONS preflight allowed, then authMiddleware applied",
+        "details": "Lines 464-539: The endpoint first allows OPTIONS, then applies authMiddleware before any other processing"
+      },
+      {
+        "step": 3,
+        "component": "authMiddleware (authentication.ts)",
+        "action": "Extracts Authorization header and validates token",
+        "details": "In local-single-user mode, validates runtime credentials via validateRuntimeCredential(). In other modes, validates session tokens. If valid token in local mode, creates AuthContext with runtime from credential."
+      },
+      {
+        "step": 4,
+        "component": "server.ts (runtime ownership check)",
+        "action": "createRuntimeOwnershipGuard checks active runtime session",
+        "details": "Lines 488-496: Verifies the authenticated session owns the active runtime connection. In bootstrap mode (local-founder), this check is bypassed."
+      },
+      {
+        "step": 5,
+        "component": "createRuntimeExecutionGuard",
+        "action": "acquireExecutionPermit with atomic transaction",
+        "details": "Lines 502-511: Acquires an execution permit via BEGIN IMMEDIATE transaction. Verifies session exists, matches active runtime, lease is valid. Inserts execution record."
+      },
+      {
+        "step": 6,
+        "component": "server.ts (MCP transport)",
+        "action": "Creates McpServer and handles request via StreamableHTTPServerTransport",
+        "details": "Lines 516-524: Creates new McpServer per request, registers tools with authContext callback, handles the request. Tools receive authContext that includes the runtime from credential validation."
+      },
+      {
+        "step": 7,
+        "component": "registerMcpTools / createToolHandler",
+        "action": "Tool execution with validated context",
+        "details": "mcp/tools.ts: createToolHandler validates ctx exists and calls requireAuthenticated. Tools check ctx.owner_type, ctx.runtime for authorization. Runtime is set from credential, not chosen by caller."
+      }
+    ]
+  },
+  "authentication_mechanism": {
+    "description": "How identities are determined for MCP connections",
+    "credential_based_auth": {
+      "enabled": true,
+      "description": "LOOP 1: Independent Claude/Hermes authentication via credentials",
+      "when_used": "When runtime credentials exist in database",
+      "how_it_works": [
+        "generateRuntimeCredential() creates 256-bit secret with prefix 'council_{runtime}_{base64url}'",
+        "validateRuntimeCredential() hashes token and looks up in runtime_credentials table",
+        "Runtime ID comes from credential record, NOT from caller choice (see line 149 in runtime-credentials.ts)",
+        "Credential must have status='active', not expired, not revoked"
+      ],
+      "identity_in_auth_context": "owner_type='founder', owner_id='founder', runtime=<from_credential>, session_id=<randomUUID>"
+    },
+    "bootstrap_local_mode": {
+      "enabled": true,
+      "when_enabled": "LOCAL_SINGLE_USER_MODE=true (dev only)",
+      "how_it_works": [
+        "Auto-authenticates as Founder with runtime='claude' hardcoded (line 108 in authentication.ts)",
+        "session_id='local-founder' hardcoded",
+        "Only accepts loopback connections (127.0.0.1, ::1, localhost)",
+        "No founder signature required",
+        "Falls through to database credential validation if token provided"
+      ],
+      "risk": "Bootstrap uses hardcoded 'claude' runtime regardless of which agent connects"
+    },
+    "session_token_auth": {
+      "enabled": true,
+      "when_used": "Development mode with allow_hardcoded_fallback, or production",
+      "how_it_works": [
+        "POST /api/auth/session creates signed session token",
+        "Token format: {session_id}|{timestamp}|{random}|{signature}",
+        "Token validated via HMAC-SHA256 with SESSION_SECRET",
+        "Session stored in memory Map, can be extended to database"
+      ]
+    },
+    "hardcoded_fallback": {
+      "enabled_in": "Development mode only when allow_hardcoded_fallback=true",
+      "behavior": "Auto-auth as founder with runtime='claude', permissions=['*'], no founder_signature",
+      "production_behavior": "REJECTED - server fails to start with error if allow_hardcoded_fallback in production"
+    },
+    "founder_signature_auth": {
+      "description": "RSA-2048 signed requests for privileged operations",
+      "when_used": "In production mode for session creation and privileged operations",
+      "how_it_works": [
+        "Request body signed with private key",
+        "Verified with public key, nonce checked for replay protection",
+        "Nonce stored in SQLite founder_nonces table",
+        "Valid signature creates AuthContext with founder_signed=true"
+      ]
+    }
+  },
+  "credential_handling": {
+    "claude_credentials": {
+      "storage": "runtime_credentials table with runtime_id='claude'",
+      "validation": "validateRuntimeCredential() returns runtimeId='claude' from database row",
+      "auth_context_runtime": "Always 'claude' when using claude credential (cannot be overridden)"
+    },
+    "hermes_credentials": {
+      "storage": "runtime_credentials table with runtime_id='hermes'",
+      "validation": "validateRuntimeCredential() returns runtimeId='hermes' from database row",
+      "auth_context_runtime": "Always 'hermes' when using hermes credential (cannot be overridden)"
+    },
+    "credential_provisioning": {
+      "requires_auth": "Founder authorization",
+      "function": "provisionRuntimeCredential(runtimeId, options)",
+      "returns": "credentialId, secret (display once), tokenHash, createdAt, expiresAt",
+      "storage": "insertRuntimeCredential() - stores hash only, never plaintext"
+    },
+    "credential_validation_flow": {
+      "steps": [
+        "1. Check token is string and not empty",
+        "2. Check token <= 2048 bytes (DoS prevention)",
+        "3. Check Bearer scheme (extract token after 'Bearer ')",
+        "4. Hash token with SHA-256",
+        "5. Lookup credential by token_hash (UNIQUE constraint)",
+        "6. Check status='active'",
+        "7. Check expires_at > now",
+        "8. Check revoked_at is NULL or expired",
+        "9. Update last_used_at",
+        "10. Return principal with runtimeId from database row"
+      ]
+    }
+  },
+  "runtime_ownership": {
+    "single_active_runtime": {
+      "enforcement": "SQLite partial unique index on runtime_sessions(connection_status) WHERE connection_status='connected'",
+      "table": "runtime_sessions",
+      "columns": {
+        "runtime": "PRIMARY KEY - claude or hermes",
+        "session_id": "UNIQUE constraint (migration 019)",
+        "connection_status": "'connected', 'disconnected', 'connecting', 'disconnecting', 'switching', 'error'",
+        "lease_expires_at": "Unix milliseconds - determines if session is valid",
+        "generation": "Added by migration 020 - monotonically increasing for this session lifecycle"
+      }
+    },
+    "runtime_control_table": {
+      "purpose": "Authoritative single-active-runtime enforcement with generation fencing",
+      "schema": {
+        "id": "INTEGER PRIMARY KEY CHECK (id = 1)",
+        "active_runtime": "TEXT CHECK (active_runtime IN ('claude', 'hermes', NULL))",
+        "active_session_id": "TEXT",
+        "generation": "INTEGER NOT NULL DEFAULT 0",
+        "updated_at": "Unix milliseconds"
+      },
+      "indexes": [
+        "idx_runtime_control_single ON runtime_control(id)",
+        "idx_runtime_control_active_runtime ON runtime_control(active_runtime) WHERE active_runtime IS NOT NULL",
+        "idx_runtime_control_active_session ON runtime_control(active_session_id)"
+      ]
+    },
+    "state_query": {
+      "function": "getState() in RuntimeLifecycleManager",
+      "queries": [
+        "getActiveRuntimeSession() - SELECT * FROM runtime_sessions WHERE connection_status='connected' AND lease valid",
+        "getConnectedRuntimeSession() - ORDER BY updated_at DESC LIMIT 1"
+      ]
+    },
+    "connect_logic": {
+      "description": "connect() requires no other active runtime, or same runtime + session",
+      "conflict_behavior": "Returns error 'Runtime already active: {runtime} owns the connection. Disconnect or switch first.'",
+      "switch_behavior": "DELETE from runtime_sessions WHERE runtime = {previous}, then upsert new session"
+    }
+  },
+  "execution_guard": {
+    "purpose": "Protect against TOCTOU (time-of-check/time-of-use) race conditions",
+    "key_functions": [
+      "acquireExecutionPermit() - Atomic transaction for ownership verification",
+      "executeWithGuard() - Wraps tool execution with permit acquisition/release",
+      "releaseExecutionPermit() - Marks execution record as completed",
+      "startHeartbeatRenewal() - Renews lease during long-running executions"
+    ],
+    "permit_flow": [
+      "1. BEGIN IMMEDIATE transaction (atomic)",
+      "2. Check for bootstrap/local-founder session (bypasses runtime session checks)",
+      "3. Clear expired connected sessions (prevents UNIQUE constraint)",
+      "4. Get session row by session_id",
+      "5. For non-bootstrap: verify active session matches, runtime matches, lease valid",
+      "6. Check for active execution record for this session (prevent concurrent)",
+      "7. Clean up expired execution records",
+      "8. Insert execution record (bound to session)",
+      "9. COMMIT transaction",
+      "10. Start heartbeat renewal (non-bootstrap only)"
+    ],
+    "execution_record_table": {
+      "columns": [
+        "id TEXT PRIMARY KEY",
+        "session_id TEXT NOT NULL (FK to runtime_sessions)",
+        "runtime_id TEXT NOT NULL (FK to runtime_sessions)",
+        "started_at INTEGER NOT NULL (Unix ms)",
+        "expires_at INTEGER NOT NULL (Unix ms, 30s timeout)",
+        "completed INTEGER DEFAULT 0",
+        "generation INTEGER DEFAULT 1"
+      ],
+      "indexes": [
+        "idx_execution_records_session (session_id, completed=0)",
+        "idx_execution_records_expires (expires_at, completed=0)",
+        "idx_execution_records_runtime (runtime_id, completed=0)",
+        "idx_single_active_execution_per_session (session_id, completed=0) UNIQUE",
+        "idx_execution_records_generation"
+      ]
+    },
+    "heartbeat_renewal": {
+      "interval": "Every 5 minutes (HEARTBEAT_RENEWAL_INTERVAL_MS = 300 * 1000)",
+      "purpose": "Keep session lease alive during long-running tool executions",
+      "stopped_on": "Tool completion or error"
+    }
+  },
+  "database_schema": {
+    "runtime_credentials_table": {
+      "columns": [
+        "credential_id TEXT PRIMARY KEY",
+        "runtime_id TEXT NOT NULL CHECK (runtime_id IN ('claude', 'hermes'))",
+        "token_hash TEXT NOT NULL UNIQUE (SHA-256 hash)",
+        "status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'revoked', 'expired'))",
+        "created_at INTEGER NOT NULL (Unix ms)",
+        "expires_at INTEGER NOT NULL (Unix ms)",
+        "last_used_at INTEGER (Unix ms, NULL if never used)",
+        "revoked_at INTEGER (Unix ms, NULL if not revoked)"
+      ],
+      "indexes": [
+        "idx_runtime_credentials_runtime ON runtime_credentials(runtime_id, status) WHERE status = 'active'",
+        "idx_runtime_credentials_expires ON runtime_credentials(expires_at)",
+        "idx_runtime_credentials_revoked ON runtime_credentials(revoked_at) WHERE revoked_at IS NOT NULL"
+      ]
+    },
+    "runtime_sessions_table": {
+      "columns": [
+        "runtime TEXT PRIMARY KEY",
+        "session_id TEXT NOT NULL UNIQUE (migration 019)",
+        "connection_status TEXT NOT NULL",
+        "connected_at TEXT",
+        "last_heartbeat_at TEXT",
+        "lease_expires_at TEXT",
+        "client_ip TEXT",
+        "user_agent TEXT",
+        "last_error TEXT",
+        "generation INTEGER DEFAULT 0 (migration 020)",
+        "created_at TEXT NOT NULL DEFAULT (datetime('now'))",
+        "updated_at TEXT NOT NULL DEFAULT (datetime('now'))"
+      ],
+      "constraints": [
+        "UNIQUE(session_id) - ensures session ownership queries work",
+        "idx_single_active_runtime - partial unique on connection_status='connected'"
+      ]
+    },
+    "execution_records_table": {
+      "columns": [
+        "id TEXT PRIMARY KEY",
+        "session_id TEXT NOT NULL (FK)",
+        "runtime_id TEXT NOT NULL (FK)",
+        "started_at INTEGER NOT NULL",
+        "expires_at INTEGER NOT NULL",
+        "completed INTEGER DEFAULT 0",
+        "generation INTEGER DEFAULT 1",
+        "created_at TEXT NOT NULL DEFAULT (datetime('now'))",
+        "updated_at TEXT NOT NULL DEFAULT (datetime('now'))"
+      ],
+      "constraints": [
+        "idx_single_active_execution_per_session - UNIQUE(session_id) WHERE completed=0"
+      ]
+    }
+  },
+  "identified_issues": [
+    {
+      "id": "ISSUE-1",
+      "title": "Bootstrap session identity is hardcoded to 'claude' regardless of connecting agent",
+      "severity": "HIGH",
+      "location": "src/api/middleware/authentication.ts:102-118",
+      "description": "In local-single-user mode, when no valid runtime credential is provided, the authMiddleware creates an AuthContext with runtime='claude' hardcoded. This means if a Hermes client connects via bootstrap, it will be identified as Claude.",
+      "code_snippet": "const authContext = {\n  owner_type: 'founder' as const,\n  owner_id: 'founder',\n  runtime: 'claude' as const,  // HARDCODED - ignores actual client\n  session_id: 'local-founder',\n  ...\n};",
+      "impact": "A Hermes client connecting via local bootstrap would be incorrectly identified as Claude. This could lead to wrong runtime identity being used for operations. The execution guard may allow tools to execute under wrong runtime context.",
+      "affected_code_path": [
+        "authentication.ts lines 46-119 (local mode handling)",
+        "runtime-execution-guard.ts lines 70-109 (bootstrap session handling)"
+      ]
+    },
+    {
+      "id": "ISSUE-2",
+      "title": "Execution guard skips runtime identity verification for bootstrap sessions",
+      "severity": "HIGH",
+      "location": "src/runtime/runtime-execution-guard.ts:67-109",
+      "description": "In acquireExecutionPermit(), for bootstrap sessions (isBootstrapSession=true), the code does NOT verify that the authenticated runtime matches the active session's runtime. It only checks if session_id matches.",
+      "code_snippet": "// Lines 67-70: Bootstrap detected\nconst isBootstrapSession = requestSessionId === 'local-founder' && isLocalMode;\n\nif (isBootstrapSession) {\n  // Lines 72-108: Bootstrap handling - does NOT verify runtime matches active session\n  // ... creates session row ...\n}",
+      "impact": "If the active runtime is 'hermes' but bootstrap is used, the execution guard will allow tools to execute. The runtime from bootstrap (hardcoded 'claude') may not match the active session's runtime.",
+      "trace": "server.ts line 502 creates guard -> runtime-execution-guard.ts line 50-221 -> isBootstrapSession skips lines 121-171 that verify runtime matches"
+    },
+    {
+      "id": "ISSUE-3",
+      "title": "ESM import path may fail silently during database operations",
+      "severity": "MEDIUM",
+      "location": "src/api/middleware/authentication.ts:62-65",
+      "description": "Uses require() for runtime credentials and database imports at runtime rather than top-level imports. If the module fails to load, the error is caught and silently falls through to bootstrap mode.",
+      "code_snippet": "try {\n  const { validateRuntimeCredential } = require('../../auth/runtime-credentials.js');\n  const db = require('../../infrastructure/database/database.js').databaseInstance;\n  if (db) {\n    // ...\n  }\n  // Fall through to bootstrap mode only if no database available\n} catch (e) {\n  // Database not available or other error - fall through to bootstrap mode\n}",
+      "impact": "A module load failure could cause the system to fall back to bootstrap authentication unexpectedly, potentially bypassing credential validation. The catch block at line 95-98 catches all errors without logging, making debugging difficult."
+    },
+    {
+      "id": "ISSUE-4",
+      "title": "Local-mode auto-authentication overrides credentials when DATABASE not available",
+      "severity": "MEDIUM",
+      "location": "src/api/middleware/authentication.ts:93-99",
+      "description": "When the database is not available (e.g., during startup or if databaseInstance is null), the code falls through to bootstrap mode even if a valid token was provided.",
+      "code_snippet": "if (db) {\n  // Validate token\n  // ...\n}\n// Fall through to bootstrap mode only if no database available",
+      "impact": "During database downtime or initialization, valid runtime credentials would be silently ignored and the request would be auto-authenticated as bootstrap-founder with hardcoded 'claude' runtime.",
+      "affected_path": "authentication.ts lines 65-119"
+    },
+    {
+      "id": "ISSUE-5",
+      "title": "MCP endpoint does not validate runtime ownership before creating execution guard",
+      "severity": "MEDIUM",
+      "location": "src/server.ts:501-511",
+      "description": "The server.ts /mcp endpoint checks runtime ownership (line 489) but then creates a fresh execution guard that re-checks ownership. If ownership check passes, the execution guard creates a new permit. There's potential for race condition between the two checks.",
+      "code_snippet": "// Pre-execution check (line 479-496)\nconst checkOwnership = createRuntimeOwnershipGuard(db);\nconst ownershipResult = checkOwnership(authContext);\n\n// Separate execution guard creation (line 502)\nconst executionGuard = createRuntimeExecutionGuard(db);\nconst permitResult = await executionGuard.acquireExecutionPermit(authContext);",
+      "impact": "The two-phase check could theoretically allow a race condition. If the active session changes between the ownership check and permit acquisition, the system may behave unexpectedly. However, the execution guard uses BEGIN IMMEDIATE so this is partially mitigated."
+    },
+    {
+      "id": "ISSUE-6",
+      "title": "Session ID 'local-founder' is a magic string used in multiple places",
+      "severity": "LOW",
+      "location": "Multiple files: authentication.ts:109, runtime-execution-guard.ts:70, runtime-ownership.middleware.ts:52",
+      "description": "The string 'local-founder' is hardcoded in three different locations to identify bootstrap sessions. Changes in one place could cause inconsistencies.",
+      "affected_locations": [
+        "authentication.ts:109 - session_id: 'local-founder'",
+        "runtime-execution-guard.ts:70 - isBootstrapSession check",
+        "runtime-ownership.middleware.ts:52 - isBootstrapSession check"
+      ]
+    },
+    {
+      "id": "ISSUE-7",
+      "title": "Bootstrap session creation may fail UNIQUE constraint if same session_id already connected",
+      "severity": "LOW",
+      "location": "src/runtime/runtime-execution-guard.ts:77-108",
+      "description": "The bootstrap logic at line 77 clears expired sessions, and line 85-88 disconnects existing active session, but line 95-108 then attempts to upsert. If the same session_id='local-founder' is trying to connect while another is already connected, there could be a race.",
+      "mitigation": "SQLite's upsert with ON CONFLICT handles this, but the logic is complex and relies on correct ordering of operations within the transaction."
+    }
+  ],
+  "recommendations": [
+    {
+      "issue_id": "ISSUE-1",
+      "priority": "HIGH",
+      "title": "Fix bootstrap session runtime to accept client-provided runtime",
+      "recommendation": "In local-single-user mode, when no valid credential token is provided, accept a runtime parameter from the request body or header instead of hardcoding 'claude'. Modify authentication.ts to extract runtime from request body.",
+      "code_change": "authentication.ts:102-118 - accept runtime from request body when falling back to bootstrap",
+      "implementation": [
+        "1. Accept optional 'runtime' field in request body for bootstrap mode",
+        "2. Validate runtime is 'claude' or 'hermes'",
+        "3. Use provided runtime in AuthContext instead of hardcoded 'claude'",
+        "4. Update tests to verify Hermes can bootstrap"
+      ]
+    },
+    {
+      "issue_id": "ISSUE-2",
+      "priority": "HIGH",
+      "title": "Verify runtime identity in bootstrap session acquisition",
+      "recommendation": "Add runtime verification to bootstrap session handling in runtime-execution-guard.ts. Even for bootstrap, ensure the runtime matches what was authenticated.",
+      "code_change": "runtime-execution-guard.ts:72-109 - add runtime check for bootstrap sessions",
+      "implementation": [
+        "1. Extract runtime from authContext for bootstrap",
+        "2. Before upserting, check if active session runtime matches",
+        "3. If mismatch, disconnect old session and create new (or reject based on config)",
+        "4. Or: Require runtime credential even in local mode for bootstrap"
+      ]
+    },
+    {
+      "issue_id": "ISSUE-3",
+      "priority": "MEDIUM",
+      "title": "Add logging and error handling for dynamic imports",
+      "recommendation": "Replace silent catch blocks with proper error logging. The current code silently falls through to bootstrap on any error, which could mask real problems.",
+      "code_change": "authentication.ts:95-98 - add error logging",
+      "implementation": [
+        "1. Add console.error or logger.error in catch block",
+        "2. Include error message in the log",
+        "3. Consider returning 500 error if credential validation fails due to system error",
+        "4. Add context about what operation was attempted"
+      ]
+    },
+    {
+      "issue_id": "ISSUE-4",
+      "priority": "MEDIUM",
+      "title": "Reject requests with invalid credentials during database unavailability",
+      "recommendation": "During database downtime, reject requests with invalid credentials rather than falling back to bootstrap. Bootstrap should only be a fallback for requests without credentials.",
+      "code_change": "authentication.ts:57-100 - separate credential validation path from bootstrap fallback",
+      "implementation": [
+        "1. If token is provided but database unavailable, return 503 or 401",
+        "2. Only use bootstrap for requests with no Authorization header",
+        "3. Add health check endpoint to detect database availability"
+      ]
+    },
+    {
+      "issue_id": "ISSUE-5",
+      "priority": "LOW",
+      "title": "Consolidate ownership checking into single atomic operation",
+      "recommendation": "Consider removing the pre-check in server.ts and rely solely on execution guard's atomic transaction. This simplifies the flow and eliminates potential race windows.",
+      "code_change": "server.ts:478-539 - remove redundant ownership check, rely on execution guard",
+      "implementation": [
+        "1. Remove createRuntimeOwnershipGuard check from server.ts /mcp endpoint",
+        "2. Move all ownership logic into acquireExecutionPermit()",
+        "3. Return appropriate error codes from permit acquisition",
+        "4. Simplify server.ts to just call execution guard"
+      ]
+    },
+    {
+      "issue_id": "ISSUE-6",
+      "priority": "LOW",
+      "title": "Define constant for bootstrap session ID",
+      "recommendation": "Create a shared constant for 'local-founder' session_id to prevent typos and ease maintenance.",
+      "code_change": "runtime-types.ts or auth/index.ts - add BOOTSTRAP_SESSION_ID constant",
+      "implementation": [
+        "1. Define BOOTSTRAP_SESSION_ID = 'local-founder' in runtime-types.ts or auth/index.ts",
+        "2. Update all three locations to use the constant",
+        "3. Export for use in other modules if needed"
+      ]
+    }
+  ],
+  "summary": {
+    "total_issues_found": 7,
+    "severity_breakdown": {
+      "high": 2,
+      "medium": 3,
+      "low": 2
+    },
+    "critical_concerns": [
+      "Bootstrap session in local mode hardcodes runtime='claude' regardless of connecting client identity",
+      "Execution guard skips runtime identity verification for bootstrap sessions",
+      "Credential validation falls through to bootstrap on any error, including when valid token is provided but database unavailable"
+    ],
+    "security_positive_findings": [
+      "Credential-based auth correctly determines runtime from stored credential, not from caller",
+      "TOCTOU protection via BEGIN IMMEDIATE transactions in execution guard",
+      "30-second execution permit timeout prevents stale executions",
+      "5-minute heartbeat renewal interval for session management",
+      "UNIQUE constraint on runtime_sessions(session_id) prevents session hijacking",
+      "Partial unique index on connection_status='connected' enforces single active runtime"
+    ],
+    "test_coverage": {
+      "runtime_credentials_tests": "Comprehensive tests in tests/unit/runtime-authentication.test.ts covering:",
+      "test_coverage_details": [
+        "Credential generation for both claude and hermes",
+        "Token validation with various error conditions (missing, invalid, expired, revoked, oversized)",
+        "Credential provisioning and storage",
+        "Revocation flow",
+        "Active credential checking",
+        "Tests verify that claude credential identifies as claude, hermes as hermes (identity cannot be spoofed)"
+      ]
+    }
+  }
+}

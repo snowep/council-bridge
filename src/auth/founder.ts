@@ -445,6 +445,8 @@ export function startNonceCleanupInterval(): void {
       // This is expected during test cleanup when E2E databases are destroyed
     }
   }, 5 * 60 * 1000);
+  // Allow the interval to not keep the process alive (test-friendly)
+  cleanupInterval.unref?.();
 }
 
 export function stopNonceCleanupInterval(): void {

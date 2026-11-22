@@ -175,8 +175,8 @@ describe('Runtime Concurrency Integration Tests', () => {
     const claudeResult = lifecycle.connect({ runtime: 'claude', sessionId: 'session-a' });
     assert.ok(claudeResult.success, 'Initial Claude activation should succeed');
 
-    // Switch to Hermes - use same session ID to allow ownership transfer
-    const hermesSwitch = lifecycle.switch({ newRuntime: 'hermes', sessionId: 'session-a' });
+    // Switch to Hermes - each switch generates a new session ID to preserve history
+    const hermesSwitch = lifecycle.switch({ newRuntime: 'hermes' });
     assert.ok(hermesSwitch.success, `Switch to Hermes should succeed: ${hermesSwitch.error}`);
 
     // Verify Hermes is now active
@@ -187,7 +187,7 @@ describe('Runtime Concurrency Integration Tests', () => {
     assert.strictEqual(connectedCount, 1, 'Exactly one connected session should exist');
 
     // Switch back to Claude
-    const claudeSwitch = lifecycle.switch({ newRuntime: 'claude', sessionId: 'session-a' });
+    const claudeSwitch = lifecycle.switch({ newRuntime: 'claude' });
     assert.ok(claudeSwitch.success, 'Switch back to Claude should succeed');
 
     const state2 = lifecycle.getState();
@@ -270,13 +270,22 @@ describe('Runtime Concurrency Integration Tests', () => {
     assert.strictEqual(state2.activeRuntime, 'claude', 'Claude should still be active');
     assert.strictEqual(state2.sessionId, 'claude-session', 'Session should still be claude-session');
 
-    // Now try to switch with the CORRECT session ID - should succeed
-    const switchResult2 = lifecycle.switch({ newRuntime: 'hermes', sessionId: 'claude-session' });
+    // Now switch with the CORRECT session ID - generates new session ID automatically
+    const switchResult2 = lifecycle.switch({ newRuntime: 'hermes' });
     assert.ok(switchResult2.success, `Switch should succeed: ${switchResult2.error}`);
 
-    // Verify Hermes is now active
+    // Verify Hermes is now active with NEW session ID
     const state3 = lifecycle.getState();
     assert.strictEqual(state3.activeRuntime, 'hermes', 'Hermes should now be active');
+    assert.ok(state3.sessionId !== 'claude-session', 'New session ID should be generated');
+
+    const connectedCount = countConnectedSessions(db);
+    assert.strictEqual(connectedCount, 1, 'Exactly one connected session should exist');
+
+    // Verify the old Claude session is preserved as disconnected
+    const claudeSession = db.stmt.getRuntimeSessionBySession.get('claude-session') as any;
+    assert.ok(claudeSession, 'Old Claude session should still exist');
+    assert.strictEqual(claudeSession.connection_status, 'disconnected', 'Old session should be disconnected');
 
     report.passed = true;
     printReport(report);

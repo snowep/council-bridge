@@ -93,18 +93,19 @@ export function createRuntimeExecutionGuard(db: DatabaseInstance) {
         const sessionNow = String(now);
         const leaseExpires = String(now + 10 * 60 * 1000); // 10 minutes lease
         db.stmt.upsertRuntimeSession.run(
-          requestRuntime,           // runtime (PK)
-          requestSessionId,         // session_id
-          'connected',              // connection_status
-          sessionNow,               // connected_at
-          sessionNow,               // last_heartbeat_at
-          leaseExpires,             // lease_expires_at
-          null,                     // client_ip
-          null,                     // user_agent
-          null,                     // last_error
-          sessionNow,               // created_at
-          sessionNow                // updated_at
-        );
+                  requestRuntime,           // runtime (PK)
+                  requestSessionId,         // session_id
+                  'connected',              // connection_status
+                  sessionNow,               // connected_at
+                  sessionNow,               // last_heartbeat_at
+                  leaseExpires,             // lease_expires_at
+                  null,                     // client_ip
+                  null,                     // user_agent
+                  null,                     // last_error
+                  '1',                      // generation (initial value)
+                  sessionNow,               // created_at
+                  sessionNow                // updated_at
+                );
       }
 
       // 2. Resolve authenticated runtime session (skip for bootstrap)
@@ -246,6 +247,9 @@ export function createRuntimeExecutionGuard(db: DatabaseInstance) {
         clearInterval(interval);
       }
     }, HEARTBEAT_RENEWAL_INTERVAL_MS);
+
+    // Allow the interval to not keep the process alive (test-friendly)
+    interval.unref?.();
 
     return {
       interval,

@@ -1,7 +1,7 @@
 // Runtime Execution Guard Unit Tests
 // Phase 10: Verify TOCTOU protection at MCP tool execution boundary
 
-import { describe, it, afterEach, beforeEach, before } from 'node:test';
+import { describe, it, afterEach, beforeEach, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createDatabase } from '../../src/database.js';
 import { RuntimeLifecycleManager, resetRuntimeLifecycleManager } from '../../src/runtime/lifecycle.js';
@@ -374,17 +374,46 @@ describe('Runtime Execution Guard - Unit Tests', () => {
   });
 
   describe('Database failure causes fail-closed', () => {
-    it('should fail closed when database transaction fails', async () => {
+    it('should fail closed when database connection is unavailable', async () => {
       const sessionId = await setupActiveSession('claude');
       const authContext = createAuthContext({ session_id: sessionId });
 
-      // Close the database to simulate failure
+      // Test that closed database returns DATABASE_ERROR
+      // First acquire a permit (this starts heartbeat)
+      const permit = await guard.acquireExecutionPermit(authContext);
+      assert.strictEqual(permit.success, true);
+
+      // Stop the heartbeat before closing
+      if (permit.context?.heartbeatInterval) {
+        clearInterval(permit.context.heartbeatInterval);
+      }
+
+      // Close the database - subsequent calls should fail
       db.close();
 
+      // This should fail with DATABASE_ERROR because db is closed
       const result = await guard.acquireExecutionPermit(authContext);
 
       assert.strictEqual(result.success, false);
       assert.strictEqual(result.error?.code, 'DATABASE_ERROR');
+    });
+
+    it('should clean up heartbeat timers after permit release', async () => {
+      const sessionId = await setupActiveSession('claude');
+      const authContext = createAuthContext({ session_id: sessionId });
+
+      const permit = await guard.acquireExecutionPermit(authContext);
+      assert.strictEqual(permit.success, true);
+
+      // Release should stop the heartbeat timer
+      await guard.releaseExecutionPermit(permit.context!.executionId);
+
+      // Give any pending timers a chance to run
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      // Verify no active executions remain (permit was released)
+      const activeExec = db.stmt.getActiveExecutionRecord.get(Date.now() - 1000);
+      assert.strictEqual(activeExec, undefined);
     });
   });
 });
