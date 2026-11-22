@@ -11,7 +11,7 @@ export * from './middleware.js';
 export * from './runtime-credentials.js';
 
 export interface AuthContext {
-  owner_type: 'founder' | 'staff' | 'division' | 'seat';
+  owner_type: 'founder' | 'staff' | 'division' | 'seat' | 'runtime';
   owner_id: string;
   runtime: 'claude' | 'hermes';
   session_id: string;

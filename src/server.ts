@@ -91,7 +91,7 @@ import activityRoutes from './api/routes/activity.routes.js';
 import hermesBridgeRoutes from './api/routes/hermes-bridge.routes.js';
 
 // Import middleware
-import { authMiddleware, getAuthContext } from './api/middleware/authentication.js';
+import { authMiddleware, getAuthContext, mcpRuntimeAuthMiddleware } from './api/middleware/authentication.js';
 import { errorHandler } from './api/middleware/error-handler.js';
 
 // Initialize crypto module for operations
@@ -461,11 +461,11 @@ app.use('/api/runtime', runtimeRoutes);
 
 // MCP endpoint - create new server+transport per request for stateless operation
 // NOTE: OPTIONS preflight must be handled BEFORE auth middleware
-app.options('/mcp', (req, res) => {
+app.options('/mcp', mcpRuntimeAuthMiddleware, (req, res) => {
   res.status(200).json({ success: true });
 });
 
-app.all('/mcp', authMiddleware, async (req, res) => {
+app.all('/mcp', mcpRuntimeAuthMiddleware, async (req, res) => {
   // Add text/event-stream to Accept header for Claude Code compatibility
   // The MCP SDK's handleGetRequest requires this for SSE streaming
   const acceptHeader = req.headers.accept || '';

@@ -5,7 +5,7 @@ import { describe, it, before, after, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import express from 'express';
 import request from 'supertest';
-import { createDatabase, DatabaseInstance, closeDatabase } from '../../src/database.js';
+import { createDatabase, DatabaseInstance, closeDatabase, setDatabaseInstance } from '../../src/database.js';
 import { generateSessionToken } from '../../src/auth/session.js';
 import { initializeFounderKeys } from '../../src/auth/founder.js';
 import { authMiddleware, getAuthContext } from '../../src/auth/index.js';
@@ -471,3 +471,200 @@ function parseSSEResponse(text: string): any {
   }
   return null;
 }
+
+// Phase 1 Problem D: MCP Runtime Credential Authentication Tests
+describe('MCP Runtime Authentication - Phase 1 Problem D', () => {
+  let db: DatabaseInstance;
+  let testApp: express.Express;
+  let server: any;
+
+  beforeEach(async () => {
+    // Reset environment for each test
+    delete process.env.LOCAL_SINGLE_USER_MODE;
+    delete process.env.LOCAL_SINGLE_USER_BIND_ADDRESS;
+    process.env.AUTH_MODE = 'development';
+    process.env.SESSION_SECRET = 'test-secret-32-characters-minimum-length';
+
+    db = createDatabase(':memory:');
+    setDatabaseInstance(db);
+
+    // Register test agents
+    const agentService = (await import('../../src/communication/agents.js')).createAgentService(db);
+    agentService.registerAgent({ agent_id: 'staff-001', display_name: 'Staff Agent', runtime: 'claude' });
+    agentService.registerAgent({ agent_id: 'founder', display_name: 'Founder', runtime: 'claude' });
+
+    // Import credential utilities
+    const { generateRuntimeCredential, hashCredential, insertRuntimeCredential } = await import('../../src/auth/runtime-credentials.js');
+
+    // Generate and store a valid claude credential
+    const claudeCred = generateRuntimeCredential('claude');
+    insertRuntimeCredential(db, {
+      credentialId: 'test-cred-claude',
+      runtimeId: 'claude',
+      tokenHash: hashCredential(claudeCred.secret),
+      createdAt: claudeCred.createdAt,
+      expiresAt: claudeCred.expiresAt
+    });
+
+    // Generate and store a valid hermes credential
+    const hermesCred = generateRuntimeCredential('hermes');
+    insertRuntimeCredential(db, {
+      credentialId: 'test-cred-hermes',
+      runtimeId: 'hermes',
+      tokenHash: hashCredential(hermesCred.secret),
+      createdAt: hermesCred.createdAt,
+      expiresAt: hermesCred.expiresAt
+    });
+
+    // Store credentials for use in tests
+    (global as any).testCredentials = { claude: claudeCred.secret, hermes: hermesCred.secret };
+
+    testApp = express();
+    testApp.use(express.json());
+
+    // MCP endpoint with mcpRuntimeAuthMiddleware (Phase 1 Problem D)
+    const { mcpRuntimeAuthMiddleware } = await import('../../src/api/middleware/authentication.js');
+    testApp.options('/mcp', mcpRuntimeAuthMiddleware, (req, res) => {
+      res.status(200).json({ success: true });
+    });
+
+    testApp.all('/mcp', mcpRuntimeAuthMiddleware, (req, res) => {
+      const authContext = getAuthContext(req);
+      res.json({ authenticated: !!authContext, authContext: authContext });
+    });
+
+    server = testApp.listen(0);
+  });
+
+  afterEach(() => {
+    server.close();
+    try {
+      closeDatabase();
+    } catch {}
+    delete process.env.LOCAL_SINGLE_USER_MODE;
+    delete process.env.LOCAL_SINGLE_USER_BIND_ADDRESS;
+  });
+
+  it('should reject MCP request without Authorization header', async () => {
+    const response = await request(server)
+      .post('/mcp')
+      .set('Accept', 'application/json, text/event-stream')
+      .send({ jsonrpc: '2.0', method: 'tools/list', params: {}, id: 1 })
+      .expect(401);
+
+    assert.strictEqual(response.body.code, 'AUTH_REQUIRED');
+    assert.ok(response.body.message?.includes('MCP runtime credential'));
+  });
+
+  it('should reject MCP request with invalid runtime credential', async () => {
+    const response = await request(server)
+      .post('/mcp')
+      .set('Authorization', 'Bearer invalid-credential')
+      .set('Accept', 'application/json, text/event-stream')
+      .send({ jsonrpc: '2.0', method: 'tools/list', params: {}, id: 1 })
+      .expect(401);
+
+    assert.strictEqual(response.body.code, 'TOKEN_INVALID');
+  });
+
+  it('should accept valid claude runtime credential', async () => {
+    const credentials = (global as any).testCredentials;
+    const response = await request(server)
+      .post('/mcp')
+      .set('Authorization', `Bearer ${credentials.claude}`)
+      .set('Accept', 'application/json, text/event-stream')
+      .send({ jsonrpc: '2.0', method: 'tools/list', params: {}, id: 1 })
+      .expect(200);
+
+    assert.strictEqual(response.body.authenticated, true);
+    assert.strictEqual(response.body.authContext.owner_type, 'runtime');
+    assert.strictEqual(response.body.authContext.runtime, 'claude');
+  });
+
+  it('should accept valid hermes runtime credential', async () => {
+    const credentials = (global as any).testCredentials;
+    const response = await request(server)
+      .post('/mcp')
+      .set('Authorization', `Bearer ${credentials.hermes}`)
+      .set('Accept', 'application/json, text/event-stream')
+      .send({ jsonrpc: '2.0', method: 'tools/list', params: {}, id: 1 })
+      .expect(200);
+
+    assert.strictEqual(response.body.authenticated, true);
+    assert.strictEqual(response.body.authContext.owner_type, 'runtime');
+    assert.strictEqual(response.body.authContext.runtime, 'hermes');
+  });
+
+  it('should NOT fall back to Founder auth in local mode for MCP', async () => {
+    // Enable local single-user mode
+    process.env.LOCAL_SINGLE_USER_MODE = 'true';
+    process.env.LOCAL_SINGLE_USER_BIND_ADDRESS = '127.0.0.1';
+
+    // Recreate server with local mode enabled
+    server.close();
+    const localTestApp = express();
+    localTestApp.use(express.json());
+
+    const { mcpRuntimeAuthMiddleware } = await import('../../src/api/middleware/authentication.js');
+    localTestApp.all('/mcp', mcpRuntimeAuthMiddleware, (req, res) => {
+      res.json({ authenticated: true });
+    });
+
+    server = localTestApp.listen(0);
+
+    // Request from localhost should still NOT auto-auth with Founder
+    // because mcpRuntimeAuthMiddleware does NOT fall back to Founder
+    const response = await request(server)
+      .post('/mcp')
+      .set('Accept', 'application/json, text/event-stream')
+      .send({ jsonrpc: '2.0', method: 'tools/list', params: {}, id: 1 })
+      .expect(401);
+
+    assert.strictEqual(response.body.code, 'AUTH_REQUIRED');
+    // MUST NOT fall back to Founder - Phase 1 Problem D requirement
+  });
+
+  it('should create session for runtime credential', async () => {
+    const credentials = (global as any).testCredentials;
+
+    // Make a request with a valid runtime credential
+    await request(server)
+      .post('/mcp')
+      .set('Authorization', `Bearer ${credentials.claude}`)
+      .set('Accept', 'application/json, text/event-stream')
+      .send({ jsonrpc: '2.0', method: 'tools/list', params: {}, id: 1 })
+      .expect(200);
+
+    // Verify a runtime session was created
+    const sessions = db.query('SELECT session_id, runtime, connection_status FROM runtime_sessions').all() as any[];
+    assert.ok(sessions.length > 0, 'Runtime session should be created');
+
+    const session = sessions.find((s: any) => s.runtime === 'claude');
+    assert.ok(session, 'Claude session should exist');
+    assert.strictEqual(session.connection_status, 'connected');
+  });
+
+  it('should reject empty Bearer token', async () => {
+    const response = await request(server)
+      .post('/mcp')
+      .set('Authorization', 'Bearer ')
+      .set('Accept', 'application/json, text/event-stream')
+      .send({ jsonrpc: '2.0', method: 'tools/list', params: {}, id: 1 })
+      .expect(401);
+
+    // Empty Bearer token is rejected at the scheme check (AUTH_REQUIRED) or empty check (TOKEN_EMPTY)
+    assert.ok(['AUTH_REQUIRED', 'TOKEN_EMPTY'].includes(response.body.code));
+  });
+
+  it('should reject non-Bearer scheme', async () => {
+    const response = await request(server)
+      .post('/mcp')
+      .set('Authorization', 'Basic dXNlcjpwYXNz')
+      .set('Accept', 'application/json, text/event-stream')
+      .send({ jsonrpc: '2.0', method: 'tools/list', params: {}, id: 1 })
+      .expect(401);
+
+    // mcpRuntimeAuthMiddleware rejects non-Bearer at the scheme check before validation
+    assert.strictEqual(response.body.code, 'AUTH_REQUIRED');
+  });
+});

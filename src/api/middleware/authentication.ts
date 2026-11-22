@@ -1,9 +1,20 @@
 // Authentication Middleware
 // Extracted from server.ts for modularization
 // Phase 10: Local single-user Founder mode with loopback restriction
+// Phase 1: Problem D - MCP runtime authentication requires validateRuntimeCredential
 
 import { Request, Response, NextFunction } from 'express';
 import { validateSessionToken, getAuthConfig, getLocalBindAddress as getLocalBindAddressFn, AuthContext } from '../../auth/index.js';
+import { validateRuntimeCredential } from '../../auth/runtime-credentials.js';
+import { databaseInstance } from '../../database.js';
+import { parseUnixMs } from '../../runtime/lifecycle.js';
+
+// Runtime principal type for MCP authentication - Phase 1 Problem D
+export interface RuntimePrincipal {
+  type: 'runtime';
+  runtimeId: 'claude' | 'hermes';
+  credentialId: string;
+}
 
 // These must be functions, not cached values, because tests change process.env.AUTH_MODE at runtime
 function getConfig() { return getAuthConfig(); }
@@ -255,3 +266,112 @@ export function getLocalSingleUserBindAddress(): string {
 // Aliases for server.ts imports
 export const isLocalSingleUserMode = isLocalSingleUserModeEnabled;
 export const getLocalBindAddress = getLocalSingleUserBindAddress;
+
+/**
+ * MCP Runtime Authentication Middleware - Phase 1 Problem D
+ *
+ * Authenticates MCP requests using runtime credentials only.
+ * This does NOT fall back to Founder authentication.
+ * Runtime identity is derived from the credential, NOT from request body.
+ *
+ * After validation, establishes a runtime session and creates AuthContext
+ * for ownership/execution guards.
+ */
+export async function mcpRuntimeAuthMiddleware(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<Response | void> {
+  const authHeader = req.headers.authorization;
+
+  // 1. Require Authorization header
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({
+      error: 'Authentication required',
+      code: 'AUTH_REQUIRED',
+      message: 'MCP runtime credential required'
+    });
+  }
+
+  // 2. Validate the Bearer token value
+  const token = authHeader.substring(7);
+  if (!token || token.trim() === '') {
+    return res.status(401).json({
+      error: 'Invalid token',
+      code: 'TOKEN_EMPTY',
+      message: 'Bearer token is empty'
+    });
+  }
+
+  // 3. Validate runtime credential against database
+  const db = databaseInstance;
+  if (!db) {
+    return res.status(503).json({
+      error: 'Authentication service unavailable',
+      code: 'DB_UNAVAILABLE',
+      message: 'Database not available for credential validation'
+    });
+  }
+
+  // 4. Call validateRuntimeCredential with just the token value (strip Bearer prefix)
+  // SECURITY: Runtime identity comes from the credential, NOT from the caller
+  // Pass as "Bearer <token>" since validateRuntimeCredential expects that format
+  const result = validateRuntimeCredential(db, `Bearer ${token}`);
+
+  if (!result.valid || !result.principal) {
+    return res.status(401).json({
+      error: result.error?.message || 'Invalid runtime credential',
+      code: result.error?.code || 'INVALID_CREDENTIAL',
+      message: 'MCP authentication failed'
+    });
+  }
+
+  // 5. Create runtime principal - NOT a founder principal
+  // Runtime credentials never receive Founder permissions
+  const runtimePrincipal: RuntimePrincipal = {
+    type: 'runtime',
+    runtimeId: result.principal.runtimeId,
+    credentialId: result.principal.credentialId
+  };
+
+  // 6. Attach runtime principal to request for tools to access
+  (req as any).runtimePrincipal = runtimePrincipal;
+  (req as any).runtimeCredentialValid = true;
+
+  // 7. Establish runtime session using lifecycle manager
+  // This creates a session_id that ownership/execution guards can validate
+  const { getRuntimeLifecycleManager } = await import('../../runtime/lifecycle.js');
+  const lifecycle = getRuntimeLifecycleManager(db);
+  const clientIp = req.socket?.remoteAddress || 'unknown';
+  const connResult = lifecycle.connect({
+    runtime: runtimePrincipal.runtimeId,
+    clientIp
+  });
+
+  if (!connResult.success || !connResult.state) {
+    return res.status(500).json({
+      error: 'Failed to establish runtime session',
+      code: 'SESSION_CREATE_FAILED',
+      message: connResult.error || 'Unknown error establishing runtime session'
+    });
+  }
+
+  // 8. Create AuthContext from the established session
+  // This AuthContext will be used by ownership/execution guards
+  const authContext: AuthContext = {
+    owner_type: 'runtime',
+    owner_id: `runtime-${runtimePrincipal.runtimeId}`,
+    runtime: runtimePrincipal.runtimeId,
+    session_id: connResult.state.sessionId!,
+    permissions: [],
+    expires_at: connResult.state.leaseExpiresAt ? parseUnixMs(connResult.state.leaseExpiresAt) || Infinity : Infinity,
+    issued_at: Date.now(),
+    founder_signed: false,
+    client_ip: clientIp
+  };
+
+  (req as any).authContext = authContext;
+  (req as any).auth = authContext;
+
+  return next();
+}

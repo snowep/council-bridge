@@ -170,13 +170,19 @@ export class RuntimeLifecycleManager {
       }
 
       // If same runtime has a session with different session_id, disconnect old session first
-      // This handles the case where a previous session needs to be replaced
-      if (existing && existing.session_id !== newSessionId) {
-        this.db.stmt.updateRuntimeSessionStatus.run('disconnected', null, existing.session_id);
-      }
+            // This handles the case where a previous session needs to be replaced
+            if (existing && existing.session_id !== newSessionId) {
+              // Clean up execution records for the old session to avoid FK constraint violation
+              // when upsertRuntimeSession tries to change session_id
+              this.db.db.prepare(`
+                DELETE FROM execution_records WHERE session_id = ?
+              `).run(existing.session_id);
+        
+              this.db.stmt.updateRuntimeSessionStatus.run('disconnected', null, existing.session_id);
+            }
 
-      // Insert or replace the session
-      this.db.stmt.upsertRuntimeSession.run(
+            // Insert or replace the session
+            this.db.stmt.upsertRuntimeSession.run(
         runtime,
         newSessionId,
         'connected',
