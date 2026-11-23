@@ -267,6 +267,8 @@ export interface DatabaseInstance {
     getExecutionRecordBySession: PreparedStatement;
     completeExecutionRecord: PreparedStatement;
     cleanupExpiredExecutionRecords: PreparedStatement;
+    renewExecutionPermit: PreparedStatement;
+    getSessionWithGeneration: PreparedStatement;
   };
   query: (sql: string, params?: any[]) => QueryResult;
   runPreparedStatement: (name: string, params?: any[]) => any;
@@ -1669,7 +1671,7 @@ function createDatabase(dbPath?: string): DatabaseInstance {
     // Phase 10: Execution Records for MCP Execution Guard
     insertExecutionRecord: db.prepare(`
       INSERT INTO execution_records (id, session_id, runtime_id, started_at, expires_at, completed, generation, created_at)
-      VALUES (?, ?, ?, ?, ?, 0, 1, datetime('now'))
+      VALUES (?, ?, ?, ?, ?, 0, COALESCE((SELECT generation FROM runtime_sessions WHERE session_id = ?), 1), datetime('now'))
     `) as PreparedStatement,
 
     getActiveExecutionRecord: db.prepare(`
@@ -1692,6 +1694,18 @@ function createDatabase(dbPath?: string): DatabaseInstance {
     cleanupExpiredExecutionRecords: db.prepare(`
       DELETE FROM execution_records
       WHERE completed = 0 AND expires_at <= ?
+    `) as PreparedStatement,
+
+    // Update execution record expires_at for permit renewal (generation check included)
+    renewExecutionPermit: db.prepare(`
+      UPDATE execution_records
+      SET expires_at = ?, generation = (SELECT generation FROM runtime_sessions WHERE session_id = ?), updated_at = datetime('now')
+      WHERE id = ? AND generation = (SELECT generation FROM runtime_sessions WHERE session_id = ?)
+    `) as PreparedStatement,
+
+    // Get session with generation for fencing checks
+    getSessionWithGeneration: db.prepare(`
+      SELECT session_id, generation FROM runtime_sessions WHERE session_id = ?
     `) as PreparedStatement,
 
     // Phase 10: Runtime Credentials

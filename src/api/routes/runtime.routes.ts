@@ -3,8 +3,8 @@
 
 import { Router, Request, Response } from 'express';
 import { getRuntimeLifecycleManager } from '../../runtime/lifecycle.js';
-import { authMiddleware, requireFounder } from '../middleware/authentication.js';
-import { asyncHandler } from '../middleware/error-handler.js';
+import { authMiddleware, requireFounder, getAuthContext } from '../middleware/authentication.js';
+import { asyncHandler, NotFoundError, AuthorizationError } from '../middleware/error-handler.js';
 import { z } from 'zod/v4';
 import { databaseInstance as db } from '../../database.js';
 
@@ -38,8 +38,8 @@ const heartbeatSchema = z.object({
   session_id: z.string().min(1)
 });
 
-// GET /api/runtime - Get current runtime state
-router.get('/', authMiddleware, asyncHandler(async (req: Request, res: Response) => {
+// GET /api/runtime - Get current runtime state (Founder only)
+router.get('/', authMiddleware, requireFounder, asyncHandler(async (req: Request, res: Response) => {
   const lifecycle = getRuntimeLifecycleManager(db);
   const state = lifecycle.getState();
 
@@ -57,8 +57,8 @@ router.get('/', authMiddleware, asyncHandler(async (req: Request, res: Response)
   });
 }));
 
-// POST /api/runtime/connect - Connect a runtime
-router.post('/connect', authMiddleware, asyncHandler(async (req: Request, res: Response) => {
+// POST /api/runtime/connect - Connect a runtime (Founder only)
+router.post('/connect', authMiddleware, requireFounder, asyncHandler(async (req: Request, res: Response) => {
   const lifecycle = getRuntimeLifecycleManager(db);
 
   // Validate request
@@ -103,8 +103,8 @@ router.post('/connect', authMiddleware, asyncHandler(async (req: Request, res: R
   });
 }));
 
-// POST /api/runtime/disconnect - Disconnect current runtime
-router.post('/disconnect', authMiddleware, asyncHandler(async (req: Request, res: Response) => {
+// POST /api/runtime/disconnect - Disconnect current runtime (Founder only)
+router.post('/disconnect', authMiddleware, requireFounder, asyncHandler(async (req: Request, res: Response) => {
   const lifecycle = getRuntimeLifecycleManager(db);
 
   // Validate request
@@ -134,8 +134,8 @@ router.post('/disconnect', authMiddleware, asyncHandler(async (req: Request, res
   });
 }));
 
-// POST /api/runtime/switch - Switch between runtimes
-router.post('/switch', authMiddleware, asyncHandler(async (req: Request, res: Response) => {
+// POST /api/runtime/switch - Switch between runtimes (Founder only)
+router.post('/switch', authMiddleware, requireFounder, asyncHandler(async (req: Request, res: Response) => {
   const lifecycle = getRuntimeLifecycleManager(db);
 
   // Validate request
@@ -180,8 +180,9 @@ router.post('/switch', authMiddleware, asyncHandler(async (req: Request, res: Re
   });
 }));
 
-// POST /api/runtime/heartbeat - Renew session lease
+// POST /api/runtime/heartbeat - Renew session lease (session owner only)
 router.post('/heartbeat', authMiddleware, asyncHandler(async (req: Request, res: Response) => {
+  const ctx = getAuthContext(req);
   const lifecycle = getRuntimeLifecycleManager(db);
 
   // Validate request
@@ -195,6 +196,28 @@ router.post('/heartbeat', authMiddleware, asyncHandler(async (req: Request, res:
   }
 
   const { session_id } = result.data;
+
+  // Authorization: Session owner can heartbeat
+  // - Runtime sessions: session_id in auth context must match request
+  // - Founder sessions (local mode): can heartbeat any valid connected session
+  if (!ctx || !ctx.session_id) {
+    throw new AuthorizationError('Session ownership required for heartbeat');
+  }
+
+  // For runtime sessions, verify the session_id matches the authenticated runtime
+  if (ctx.owner_type === 'runtime') {
+    if (ctx.session_id !== session_id) {
+      throw new AuthorizationError('Session ownership required for heartbeat');
+    }
+  }
+  // For Founder sessions (local mode), allow heartbeat for any connected session
+  // This enables the bootstrap flow where Founder creates/connects a runtime
+
+  // Verify the session exists and is connected via the lifecycle manager
+  const ownership = lifecycle.getSessionOwnership(session_id);
+  if (!ownership.isOwner) {
+    throw new NotFoundError('Session not found or not active');
+  }
 
   const heartbeatResult = lifecycle.heartbeat({ sessionId: session_id });
 
@@ -222,7 +245,7 @@ router.post('/heartbeat', authMiddleware, asyncHandler(async (req: Request, res:
 }));
 
 // POST /api/runtime/recover - Recover stale sessions (admin/authorized only)
-router.post('/recover', authMiddleware, requireFounder, asyncHandler(async (req: Request, res: Response) => {
+router.post('/recover', authMiddleware, requireFounder, asyncHandler(async (_req: Request, res: Response) => {
   const lifecycle = getRuntimeLifecycleManager(db);
   const result = lifecycle.recoverStaleSessions();
 

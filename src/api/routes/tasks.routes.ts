@@ -3,10 +3,9 @@
 
 import { Router, Request, Response } from 'express';
 import { listTasks, getTaskById, createTask, updateTask } from '../../council/divisions.js';
-import { getDatabase } from '../../database.js';
-import { authMiddleware, getAuthContext, requireAuth, requireDivisionHead } from '../middleware/authentication.js';
+import { authMiddleware, requireAuth } from '../middleware/authentication.js';
 import { asyncHandler, NotFoundError, ValidationError } from '../middleware/error-handler.js';
-import { ListTasksSchema, CreateTaskSchema, UpdateTaskSchema, AssignTaskSchema, UpdateTaskStatusSchema } from '../schemas/index.js';
+import { ListTasksSchema, CreateTaskSchema, AssignTaskSchema, UpdateTaskStatusSchema } from '../schemas/index.js';
 
 const router = Router();
 import { databaseInstance as db } from '../../database.js';
@@ -22,7 +21,7 @@ router.use(authMiddleware);
 // GET /api/tasks - List tasks with filters
 router.get('/', asyncHandler(async (req: Request, res: Response) => {
   const ctx = requireAuth(req);
-  const { limit, offset, assigned_to_type, assigned_to_id, status, created_by_type, created_by_id } = ListTasksSchema.parse(req.query);
+  const { limit, offset, assigned_to_type, assigned_to_id, status } = ListTasksSchema.parse(req.query);
 
   // Authorization filtering
   let effectiveAssignedToType = assigned_to_type as any;
@@ -47,7 +46,7 @@ router.get('/', asyncHandler(async (req: Request, res: Response) => {
 
 // GET /api/tasks/:id - Get task details
 router.get('/:id', asyncHandler(async (req: Request, res: Response) => {
-  requireAuth(req);
+  const ctx = requireAuth(req);
   const id = getParamId(req.params, 'id');
 
   if (!id) {
@@ -60,24 +59,38 @@ router.get('/:id', asyncHandler(async (req: Request, res: Response) => {
     throw new NotFoundError('Task not found');
   }
 
+  // Authorization check: verify user can access this task
+  if (ctx.owner_type !== 'founder') {
+    const isAssignee = task.assigned_to_type === ctx.owner_type && task.assigned_to_id === ctx.owner_id;
+    if (!isAssignee) {
+      // Check division membership for division-assigned tasks
+      if (task.assigned_to_type === 'division' && ctx.owner_type === 'staff') {
+        const membership = db.query(
+          'SELECT 1 FROM division_members WHERE staff_id = ? AND division_id = ?',
+          [ctx.owner_id, task.assigned_to_id]
+        );
+        if (membership.length === 0) {
+          throw new NotFoundError('Task not found');
+        }
+      } else {
+        throw new NotFoundError('Task not found');
+      }
+    }
+  }
+
   res.json({ task });
 }));
 
-// POST /api/tasks - Create task (Founder, Council, Division Head only)
+// POST /api/tasks - Create task (Founder or Division Head only)
 router.post('/', asyncHandler(async (req: Request, res: Response) => {
   const ctx = requireAuth(req);
 
-  // Only Founder, Council, Division Head can create tasks
+  // Only Founder or Division Head can create tasks
   if (!['founder', 'division'].includes(ctx.owner_type)) {
     throw new ValidationError('Insufficient permissions to create tasks', { owner_type: ctx.owner_type });
   }
 
   const input = CreateTaskSchema.parse(req.body);
-
-  // Validate created_by matches authenticated user for non-Founder
-  if (ctx.owner_type === 'division' && input.created_by_type !== 'division_head') {
-    throw new ValidationError('Division can only create tasks as division_head', { created_by_type: input.created_by_type });
-  }
 
   const task = createTask(db, {
     ...input,
@@ -87,7 +100,7 @@ router.post('/', asyncHandler(async (req: Request, res: Response) => {
   res.status(201).json({ task });
 }));
 
-// PUT /api/tasks/:id/assign - Assign/reassign task (Division Head or Founder)
+// PUT /api/tasks/:id/assign - Assign/reassign task
 router.put('/:id/assign', asyncHandler(async (req: Request, res: Response) => {
   const ctx = requireAuth(req);
   const id = getParamId(req.params, 'id');
@@ -102,9 +115,9 @@ router.put('/:id/assign', asyncHandler(async (req: Request, res: Response) => {
     throw new NotFoundError('Task not found');
   }
 
-  // Only Founder or Division Head of the assigned division can reassign
+  // Only Founder or the division head that owns the assigned division can reassign
   if (ctx.owner_type !== 'founder') {
-    if (ctx.owner_type !== 'division' || task.assigned_to_id !== ctx.owner_id) {
+    if (task.assigned_to_type === 'division' && task.assigned_to_id !== ctx.owner_id) {
       throw new ValidationError('Insufficient permissions to assign this task', { owner_type: ctx.owner_type, task_id: id });
     }
   }
@@ -119,7 +132,7 @@ router.put('/:id/assign', asyncHandler(async (req: Request, res: Response) => {
   res.json({ task: updatedTask });
 }));
 
-// PUT /api/tasks/:id/status - Update task status (Assignee or Founder)
+// PUT /api/tasks/:id/status - Update task status
 router.put('/:id/status', asyncHandler(async (req: Request, res: Response) => {
   const ctx = requireAuth(req);
   const id = getParamId(req.params, 'id');

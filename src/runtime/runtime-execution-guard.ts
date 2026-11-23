@@ -18,7 +18,9 @@ export interface RuntimeExecutionContext {
   runtimeId: RuntimeId;
   sessionId: string;
   executionId: string;
+  generation: number;
   heartbeatInterval?: NodeJS.Timeout;
+  permitRenewalInterval?: NodeJS.Timeout;
 }
 
 export type RuntimeToolExecutor<T> = (context: RuntimeExecutionContext) => Promise<T>;
@@ -40,8 +42,10 @@ export interface ExecutionGuardResult<T> {
  * Automatically renews heartbeat during long-running executions.
  */
 export function createRuntimeExecutionGuard(db: DatabaseInstance) {
-  const EXECUTION_PERMIT_DURATION_MS = 30 * 1000; // 30 seconds max execution time
-  const HEARTBEAT_RENEWAL_INTERVAL_MS = 300 * 1000; // Renew heartbeat every 5 minutes
+  // Execution permits expire in 10 seconds; must be renewed before expiry for long-running operations
+  const EXECUTION_PERMIT_DURATION_MS = 10 * 1000; // 10 seconds max execution time
+  const PERMIT_RENEWAL_INTERVAL_MS = 3 * 1000; // Renew permit every 3 seconds (well before expiry)
+  const HEARTBEAT_RENEWAL_INTERVAL_MS = 300 * 1000; // Renew heartbeat every 5 minutes (session lease)
 
   /**
    * Acquires an execution permit via atomic SQLite transaction
@@ -110,7 +114,7 @@ export function createRuntimeExecutionGuard(db: DatabaseInstance) {
 
       // 2. Resolve authenticated runtime session (skip for bootstrap)
       const sessionRow = db.stmt.getRuntimeSessionBySession.get(requestSessionId) as
-        | { runtime: RuntimeId; session_id: string; connection_status: string; lease_expires_at: string | null }
+        | { runtime: RuntimeId; session_id: string; connection_status: string; lease_expires_at: string | null; generation: number }
         | undefined;
 
       if (!isBootstrapSession && (!sessionRow || sessionRow.session_id !== requestSessionId)) {
@@ -183,26 +187,35 @@ export function createRuntimeExecutionGuard(db: DatabaseInstance) {
       // 8. Clean up any expired execution records that might block the unique constraint
       db.stmt.cleanupExpiredExecutionRecords.run(now);
 
+      // Get session generation for fencing (used to capture in execution record)
+      const sessionGeneration = sessionRow?.generation ?? 1;
+
       // 9. Insert execution record bound to exact session (atomic within transaction)
-      db.stmt.insertExecutionRecord.run(executionId, requestSessionId, requestRuntime, now, expiresAt);
+      // Pass session_id twice: once for session_id column, once for generation lookup in subquery
+      db.stmt.insertExecutionRecord.run(executionId, requestSessionId, requestRuntime, now, expiresAt, requestSessionId);
 
       // 10. Commit transaction
       db.runPreparedStatement('commitTransaction', []);
 
       // Start heartbeat renewal (only for non-bootstrap sessions with active runtime)
       let heartbeat: { interval: NodeJS.Timeout; stop: () => void } | undefined;
+      let permitRenewal: { interval: NodeJS.Timeout; stop: () => void } | undefined;
+
       if (!isBootstrapSession) {
         heartbeat = startHeartbeatRenewal(requestSessionId);
+        permitRenewal = startPermitRenewal(requestSessionId, executionId);
       }
 
-      // Return execution context
+      // Return execution context with generation for fencing
       return {
         success: true,
         context: {
           runtimeId: requestRuntime,
           sessionId: requestSessionId,
           executionId,
-          heartbeatInterval: heartbeat?.interval
+          generation: sessionGeneration,
+          heartbeatInterval: heartbeat?.interval,
+          permitRenewalInterval: permitRenewal?.interval
         }
       };
     } catch (error) {
@@ -258,6 +271,68 @@ export function createRuntimeExecutionGuard(db: DatabaseInstance) {
   }
 
   /**
+   * Renews an execution permit by updating its expiration time
+   * Also checks that the session generation hasn't changed (runtime switching)
+   * Returns true if renewal succeeded, false if session switched or expired
+   */
+  function renewExecutionPermit(
+    sessionId: string,
+    executionId: string
+  ): boolean {
+    try {
+      const now = Date.now();
+      const newExpiresAt = now + EXECUTION_PERMIT_DURATION_MS;
+
+      // Use the prepared statement that checks generation matches (runtime switching fencing)
+      const result = db.stmt.renewExecutionPermit.run(newExpiresAt, sessionId, executionId, sessionId);
+      return (result as any).changes > 0;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Starts permit renewal interval to prevent permits from expiring
+   * Separates permit lifecycle from heartbeat lifecycle per B2 requirements
+   * Uses generation fencing to detect runtime switching
+   * Returns the interval handle and a cleanup function
+   */
+  function startPermitRenewal(sessionId: string, executionId: string): { interval: NodeJS.Timeout; stop: () => void } {
+    // Get initial session generation for fencing
+    const initialSession = db.stmt.getSessionWithGeneration.get(sessionId) as
+      | { session_id: string; generation: number }
+      | undefined;
+    let currentGeneration = initialSession?.generation ?? 1;
+
+    const interval = setInterval(() => {
+      // Check if session has switched (generation changed) - if so, stop renewal
+      const updatedSession = db.stmt.getSessionWithGeneration.get(sessionId) as
+        | { session_id: string; generation: number }
+        | undefined;
+
+      if (!updatedSession || updatedSession.generation !== currentGeneration) {
+        // Session switched or expired - stop renewal
+        clearInterval(interval);
+        return;
+      }
+
+      // Attempt to renew the permit with generation check
+      const renewed = renewExecutionPermit(sessionId, executionId);
+      if (!renewed) {
+        // Permit renewal failed (generation mismatch or other issue) - stop renewal
+        clearInterval(interval);
+      }
+    }, PERMIT_RENEWAL_INTERVAL_MS);
+
+    interval.unref?.();
+
+    return {
+      interval,
+      stop: () => clearInterval(interval)
+    };
+  }
+
+  /**
    * Main execution guard function that wraps MCP tool execution
    * Automatically renews heartbeat during long-running executions
    */
@@ -300,6 +375,10 @@ export function createRuntimeExecutionGuard(db: DatabaseInstance) {
       // Step 5: Stop heartbeat renewal
       if (context.heartbeatInterval) {
         clearInterval(context.heartbeatInterval);
+      }
+      // Step 6: Stop permit renewal
+      if (context.permitRenewalInterval) {
+        clearInterval(context.permitRenewalInterval);
       }
     }
   }

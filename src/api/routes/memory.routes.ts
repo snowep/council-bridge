@@ -3,8 +3,7 @@
 
 import { Router, Request, Response } from 'express';
 import { listMemoryEntries, getMemoryById } from '../../council/memory.js';
-import { getDatabase } from '../../database.js';
-import { authMiddleware, getAuthContext, requireAuth } from '../middleware/authentication.js';
+import { authMiddleware, requireAuth } from '../middleware/authentication.js';
 import { asyncHandler, NotFoundError } from '../middleware/error-handler.js';
 import { ListMemorySchema } from '../schemas/index.js';
 
@@ -39,7 +38,7 @@ router.get('/', asyncHandler(async (req: Request, res: Response) => {
 
 // GET /api/memory/:id - Get memory entry details
 router.get('/:id', asyncHandler(async (req: Request, res: Response) => {
-  requireAuth(req);
+  const ctx = requireAuth(req);
   const id = getParamId(req.params, 'id');
 
   if (!id) {
@@ -49,6 +48,13 @@ router.get('/:id', asyncHandler(async (req: Request, res: Response) => {
   const entry = getMemoryById(db, id);
 
   if (!entry) {
+    throw new NotFoundError('Memory entry not found');
+  }
+
+  // Authorization check: verify user can access this memory
+  const { checkMemoryAccess } = await import('../../council/operations.js');
+  if (!checkMemoryAccess(ctx, entry, db)) {
+    // Return 404 to avoid leaking existence of private memories
     throw new NotFoundError('Memory entry not found');
   }
 

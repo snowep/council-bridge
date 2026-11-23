@@ -319,7 +319,7 @@ describe('Runtime Execution Guard - Unit Tests', () => {
       `).run(Date.now() - 60000, Date.now() - 30000);
 
       // Insert a valid execution record
-      db.stmt.insertExecutionRecord.run('valid-exec', sessionId, 'claude', Date.now(), Date.now() + 30000);
+      db.stmt.insertExecutionRecord.run('valid-exec', sessionId, 'claude', Date.now(), Date.now() + 30000, sessionId);
 
       const cleaned = cleanupExpiredExecutionRecords(db);
       assert.strictEqual(cleaned, 1);

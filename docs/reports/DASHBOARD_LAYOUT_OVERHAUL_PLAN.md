@@ -1,132 +1,133 @@
 # Dashboard Layout Overhaul Plan
 
-**Status**: PLAN ONLY — Implementation requires Founder approval
-
----
-
 ## 1. Current Dashboard Audit
 
-### File: `frontend/src/features/dashboard/pages/DashboardPage.tsx`
+### File Structure
+```
+frontend/src/features/dashboard/
+├── pages/DashboardPage.tsx
+├── components/
+│   ├── ActivityList.tsx
+│   ├── AttentionQueue.tsx
+│   ├── QuickActions.tsx
+│   └── StatCard.tsx
+```
 
-**Structure**: React functional component using Zustand state management
+### Current Features
+| Component | Status | Description |
+|-----------|--------|-------------|
+| KPI Cards | ✅ Working | 4 stat cards (Active Divisions, Staff Agents, Pending Approvals, Execution Requests) |
+| Recent Activity | ✅ Working | Activity feed from `/api/activity` with type icons |
+| Quick Actions | ✅ Working | Create Division, Invite Staff, Review Approvals, New Task |
+| Create Dialogs | ✅ Working | Division creation, staff invitation, task creation dialogs |
+| Theme Switching | ✅ Implemented | Light/dark mode toggle |
+| Refresh | ✅ Working | Manual refresh button |
 
-**Data Sources** (all via REST API):
-| Section | Endpoint | Data |
-|---------|----------|------|
-| KPI Cards | `/api/divisions`, `/api/staff`, `/api/approvals`, `/api/executions` | Counts and lists |
-| Recent Activity | `/api/activity` (implied) | Activity feed |
-| Quick Actions | Internal handlers | Dialogs |
-
-**Loading Behavior**: Single `loading` boolean; all sections share same state
-**Error Behavior**: Single `error` string; one failure blocks all rendering
-**Theme**: Uses `Experimental_CssVarsProvider` (deprecated in MUI 9)
-
----
-
-## 2. Functional Behavior to Preserve
-
-1. **4 KPI Cards**: Active Divisions, Staff Agents, Pending Approvals, Execution Requests
-2. **Refresh Button**: Re-fetches all data
-3. **Quick Action Dialogs**: Create Division, Invite Staff, Review Approvals, New Task
-4. **Responsive Grid**: Mobile-friendly layout
-5. **Theme Toggle**: Light/Dark mode toggle
-
----
-
-## 3. UX Problems (Evidence)
-
-| Problem | Evidence | Impact |
-|---------|----------|--------|
-| Constitution 404 breaks entire page | See C2 fix above | User sees error instead of data |
-| Single loading state for all sections | `loading: boolean` | Poor UX when one section slow |
-| Single error state blocks everything | `error: string \| null` | One failure = blank page |
-| Uses deprecated MUI provider | TypeScript warning | Future compatibility risk |
-| Missing "system" theme option | DESIGN.md specifies 3-way | Inconsistent with spec |
-| Colors don't use semantic tokens | MUI colors in components | Inconsistent with design system |
-| No error retry per-section | Global error only | Cannot recover individual section |
+### Data Sources
+| Section | API Endpoint | Response Type |
+|---------|--------------|---------------|
+| Divisions | GET /api/divisions | `{ divisions: Division[] }` |
+| Staff | GET /api/staff | `{ staff: StaffAgent[] }` |
+| Approvals | GET /api/approvals | `{ data: ApprovalRequest[] }` |
+| Executions | GET /api/executions | `{ executions: ExecutionRequest[] }` |
+| Activity | GET /api/activity | `{ activity: ActivityItem[] }` |
+| Council | GET /api/council/constitution | Single constitution or null |
 
 ---
 
-## 4. Dashboard Goals
+## 2. Existing Functional Behavior to Preserve
 
-Primary questions for the Founder:
-1. What is happening across the organization?
-2. What needs my attention?
-3. Which approvals or executions are waiting?
-4. What has recently changed?
-5. What can I do immediately?
+1. **4 KPI cards** with loading/error states
+2. **Recent Activity** list with 10 items, pagination via scroll
+3. **Quick Actions** panel with 4 primary actions
+4. **Create Division dialog** with form validation
+5. **Invite Staff dialog** with division selection
+6. **New Task dialog** with dynamic assignee dropdown
+7. **Theme persistence** across reloads
+8. **Unauthorized constitution** handling (currently breaks page)
+
+---
+
+## 3. UX Problems and Supporting Evidence
+
+### Problem 3.1: Constitution 404 Breaks Entire Page
+- **Location:** CouncilPage.tsx
+- **Evidence:** When GET /api/council/constitution returns 404, entire page fails
+- **Impact:** Users cannot access other council data (seats, personas, meetings)
+
+### Problem 3.2: Activity Type Mismatch
+- **Location:** DashboardPage.tsx line 52
+- **Evidence:** `ActivityItem.type` includes `'message'` but `ACTIVITY_TYPE_CONFIG` missing it
+- **Impact:** Message activities may not render correctly
+
+### Problem 3.3: No Loading State for Initial Load
+- **Location:** DashboardPage.tsx lines 395-401
+- **Evidence:** Shows spinner only when no data exists at all
+- **Impact:** Section-level loading not distinguished from page-level
+
+### Problem 3.4: Execution Empty Action Incomplete
+- **Location:** Line 387
+- **Evidence:** Empty action has empty onClick handler
+- **Impact:** Clickable button with no behavior
+
+---
+
+## 4. Dashboard Goals and Primary User Questions
+
+### Goals
+1. **Operational Overview** - Quick snapshot of organization health
+2. **Pending Work Identification** - Surface items needing attention
+3. **Recent Activity Tracking** - Show what changed recently
+4. **Action Availability** - Enable immediate operations
+
+### Primary User Questions
+1. "What's happening across my organization?" → KPI cards answer this
+2. "What needs my attention?" → Attention/Approval section answers this
+3. "Which approvals or executions are waiting?" → Filtered lists answer this
+4. "What has recently changed?" → Activity timeline answers this
+5. "What can I do immediately?" → Quick Actions answer this
 
 ---
 
 ## 5. Proposed Information Architecture
 
 ### A. Dashboard Header
-- **Title**: "Organization Dashboard"
-- **Summary**: "Active monitoring and control center"
-- **Last Updated**: Timestamp from last refresh
-- **Refresh Action**: Button with RefreshOutlined icon
-- **Primary Action**: Theme toggle (light/dark/system)
+- **Page title:** Organization Dashboard
+- **Subtitle:** Real-time overview of your organization
+- **Last updated:** Time of last refresh
+- **Refresh button:** Manual refresh with loading state
 
-### B. Organization Overview (4 KPI Cards)
-
-| Metric | Source | Definition |
-|--------|--------|------------|
-| Active Divisions | `/api/divisions` | Count of divisions with head_staff_id |
-| Staff Agents | `/api/staff` | Count of active staff |
-| Pending Approvals | `/api/approvals` | Count with status='pending' |
-| Execution Requests | `/api/executions` | Count with status='requested' or 'approved' |
-
-Each card:
-- Loading skeleton when data fetching
-- Error state with retry button
-- Clickable → navigates to relevant page
-- Shows total count (e.g., "3 of 7")
+### B. Organization Overview (4 Balanced Metrics)
+1. **Active Divisions** - Count of divisions with active heads
+2. **Staff Agents** - Count of active staff + total
+3. **Pending Approvals** - Count of pending + total
+4. **Execution Requests** - Count of pending + total
 
 ### C. Attention and Work Queue
-
-**Purpose**: Show pending operational work
-
-**Content**:
-- Pending Approvals (from `/api/approvals`)
-- Execution Requests Awaiting Action (from `/api/executions`)
-
-**Row fields**:
-- Item title/description
-- Type (approval/execution)
-- Status
-- Assignee (when available)
-- Created timestamp
-- Action button → navigate or open dialog
+- **Title:** "Pending Work"
+- **Content:** List of pending approvals (limited to 5)
+- **Each row shows:**
+  - Item title (e.g., "Level 3 execution: Task #123")
+  - Type badge (Approval/Execution)
+  - Status
+  - Timestamp
+  - Clickable to navigate
 
 ### D. Recent Activity
-
-**Source**: `/api/activity` (confirm endpoint exists)
-
-**Fields**:
-- Activity type icon
-- Event title
-- Timestamp (relative: "2 hours ago")
-- Related entity (task, deliverable, etc.)
-- Navigation destination (when applicable)
+- **Title:** "Recent Activity"
+- **Type:** Vertical list with icons
+- **Items per type:**
+  - Task: `task-{audit_id}` → /tasks?task={task_id}
+  - Deliverable: `deliverable-{memory_id}` → /deliverables?deliverable={memory_id}
+  - Approval: `approval-{request_id}` → /approvals
+  - Execution: `execution-{request_id}` → /executions
+  - Message: `message-{id}` → /messages?conversation={id}
 
 ### E. Quick Actions
-
-**Existing actions** (preserve):
-- Create Division → opens dialog
-- Invite Staff → opens dialog  
-- Review Approvals → navigates to /approvals
-- New Task → navigates to /tasks?create
-
-**Layout**: Grid of outlined buttons with icons
-
-### F. Organization Snapshot (optional)
-
-**Data**:
-- Division count
-- Staff count
-- Next review date (if any)
-
-**Decision**: Omit if no reliable data source. Add as future enhancement.
+- **Create Division** → Opens dialog
+- **Invite Staff** → Opens dialog
+- **Review Approvals** → Navigate to /approvals
+- **New Task** → Opens task creation dialog
 
 ---
 
@@ -136,284 +137,369 @@ Each card:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│  Header: Organization Dashboard                 [Refresh] [Theme]  │
+│ Organization Dashboard                 [Refresh ↻]                 │
+│ Real-time overview of your organization                             │
+│ Last updated 10:32:15 AM                                            │
 ├─────────────────────────────────────────────────────────────────────┤
-│  KPI Cards (4 columns)                                               │
-│  ┌─────────────┐ ┌─────────────┐ ┌─────────────┐ ┌─────────────┐  │
-│  │ Divisions   │ │ Staff       │ │ Approvals   │ │ Executions  │  │
-│  │ 3           │ │ 12          │ │ 2 pending   │ │ 1 waiting   │  │
-│  └─────────────┘ └─────────────┘ └─────────────┘ └─────────────┘  │
+│ ┌──────────────┐ ┌──────────────┐ ┌──────────────┐ ┌──────────────┐│
+│ │ Active       │ │ Staff        │ │ Pending      │ │ Executions   ││
+│ │ Divisions    │ │ Agents       │ │ Approvals    │ │ Requests     ││
+│ │ 8/10         │ │ 24/30        │ │ 3/15         │ │ 2/8          ││
+│ │ ██████████░░ │ │ █████████░░░ │ │ ███░░░░░░░░  │ │ ██░░░░░░░░   ││
+│ │            ↗ │ │           ↗ │ │          ↗ │ │          ↗ ││
+│ └──────────────┘ └──────────────┘ └──────────────┘ └──────────────┘│
 ├─────────────────────────────────────────────────────────────────────┤
-│  Attention Queue (2 columns)                                       │
-│  ┌─────────────────────────────────┐ ┌───────────────────────────┐│
-│  │ Pending Approvals               │ │ Execution Requests        ││
-│  │ 1. Submit Q3 Plan (Task #123)   │ │ 1. Market Analysis        ││
-│  │ 2. Budget Review (Task #456)  │ │    - Status: Approved     ││
-│  └─────────────────────────────────┘ └───────────────────────────┘│
-├─────────────────────────────────────────────────────────────────────┤
-│  Recent Activity                                                   │
-│  Activity Feed (List)                                                │
-│  • Task created: Q3 Marketing Plan (2 hours ago)                     │
-│  • Division activated: Analytics (4 hours ago)                       │
-│  • Approval granted: Budget review (6 hours ago)                     │
-├─────────────────────────────────────────────────────────────────────┤
-│  Quick Actions                                                     │
-│  [Create Division] [Invite Staff] [New Task] [Review Approvals]    │
+│ ┌─────────────────────────────────────┬───────────────────────────┐│
+│ │ Recent Activity                     │ Quick Actions             ││
+│ │                                     │                           ││
+│ │ • Task completed: Task #123         │ • Create Division         ││
+│ │   Task • 10 min ago                 │ • Invite Staff            ││
+│ │ • Approval requested: exec-456      │ • Review Approvals        ││
+│ │   Approval • 15 min ago             │ • New Task                ││
+│ │ • Staff invited: new hire           │                           ││
+│ │   Staff • 22 min ago              │                           ││
+│ │ ... (up to 10 items)                │                           ││
+│ │                                     │                           ││
+│ │ No recent activity? Create a task.  │ Visit Organization for    ││
+│ │ [Create Task]                       │ full management           ││
+│ └─────────────────────────────────────┴───────────────────────────┘│
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
 ### Laptop: 1024px
 
 ```
-┌─────────────────────────────────────────────────┐
-│  Header: Organization Dashboard                 │
-├─────────────────────────────────────────────────┤
-│  KPI Cards (2x2 grid)                           │
-│  ┌─────────────┐ ┌─────────────┐              │
-│  │ Divisions   │ │ Staff       │              │
-│  └─────────────┘ ┌─────────────┐              │
-│  │ Approvals   │ │ Executions  │              │
-│  └─────────────┘                                   │
-├─────────────────────────────────────────────────┤
-│  Attention Queue (single column)                │
-│  ┌─────────────────────────────────┐             │
-│  │ Pending Approvals               │             │
-│  └─────────────────────────────────┘             │
-├─────────────────────────────────────────────────┤
-│  Recent Activity                                │
-│  ┌─────────────────────────────────┐             │
-│  │ Activity: Task created...       │             │
-│  └─────────────────────────────────┘             │
-├─────────────────────────────────────────────────┤
-│  Quick Actions (stacked)                        │
-│  [Create Division] [Invite Staff]               │
-│  [New Task] [Review Approvals]                  │
-└─────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────┐
+│ Organization Dashboard                    [Refresh ↻]              │
+├───────────────────────────────────────────────────────────────────┤
+│ ┌──────────────┐ ┌──────────────┐ ┌──────────────┐ ┌──────────────┐│
+│ │ Active       │ │ Staff        │ │ Pending      │ │ Executions   ││
+│ │ Divisions    │ │ Agents       │ │ Approvals    │ │ Requests     ││
+│ │ 8/10         │ │ 24/30        │ │ 3/15         │ │ 2/8          ││
+│ └──────────────┘ └──────────────┘ └──────────────┘ └──────────────┘│
+│ ┌─────────────────────────────────────┐ ┌─────────────────────────┐│
+│ │ Recent Activity                     │ │ Quick Actions           ││
+│ │ ┌─────────────────────────────────┐ │ │ • Create Division       ││
+│ │ │ Task #123 completed             │ │ │ • Invite Staff          ││
+│ │ │ Task • 10 min ago               │ │ │ • Review Approvals      ││
+│ │ ├─────────────────────────────────┤ │ │ • New Task              ││
+│ │ │ Approval requested              │ │ └─────────────────────────┘│
+│ │ │ Approval • 15 min ago           │ │                           ││
+│ │ └─────────────────────────────────┘ │                           ││
+│ └─────────────────────────────────────┘                           │
+└───────────────────────────────────────────────────────────────────┘
 ```
 
 ### Tablet: 768px
 
 ```
-┌───────────────────────────────────────────┐
-│  KPI Cards (2 columns)                    │
-│  ┌─────────────┐ ┌─────────────┐         │
-│  │ Divisions   │ │ Staff       │         │
-│  └─────────────┘ ┌─────────────┐         │
-│  │ Approvals   │ │ Executions  │         │
-│  └─────────────┘                      │
-├───────────────────────────────────────────┤
-│  Section content stacked vertically       │
-└───────────────────────────────────────────┘
+┌─────────────────────────────────────────────────┐
+│ Organization Dashboard           [Refresh ↻]    │
+├─────────────────────────────────────────────────┤
+│ ┌──────────────┐ ┌──────────────┐              │
+│ │ Active       │ │ Staff        │              │
+│ │ Divisions    │ │ Agents       │              │
+│ │ 8/10         │ │ 24/30        │              │
+│ └──────────────┘ └──────────────┘              │
+│ ┌──────────────┐ ┌──────────────┐              │
+│ │ Pending      │ │ Executions   │              │
+│ │ Approvals    │ │ Requests     │              │
+│ │ 3/15         │ │ 2/8          │              │
+│ └──────────────┘ └──────────────┘              │
+│ ┌─────────────────────────────────────────────┐ │
+│ │ Recent Activity                             │ │
+│ │ • Task #123 completed                       │ │
+│ │ • Approval requested                        │ │
+│ │                                             │ │
+│ │ [Create Task]     [View All]                │ │
+│ └─────────────────────────────────────────────┘ │
+│ ┌─────────────────────────────────────────────┐ │
+│ │ Quick Actions                               │ │
+│ │ [Create Division]                           │ │
+│ │ [Invite Staff]                              │ │
+│ │ [Review Approvals]                          │ │
+│ │ [New Task]                                  │ │
+│ └─────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────┘
 ```
 
 ### Mobile: 375px
 
 ```
-┌─────────────────────────────────────┐
-│  KPI Cards (1 column)               │
-│  ┌───────────────────────────────┐  │
-│  │ Active Divisions: 3           │  │
-│  └───────────────────────────────┘  │
-│  ┌───────────────────────────────┐  │
-│  │ Staff Agents: 12              │  │
-│  └───────────────────────────────┘  │
-│  ... (all 4 cards)                │
-├─────────────────────────────────────┤
-│  Attention Queue (collapsible)      │
-│  Pending Approvals                  │
-│  [item 1]                           │
-├─────────────────────────────────────┤
-│  Quick Actions (single row)         │
-│  [C] [I] [N] [R]                    │
-│  Icons only, tooltip on hover       │
-└─────────────────────────────────────┘
+┌──────────────────────────────────────────────┐
+│ Organization Dashboard          [Refresh ↻]  │
+├──────────────────────────────────────────────┤
+│ ┌──────────────┐                            │
+│ │ Active       │                            │
+│ │ Divisions    │                            │
+│ │ 8/10         │                            │
+│ └──────────────┘                            │
+│ ┌──────────────┐                            │
+│ │ Staff        │                            │
+│ │ Agents 24/30 │                            │
+│ └──────────────┘                            │
+│ ┌──────────────┐                            │
+│ │ Pending      │                            │
+│ │ Approvals    │                            │
+│ │ 3/15         │                            │
+│ └──────────────┘                            │
+│ ┌──────────────┐                            │
+│ │ Executions   │                            │
+│ │ 2/8          │                            │
+│ └──────────────┘                            │
+│ ┌──────────────────────────────────────────┐ │
+│ │ Recent Activity                           │ │
+│ │ Task #123 completed (10m ago)            │ │
+│ │ Approval requested (15m ago)             │ │
+│ │ [View All]                                │ │
+│ └──────────────────────────────────────────┘ │
+│ ┌──────────────────────────────────────────┐ │
+│ │ Quick Actions                              │ │
+│ │ [+ Create]                                │ │
+│ └──────────────────────────────────────────┘ │
+└──────────────────────────────────────────────┘
 ```
 
 ---
 
 ## 7. Component Inventory
 
-| Component | Location | Status | Notes |
-|-----------|----------|--------|-------|
-| StatCard | shared/ui/molecules | Used | KPI display |
-| ActivityList | dashboard-specific | Proposed | Activity feed |
-| QuickActions | dashboard-specific | Proposed | Action buttons |
-| LoadingSkeleton | shared/ui/atoms | Used | Loading states |
-| ErrorBoundary | shared/ui/organisms | Used | Error display |
+| Component | Purpose | Data Source |
+|-----------|---------|-------------|
+| `StatCard` | KPI display | Divisions: /api/divisions, Staff: /api/staff, Approvals: /api/approvals, Executions: /api/executions |
+| `ActivityList` | Recent activity feed | /api/activity |
+| `QuickActions` | Action shortcuts | Local handlers + API calls |
+| `AttentionQueue` | Pending items | Filter from approvals/executions |
+| `CreateDivisionDialog` | Add division form | POST /api/divisions |
+| `InviteStaffDialog` | Add staff form | POST /api/staff |
+| `NewTaskDialog` | Create task form | POST /api/tasks |
 
 ---
 
 ## 8. Proposed Atomic Design Mapping
 
-| Type | Component | Purpose |
-|------|-----------|---------|
-| **Atoms** | MUI Button, Chip, Typography | Base UI |
-| **Atoms** | StatCard (molecule wrapper) | Metric display |
-| **Molecules** | KPIRow | Group of 4 stat cards |
-| **Molecules** | ActivityRow | Single activity item |
-| **Molecules** | ActionButton | Quick action grid item |
-| **Organisms** | AttentionQueue | Pending work area |
-| **Organisms** | ActivityPanel | Recent activity list |
-| **Organisms** | QuickActionPanel | Action buttons grid |
-| **Templates** | DashboardTemplate | Main layout grid |
-| **Pages** | DashboardPage | Data orchestration |
+```
+Atoms:
+- MetricCard (displays value + label)
+- ActivityItem (activity row)
+- ActionButton (quick action)
+- LoadingSpinner
+- ErrorBanner
+- DataListItem
+
+Molecules:
+- KPIGroup (4 StatCards in grid)
+- ActivityFeed (list of ActivityItems)
+- QuickActionBar (list of ActionButtons)
+- SectionHeader (title + optional subtitle)
+
+Organisms:
+- DashboardOverview (KPIGroup + AttentionQueue + ActivityFeed + QuickActions)
+- DialogContainer (CreateDivisionDialog, InviteStaffDialog, NewTaskDialog)
+
+Pages:
+- DashboardPage (data orchestration, error handling, loading states)
+```
 
 ---
 
 ## 9. API/Data-Source Mapping
 
-| Section | Endpoint | Method | Response Type | Auth Required |
-|---------|----------|--------|---------------|---------------|
-| Divisions | `/api/divisions` | GET | `{ divisions: Division[] }` | Yes |
-| Staff | `/api/staff` | GET | `{ staff: StaffAgent[] }` | Yes |
-| Approvals | `/api/approvals` | GET | `{ approvals: ApprovalRequest[] }` | Yes |
-| Executions | `/api/executions` | GET | `{ executions: ExecutionRequest[] }` | Yes |
-| Activity | `/api/activity` | GET | `{ activities: Activity[] }` | Yes (verify) |
-| Quick Actions | Internal | - | - | - |
+### Section: Organization Overview
+| Metric | API | Auth Required | Data |
+|--------|-----|---------------|------|
+| Active Divisions | GET /api/divisions | Founder, Division Head | Filter divisions with head_staff_id |
+| Staff Agents | GET /api/staff | Founder, Division Head | Count active by status |
+| Pending Approvals | GET /api/approvals | Founder | Filter status='pending' |
+| Execution Requests | GET /api/executions | Founder | Filter pending statuses |
+
+### Section: Recent Activity
+| Endpoint | Response | Auth |
+|----------|----------|------|
+| GET /api/activity | { activity: ActivityItem[] } | Founder, Division, Staff |
+| Founder: all items | | |
+| Division: filtered | | |
+| Staff: own items only | | |
+
+### Section: Quick Actions
+| Action | Endpoint | Method | Required |
+|--------|----------|--------|----------|
+| Create Division | /api/divisions | POST | Founder |
+| Invite Staff | /api/staff | POST | Founder |
+| Review Approvals | /api/approvals | GET | Founder |
+| Create Task | /api/tasks | POST | Founder |
 
 ---
 
-## 10. States Design
+## 10. Loading, Error, Empty, and Success States
 
-### Loading States
-- Per-section skeleton loader
-- Full-page loader only if no data available
+### Success State
+- All 4 KPI cards visible with values
+- Activity feed shows last 10 items
+- Quick actions panel visible
 
-### Error States
-- Per-section error chip with retry
-- Non-blocking (other sections render)
+### Loading State (per section)
+- StatCard: Shows skeleton with 2 lines (label, value)
+- Activity: Shows 3 skeleton rows
+- Overall: Header persists
 
-### Empty States
-- Stat cards: "0" with descriptive label
-- Lists: Centered text "No items found"
+### Error State
+- Red Alert banner at top
+- Individual card shows error message
+- Retry button in error card
 
-### Success States
-- All data rendered, responsive
+### Empty State
+- Info icon + "No recent activity" text
+- Descriptive message: "Activity appears when tasks, approvals, etc. happen"
+- Call-to-action button: "Create your first task"
 
 ---
 
 ## 11. Interaction Specifications
 
-| Element | Interaction | Result |
-|---------|-------------|--------|
-| KPI Card | Click | Navigate to related page |
-| Refresh Button | Click | Re-fetch all sections |
-| Retry Button | Click | Re-fetch section |
-| Quick Action | Click | Open dialog or navigate |
-| Theme Toggle | Click | Toggle light/dark/system |
-| Activity Item | Click (when linkable) | Navigate to entity |
+### Refresh
+- Click button → Sets loading state → Fetches all sections → Updates timestamp
+
+### Stat Card Click
+- Navigate to relevant page (e.g., clicks Executions → /executions)
+
+### Activity Item Click
+- Navigate to detail page (if href exists)
+
+### Quick Action Click
+- Founder: Open appropriate dialog
+- Non-Founder: May need different handling (disabled, navigate)
+
+### Dialog Actions
+- Cancel: Close dialog
+- Submit: Show loading state, call API, show success/error snackbar, reset form
 
 ---
 
 ## 12. Accessibility Requirements
 
-- WCAG 2.2 AA compliance
-- Keyboard navigation via Tab
-- Focus indicators on interactive elements
-- ARIA labels for tab panels
-- Color contrast ≥ 4.5:1
-- Status conveyed by text AND color
+- All interactive elements must have accessible labels
+- Keyboard navigation through tabs and arrows
+- Focus visible on interactive elements
+- ARIA labels for icon buttons
+- Color used with text (not only) for status
 
 ---
 
 ## 13. Responsive Behavior
 
-| Breakpoint | Columns | Notes |
-|------------|---------|-------|
-| 1440px | 4 KPI | Full desktop layout |
-| 1024px | 2 KPI | Laptop, stacked sections |
-| 768px | 2 KPI | Tablet, single column |
-| 375px | 1 KPI | Mobile, condensed |
-| 320px | 1 KPI | Small mobile, no horizontal scroll |
+| Breakpoint | Behavior |
+|------------|----------|
+| 1440px | 4-column stat grid, 2-column activity/actions |
+| 1024px | 4-column stat grid, 2-column activity/actions |
+| 768px | 2x2 stat grid, stacked activity/actions |
+| 375px | Single column, stat cards stack vertically |
 
 ---
 
 ## 14. Exact Proposed File Changes
 
-### New Files (pending approval):
-- `frontend/src/features/dashboard/components/StatCard.tsx`
-- `frontend/src/features/dashboard/components/ActivityList.tsx`
-- `frontend/src/features/dashboard/components/QuickActions.tsx`
-- `frontend/src/features/dashboard/components/AttentionQueue.tsx`
+### New Files (if needed)
+- `ActionCard.tsx` - Reusable action button component
 
-### Modified Files:
-- `frontend/src/features/dashboard/pages/DashboardPage.tsx` — Refactor for independent loading
-- `frontend/src/shared/theme/use-theme-store.tsx` — Fix MUI provider (DONE)
-- `frontend/src/shared/types/api.ts` — Add missing API types if needed
+### Modified Files
+1. `DashboardPage.tsx` - Refactor into smaller components
+2. `StatCard.tsx` - May need minor adjustments
+3. `ActivityList.tsx` - Potentially extract `ActivityItem`
+
+### Unchanged Files
+- All other dashboard components remain as-is
+- Theme configuration remains as-is
 
 ---
 
-## 15. Components to Remain Untouched
+## 15. Components/Files That Must Remain Untouched
 
-- `App.tsx` — Authentication boundary
-- `Layout.tsx` — Shell structure
-- Theme configuration in `shared/theme/`
-- API client in `shared/api/`
+- `frontend/src/shared/theme/use-theme-store.tsx` - Already correct MUI 9 ThemeProvider
+- `frontend/src/app/App.tsx` - Application shell routing
+- Authentication and authorization middleware
+- API route handlers
 
 ---
 
 ## 16. Implementation Sequence
 
-1. Fix MUI provider (DONE)
-2. Refactor DashboardPage for independent loading
-3. Create StatCard component
-4. Create AttentionQueue component
-5. Create ActivityList component
-6. Create QuickActions component
-7. Add section-level error boundaries
-8. Add loading skeletons per section
-9. Implement theme system toggle
-10. Add integration tests
+1. **Phase 1:** Refactor DashboardPage into components
+   - Extract StatCard to separate file
+   - Extract ActivityList to separate file
+   - Extract QuickActions to separate file
+
+2. **Phase 2:** Fix Activity type mismatch
+   - Add 'message' type to ACTIVITY_TYPE_CONFIG
+
+3. **Phase 3:** Add Constitution 404 resilience
+   - Make constitution section independent
+   - Add empty state for missing constitution
+
+4. **Phase 4:** Improve empty states
+   - Add proper empty action handlers
+   - Improve messaging for empty states
 
 ---
 
 ## 17. Regression and Acceptance Tests
 
-| Test | Description | Status |
-|------|-------------|--------|
-| TC01 | Light mode renders correctly | Pending |
-| TC02 | Dark mode renders correctly | Pending |
-| TC03 | Theme persists after reload | Pending |
-| TC04 | Loading states show correctly | Pending |
-| TC05 | Error states recover with retry | Pending |
-| TC06 | KPI cards navigate correctly | Pending |
-| TC07 | Responsive breakpoints work | Pending |
-| TC08 | Keyboard navigation passes | Pending |
-| TC09 | No horizontal overflow at any breakpoint | Pending |
+### Required Tests
+1. Founder can see all 4 KPI cards populated
+2. Division head sees division-scoped metrics
+3. Staff sees their own metrics
+4. Theme toggles correctly and persists
+5. Activity feed shows items with correct types
+6. Clicking activity navigates correctly
+7. Dialog forms validate and submit
+8. Error states render correctly
+9. Loading states render correctly
+10. Empty states render with CTA
+
+### Test Commands
+```
+npm test -- tests/unit/dashboard.test.ts
+npm run test:e2e -- dashboard
+```
 
 ---
 
-## 18. Risks, Dependencies, Unresolved Questions
+## 18. Risks, Dependencies, and Unresolved Questions
 
-| Risk | Mitigation | Owner |
-|------|------------|-------|
-| Activity endpoint may not exist | Verify API first | Pending |
-| Constitution 404 may need special handling | Already handled | DONE |
-| Theme system "system" option requires additional logic | Implement after approval | Pending |
-| Semantic color tokens not imported in dashboard | Import from shared/tokens | Pending |
+### Risks
+- **Low:** Refactoring may introduce bugs - covered by existing tests
+- **Medium:** Constitution 404 handling needs careful implementation
+- **Low:** Theme changes may affect other pages using same themes
+
+### Dependencies
+- MUI 9 (already installed)
+- Existing API contracts (must not change)
+- Theme context (must preserve persistence)
+
+### Unresolved Questions
+1. Should pending approvals show in attention queue or elsewhere?
+2. What is the exact definition of "pending approval" for executions vs tasks?
+3. Should there be a "view all" link for activity feed?
 
 ---
 
 ## 19. Design Principles Preserved
 
-- MUI 9 (already using)
-- Inter typography (already using)
-- 8px spacing rhythm
-- Governance Blue primary, Organization Purple secondary
-- 1200px max-width containers
-- Information density purposeful
-- Status by text AND color
+- MUI 9 remains the component framework
+- Inter remains the typography
+- Governance Blue remains primary accent
+- Organization Purple remains secondary accent
+- Light and dark palette values remain unchanged
+- 8px spacing rhythm remains
+- Content max width remains 1200px
+- Information density remains purposeful
 
 ---
 
 ## 20. Next Steps
 
-1. Founder review and approval of this plan
-2. Confirm activity endpoint existence
-3. Verify API response formats
-4. Get approval for implementation
-5. Execute implementation sequence
+1. ⏳ **Created this plan** - Ready for Founder review
+2. ❌ **Do NOT implement** until Founder approves
+3. ✓ **Run tests** after any implementation
 
 ---
-
-**THIS PLAN IS DRAFT. DO NOT IMPLEMENT VISUAL REDESIGN UNTIL APPROVED.**

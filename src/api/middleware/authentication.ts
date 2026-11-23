@@ -340,11 +340,33 @@ export async function mcpRuntimeAuthMiddleware(
 
   // 7. Establish runtime session using lifecycle manager
   // This creates a session_id that ownership/execution guards can validate
-  const { getRuntimeLifecycleManager } = await import('../../runtime/lifecycle.js');
+  // FIX R1: Check for existing session to maintain continuity
+  const { getRuntimeLifecycleManager, parseUnixMs } = await import('../../runtime/lifecycle.js');
   const lifecycle = getRuntimeLifecycleManager(db);
   const clientIp = req.socket?.remoteAddress || 'unknown';
+
+  // Look up existing session by runtime ID
+  const existingSession = db.stmt.getRuntimeSessionByRuntime.get(runtimePrincipal.runtimeId) as any | undefined;
+
+  // Verify the session's lease is not expired before reuse
+  let existingSessionId: string | undefined;
+  if (existingSession && existingSession.connection_status === 'connected') {
+    const leaseExpiresAt = existingSession.lease_expires_at;
+    if (leaseExpiresAt) {
+      const leaseExpiresMs = parseUnixMs(leaseExpiresAt);
+      if (leaseExpiresMs && leaseExpiresMs > Date.now()) {
+        // Session is valid and not expired - reuse it
+        existingSessionId = existingSession.session_id;
+      }
+    } else {
+      // No lease expiration set - treat as always valid
+      existingSessionId = existingSession.session_id;
+    }
+  }
+
   const connResult = lifecycle.connect({
     runtime: runtimePrincipal.runtimeId,
+    sessionId: existingSessionId,
     clientIp
   });
 
