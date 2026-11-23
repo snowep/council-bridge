@@ -10,7 +10,7 @@ import {
   useEffect,
 } from 'react';
 import {
-  Experimental_CssVarsProvider,
+  ThemeProvider as MuiThemeProvider,
   type Theme,
 } from '@mui/material/styles';
 import { lightTheme, darkTheme } from './index';
@@ -98,10 +98,10 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     theme,
   };
 
-  // Wrap with MUI's CSS Variables Provider to inject styles to DOM
+  // Wrap with MUI's ThemeProvider for CSS variables (MUI 9)
   return (
-    <Experimental_CssVarsProvider theme={theme}>
+    <MuiThemeProvider theme={theme}>
       <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>
-    </Experimental_CssVarsProvider>
+    </MuiThemeProvider>
   );
 }

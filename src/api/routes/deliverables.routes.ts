@@ -90,14 +90,14 @@ router.get('/:id', asyncHandler(async (req: Request, res: Response) => {
 
 // GET /api/deliverables/:id/versions - Get deliverable version history
 router.get('/:id/versions', asyncHandler(async (req: Request, res: Response) => {
-  requireAuth(req);
+  const ctx = requireAuth(req);
   const id = getParamId(req.params, 'id');
 
   if (!id) {
     throw new NotFoundError('Deliverable ID required');
   }
 
-  const history = getDeliverableHistory(db, { owner_type: 'founder', owner_id: 'founder', runtime: 'claude' }, id);
+  const history = getDeliverableHistory(db, ctx, id);
 
   res.json({ versions: history });
 }));

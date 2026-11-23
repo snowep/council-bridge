@@ -59,52 +59,117 @@ const CouncilPage: React.FC = () => {
   const [runtimeAssignments, setRuntimeAssignments] = useState<RuntimePersonaAssignment[]>([]);
   const [constitution, setConstitution] = useState<Constitution | null>(null);
   const [approvals, setApprovals] = useState<ApprovalRequest[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+
+  const [loadingSeats, setLoadingSeats] = useState(true);
+  const [loadingPersonas, setLoadingPersonas] = useState(true);
+  const [loadingAssignments, setLoadingAssignments] = useState(true);
+  const [loadingConstitution, setLoadingConstitution] = useState(true);
+  const [loadingApprovals, setLoadingApprovals] = useState(true);
+
+  const [errorSeats, setErrorSeats] = useState<string | null>(null);
+  const [errorPersonas, setErrorPersonas] = useState<string | null>(null);
+  const [errorAssignments, setErrorAssignments] = useState<string | null>(null);
+  const [errorConstitution, setErrorConstitution] = useState<string | null>(null);
+  const [errorApprovals, setErrorApprovals] = useState<string | null>(null);
 
   const handleChange = (_event: React.SyntheticEvent, newValue: number) => {
     setValue(newValue);
   };
 
-  const fetchAllData = async () => {
+  // Fetch each section independently
+  const fetchSeats = async () => {
     try {
-      setLoading(true);
-      setError(null);
-
-      const [
-        seatsResponse,
-        personasResponse,
-        assignmentsResponse,
-        constitutionResponse,
-        approvalsResponse,
-      ] = await Promise.all([
-        apiClient.get<{ seats: CouncilSeat[] }>('/api/council/seats'),
-        apiClient.get<{ data: Persona[] }>('/api/council/personas'),
-        apiClient.get<{ data: RuntimePersonaAssignment[] }>('/api/council/runtime-assignments'),
-        apiClient.get<{ data: Constitution }>('/api/council/constitution'),
-        apiClient.get<{ data: ApprovalRequest[]; limit: number; offset: number }>('/api/approvals'),
-      ]);
-
-      setSeats(Array.isArray(seatsResponse.seats) ? seatsResponse.seats : []);
-      setPersonas(Array.isArray(personasResponse.data) ? personasResponse.data : []);
-      setRuntimeAssignments(Array.isArray(assignmentsResponse.data) ? assignmentsResponse.data : []);
-      setConstitution(constitutionResponse.data);
-      setApprovals(Array.isArray(approvalsResponse.data) ? approvalsResponse.data : []);
+      const response = await apiClient.get<{ seats: CouncilSeat[] }>('/api/council/seats');
+      setSeats(Array.isArray(response.seats) ? response.seats : []);
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to fetch council data';
-      setError(message);
-      console.error('Council data fetch error:', err);
+      const message = err instanceof Error ? err.message : 'Failed to fetch seats';
+      setErrorSeats(message);
     } finally {
-      setLoading(false);
+      setLoadingSeats(false);
+    }
+  };
+
+  const fetchPersonas = async () => {
+    try {
+      const response = await apiClient.get<{ data: Persona[] }>('/api/council/personas');
+      setPersonas(Array.isArray(response.data) ? response.data : []);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to fetch personas';
+      setErrorPersonas(message);
+    } finally {
+      setLoadingPersonas(false);
+    }
+  };
+
+  const fetchRuntimeAssignments = async () => {
+    try {
+      const response = await apiClient.get<{ data: RuntimePersonaAssignment[] }>('/api/council/runtime-assignments');
+      setRuntimeAssignments(Array.isArray(response.data) ? response.data : []);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to fetch runtime assignments';
+      setErrorAssignments(message);
+    } finally {
+      setLoadingAssignments(false);
+    }
+  };
+
+  const fetchConstitution = async () => {
+    try {
+      const response = await apiClient.get<{ data: Constitution }>('/api/council/constitution');
+      setConstitution(response.data);
+    } catch (err) {
+      // Constitution 404 is expected when not yet active - show empty state
+      if (err instanceof Error && 'code' in (err as any)) {
+        const errorAny = err as any;
+        if (errorAny.code === 404 || errorAny.response?.status === 404) {
+          setConstitution(null);
+        } else {
+          setErrorConstitution(err.message);
+        }
+      } else {
+        setConstitution(null);
+      }
+    } finally {
+      setLoadingConstitution(false);
+    }
+  };
+
+  const fetchApprovals = async () => {
+    try {
+      const response = await apiClient.get<{ data: ApprovalRequest[]; limit: number; offset: number }>('/api/approvals');
+      setApprovals(Array.isArray(response.data) ? response.data : []);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to fetch approvals';
+      setErrorApprovals(message);
+    } finally {
+      setLoadingApprovals(false);
     }
   };
 
   const handleRefresh = () => {
-    fetchAllData();
+    setLoadingSeats(true);
+    setLoadingPersonas(true);
+    setLoadingAssignments(true);
+    setLoadingConstitution(true);
+    setLoadingApprovals(true);
+    setErrorSeats(null);
+    setErrorPersonas(null);
+    setErrorAssignments(null);
+    setErrorConstitution(null);
+    setErrorApprovals(null);
+    fetchSeats();
+    fetchPersonas();
+    fetchRuntimeAssignments();
+    fetchConstitution();
+    fetchApprovals();
   };
 
   useEffect(() => {
-    fetchAllData();
+    fetchSeats();
+    fetchPersonas();
+    fetchRuntimeAssignments();
+    fetchConstitution();
+    fetchApprovals();
   }, []);
 
   const getPersonaForSeat = (seatId: string) => {
@@ -115,7 +180,9 @@ const CouncilPage: React.FC = () => {
     return runtimeAssignments.find(a => a.persona_id === personaId);
   };
 
-  if (loading) {
+  const isAnyLoading = loadingSeats || loadingPersonas || loadingAssignments || loadingConstitution || loadingApprovals;
+
+  if (isAnyLoading) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '60vh' }}>
         <CircularProgress />
@@ -123,20 +190,22 @@ const CouncilPage: React.FC = () => {
     );
   }
 
-  if (error) {
+  const hasAnyError = errorSeats || errorPersonas || errorAssignments || errorConstitution || errorApprovals;
+
+  if (hasAnyError) {
     return (
       <Box sx={{ p: 3, textAlign: 'center' }}>
-        <Alert severity="error" onClose={() => setError(null)}>
-          {error}
-          <Button
-            onClick={handleRefresh}
-            startIcon={<RefreshOutlined />}
-            size="small"
-            sx={{ ml: 2 }}
-          >
-            Retry
-          </Button>
-        </Alert>
+        <Alert severity="error" onClose={() => {}} sx={{ mb: 2 }}>
+          Failed to load some data. Check console for details.
+          {errorSeats && <><br />Seats: {errorSeats}</>}</Alert>
+        <Button
+          onClick={handleRefresh}
+          startIcon={<RefreshOutlined />}
+          size="small"
+          sx={{ mt: 2 }}
+        >
+          Retry
+        </Button>
       </Box>
     );
   }
@@ -148,7 +217,7 @@ const CouncilPage: React.FC = () => {
           Council Membership
         </Typography>
         <Tooltip title="Refresh council data">
-          <IconButton onClick={handleRefresh} disabled={loading} aria-label="Refresh">
+          <IconButton onClick={handleRefresh} disabled={isAnyLoading} aria-label="Refresh">
             <RefreshOutlined />
           </IconButton>
         </Tooltip>
