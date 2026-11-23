@@ -52,8 +52,6 @@ import { apiClient, getErrorMessage } from '@shared/api/client';
 import type { Task, TaskStatus, TaskAssignedToType } from '@shared/types/api';
 import { TabPanel } from '@shared/components/TabPanel';
 import { useAppAuth } from '@app/use-app-auth';
-import { LOCAL_SINGLE_USER_MODE } from '@app/constants';
-
 interface TaskFormData {
   title: string;
   description: string;
@@ -950,4 +948,3 @@ export default function TasksPage() {
   );
 };
 
-export default TasksPage;

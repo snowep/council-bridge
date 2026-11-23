@@ -5,7 +5,8 @@
 
 import { createDatabase } from '../src/database.js';
 import { initializeCouncil, createDefaultConstitution } from './seed/initialize-council.js';
-import { verifyFounderOperationBeforeBootstrap, setDatabaseInstance, initializeFounderKeys, loadFounderPublicKey } from '../src/auth/founder.js';
+import { verifyFounderOperationBeforeBootstrap, initializeFounderKeys, loadFounderPublicKey } from '../src/auth/founder.js';
+import { setDatabaseInstance } from '../src/database.js';
 import { validateSeedDatabasePath } from '../src/security/database-seeding-guard.js';
 
 const DATABASE_PATH = process.env.DATABASE_PATH || ':memory:';

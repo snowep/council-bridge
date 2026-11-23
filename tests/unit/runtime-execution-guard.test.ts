@@ -1,7 +1,7 @@
 // Runtime Execution Guard Unit Tests
 // Phase 10: Verify TOCTOU protection at MCP tool execution boundary
 
-import { describe, it, afterEach, beforeEach, before, after } from 'node:test';
+import { describe, it, afterEach, beforeEach, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { createDatabase } from '../../src/database.js';
 import { RuntimeLifecycleManager, resetRuntimeLifecycleManager } from '../../src/runtime/lifecycle.js';

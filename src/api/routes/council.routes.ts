@@ -2,21 +2,20 @@
 // Implements: GET /api/council/seats, GET /api/council/personas, GET /api/council/meetings
 
 import { Router, Request, Response } from 'express';
-import { getDatabase } from '../../database.js';
 import { listMemoryEntries } from '../../council/memory.js';
 import { listMeetings } from '../../council/meetings.js';
 import { getActiveConstitution, getStaffRuntimePersonas } from '../../council/divisions.js';
-import { authMiddleware, getAuthContext, requireAuth } from '../middleware/authentication.js';
-import { asyncHandler, NotFoundError } from '../middleware/error-handler.js';
+import { authMiddleware, requireAuth } from '../middleware/authentication.js';
+import { asyncHandler } from '../middleware/error-handler.js';
 import { ListMeetingsSchema } from '../schemas/index.js';
+import { databaseInstance as db } from '../../database.js';
 
 const router = Router();
-import { databaseInstance as db } from '../../database.js';
 
 // Apply auth middleware to all routes
 router.use(authMiddleware);
 
-// GET /api/council/seats - List council seats
+// GET /api/council/seats - List all council seats (including vacancies)
 router.get('/seats', asyncHandler(async (req: Request, res: Response) => {
   requireAuth(req);
 
@@ -24,7 +23,6 @@ router.get('/seats', asyncHandler(async (req: Request, res: Response) => {
     SELECT cs.*, cs.name as seat_name, cs.description as seat_description,
            NULL as occupant_name, NULL as occupant_runtime
     FROM council_seats cs
-    WHERE cs.status != 'vacant'
     ORDER BY cs.seat_id
   `);
 
@@ -55,7 +53,7 @@ router.get('/personas', asyncHandler(async (req: Request, res: Response) => {
 // GET /api/council/meetings - Alias for meetings list
 router.get('/meetings', asyncHandler(async (req: Request, res: Response) => {
   requireAuth(req);
-  const { limit, offset, status } = ListMeetingsSchema.parse(req.query);
+  const { limit, offset } = ListMeetingsSchema.parse(req.query);
 
   const meetings = listMeetings(db);
 

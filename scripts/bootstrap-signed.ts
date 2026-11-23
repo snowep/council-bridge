@@ -4,7 +4,8 @@
 
 import { createDatabase, getDatabaseInstance } from '../src/database.js';
 import { initializeCouncil, createDefaultConstitution } from './seed/initialize-council.js';
-import { verifyFounderOperationBeforeBootstrap, setDatabaseInstance, loadFounderPublicKey } from '../src/auth/founder.js';
+import { verifyFounderOperationBeforeBootstrap, loadFounderPublicKey } from '../src/auth/founder.js';
+import { setDatabaseInstance } from '../src/database.js';
 import { getAuthConfig } from '../src/auth/index.js';
 import { validateSeedDatabasePath } from '../src/security/database-seeding-guard.js';
 import * as fs from 'fs';

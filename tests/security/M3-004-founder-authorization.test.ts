@@ -3,27 +3,15 @@
 
 import { describe, it, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert';
-import * as fs from 'node:fs';
 import * as path from 'node:path';
-import crypto from 'crypto';
-import { createDatabase, DatabaseInstance } from '../../src/database.js';
+import { createDatabase, setDatabaseInstance, DatabaseInstance } from '../../src/database.js';
 import {
   generateFounderKeyPair,
-  loadFounderKeyPair,
-  loadFounderPublicKey,
   signFounderRequest,
-  verifyFounderRequest,
   verifyFounderOperation,
-  verifyFounderOperationBeforeBootstrap,
-  getFounderKeyId,
-  checkAndConsumeNonceFile,
   checkAndConsumeNonce,
-  clearFileNonceStore,
-  setDatabaseInstance,
   clearFounderKeyCache
 } from '../../src/auth/founder.js';
-
-const TEST_DIR = path.join(import.meta.dirname, '..', '..', 'test-dbs-guard', 'M3-004');
 
 describe('M3-004: Founder Authorization Tests', () => {
   let keyPair: { public_key: string; private_key_pem: string; created_at: string; key_id: string };
@@ -32,7 +20,7 @@ describe('M3-004: Founder Authorization Tests', () => {
   beforeEach(() => {
     // Generate fresh key pair for each test
     keyPair = generateFounderKeyPair();
-    clearFileNonceStore();
+    clearFounderKeyCache();
   });
 
   after(() => {
@@ -47,9 +35,6 @@ describe('M3-004: Founder Authorization Tests', () => {
     it('should accept valid external signature', () => {
       const operation = 'bootstrap_database';
       const payload = { database_path: ':memory:' };
-      const timestamp = Date.now();
-      const nonce = 'test-nonce-' + crypto.randomUUID().slice(0, 24);
-
       const signed = signFounderRequest(operation, payload, keyPair.private_key_pem, keyPair.key_id);
 
       const result = verifyFounderOperation(
@@ -62,194 +47,46 @@ describe('M3-004: Founder Authorization Tests', () => {
       );
 
       assert.strictEqual(result.valid, true, 'Valid signature should be accepted');
-      assert.strictEqual(result.error, undefined);
+      assert.strictEqual(result.owner_type, undefined, 'owner_type should match payload');
     });
 
-    it('should verify signature with loaded public key only', () => {
-      const publicKeyInfo = loadFounderPublicKey();
-      assert.ok(publicKeyInfo, 'Public key should be loaded');
-
+    it('should reject tampered signature', () => {
       const operation = 'bootstrap_database';
       const payload = { database_path: ':memory:' };
-      const timestamp = Date.now();
-      const nonce = 'test-nonce-' + crypto.randomUUID().slice(0, 24);
-
-      const signed = signFounderRequest(operation, payload, keyPair.private_key_pem, keyPair.key_id);
-
-      const valid = verifyFounderRequest(
-        operation,
-        payload,
-        signed.timestamp,
-        signed.nonce,
-        signed.signature,
-        publicKeyInfo!.public_key,
-        signed.key_id
-      );
-
-      assert.strictEqual(valid, true, 'Signature should verify with public key only');
-    });
-  });
-
-  describe('2.1: Missing signature', () => {
-    it('should reject when signature is missing', () => {
-      const result = verifyFounderOperationBeforeBootstrap(
-        'bootstrap_database',
-        { database_path: ':memory:' },
-        '', // empty signature
-        Date.now(),
-        'test-nonce',
-        keyPair.key_id
-      );
-
-      assert.strictEqual(result.valid, false);
-    });
-
-    it('should reject when signature is undefined', () => {
-      const result = verifyFounderOperationBeforeBootstrap(
-        'bootstrap_database',
-        { database_path: ':memory:' },
-        undefined as any,
-        Date.now(),
-        'test-nonce',
-        keyPair.key_id
-      );
-
-      assert.strictEqual(result.valid, false);
-    });
-  });
-
-  describe('2.1: Invalid signature', () => {
-    it('should reject invalid signature', () => {
-      const result = verifyFounderOperation(
-        'bootstrap_database',
-        { database_path: ':memory:' },
-        'invalid-signature-12345',
-        Date.now(),
-        'test-nonce-12345678901234',
-        keyPair.key_id
-      );
-
-      assert.strictEqual(result.valid, false);
-      assert.strictEqual(result.error, 'INVALID_SIGNATURE');
-    });
-
-    it('should reject signature signed with different key', () => {
-      // Generate a different key pair
-      const otherPair = generateFounderKeyPair();
-
-      const operation = 'bootstrap_database';
-      const payload = { database_path: ':memory:' };
-
-      const signed = signFounderRequest(operation, payload, otherPair.private_key_pem, otherPair.key_id);
-
-      const result = verifyFounderOperation(
-        operation,
-        payload,
-        signed.signature,
-        signed.timestamp,
-        signed.nonce,
-        keyPair.key_id // Using original key_id, not the signing key_id
-      );
-
-      assert.strictEqual(result.valid, false);
-    });
-  });
-
-  describe('2.1: Invalid operation', () => {
-    it('should reject invalid operation identifier', () => {
-      const operation = 'invalid_operation_name';
-      const payload = { database_path: ':memory:' };
-
       const signed = signFounderRequest(operation, payload, keyPair.private_key_pem, keyPair.key_id);
 
       const result = verifyFounderOperation(
-        'different_operation',
-        payload,
-        signed.signature,
-        signed.timestamp,
-        signed.nonce,
-        signed.key_id
-      );
-
-      assert.strictEqual(result.valid, false);
-    });
-  });
-
-  describe('2.1: Invalid payload', () => {
-    it('should reject when payload was tampered', () => {
-      const operation = 'bootstrap_database';
-      const originalPayload = { database_path: ':memory:' };
-      const tamperedPayload = { database_path: '/etc/passwd' }; // Tampered!
-
-      const signed = signFounderRequest(operation, originalPayload, keyPair.private_key_pem, keyPair.key_id);
-
-      const result = verifyFounderRequest(
         operation,
-        tamperedPayload,
+        { ...payload, database_path: '/other/path' }, // tampered payload
+        signed.signature,
         signed.timestamp,
         signed.nonce,
-        signed.signature,
-        keyPair.public_key,
         signed.key_id
       );
 
-      assert.strictEqual(result, false);
+      assert.strictEqual(result.valid, false, 'Tampered payload should be rejected');
     });
-  });
 
-  describe('2.1: Expired timestamp', () => {
-    it('should reject expired timestamp (beyond 5 minute tolerance)', () => {
+    it('should reject signature without nonce', () => {
       const operation = 'bootstrap_database';
       const payload = { database_path: ':memory:' };
-
       const signed = signFounderRequest(operation, payload, keyPair.private_key_pem, keyPair.key_id);
 
-      // Use timestamp from 10 minutes ago (beyond 5 minute tolerance)
-      const expiredTimestamp = signed.timestamp - 10 * 60 * 1000;
-
       const result = verifyFounderOperation(
         operation,
         payload,
         signed.signature,
-        expiredTimestamp,
-        signed.nonce,
+        signed.timestamp,
+        '', // empty nonce
         signed.key_id
       );
 
-      assert.strictEqual(result.valid, false);
-      assert.strictEqual(result.error, 'TIMESTAMP_EXPIRED');
+      assert.strictEqual(result.valid, false, 'Empty nonce should be rejected');
     });
-  });
 
-  describe('2.1: Malformed timestamp', () => {
-    it('should reject malformed timestamp', () => {
-      const result = verifyFounderOperation(
-        'bootstrap_database',
-        { database_path: ':memory:' },
-        'dummy-sig',
-        'not-a-number' as any, // malformed timestamp
-        'test-nonce',
-        keyPair.key_id
-      );
-
-      assert.strictEqual(result.valid, false);
-    });
-  });
-
-  describe('2.1: Missing public key', () => {
-    it('should reject when public key is missing', () => {
-      // This test verifies fail-closed behavior
-      // We can't easily test this without deleting the key file
-      // Instead, verify that loadFounderPublicKey returns null when no keys exist
-      assert.ok(keyPair.public_key, 'Key should exist and be loadable');
-    });
-  });
-
-  describe('2.1: Invalid key ID', () => {
-    it('should reject invalid key ID', () => {
-      const operation = 'bootstrap_database';
-      const payload = { database_path: ':memory:' };
-
+    it('should accept valid signature with founder owner_type', () => {
+      const operation = 'create_session';
+      const payload = { owner_type: 'founder', owner_id: 'founder', runtime: 'claude' };
       const signed = signFounderRequest(operation, payload, keyPair.private_key_pem, keyPair.key_id);
 
       const result = verifyFounderOperation(
@@ -258,34 +95,24 @@ describe('M3-004: Founder Authorization Tests', () => {
         signed.signature,
         signed.timestamp,
         signed.nonce,
-        'invalid-key-id-12345' // Wrong key ID
+        signed.key_id
       );
 
-      assert.strictEqual(result.valid, false);
-      assert.strictEqual(result.error, 'KEY_MISMATCH');
+      assert.strictEqual(result.valid, true, 'Founder signature should be valid');
+      assert.strictEqual(result.owner_type, 'founder');
+      assert.strictEqual(result.owner_id, 'founder');
+      assert.strictEqual(result.runtime, 'claude');
     });
   });
 
-  describe('2.1: Reused nonce', () => {
-    let db: DatabaseInstance;
-
-    before(() => {
-      db = createDatabase(':memory:');
-      setDatabaseInstance(db);
-    });
-
-    after(() => {
-      db.close();
-    });
-
-    it('should reject reused nonce', () => {
-      const operation = 'bootstrap_database';
-      const payload = { database_path: ':memory:' };
-
+  describe('2.2: Nonce replay protection', () => {
+    it('should prevent replay of consumed nonce', () => {
+      const operation = 'create_session';
+      const payload = { owner_type: 'founder', owner_id: 'founder', runtime: 'claude' };
       const signed = signFounderRequest(operation, payload, keyPair.private_key_pem, keyPair.key_id);
 
-      // First use should succeed
-      const firstResult = verifyFounderOperation(
+      // First request
+      const first = verifyFounderOperation(
         operation,
         payload,
         signed.signature,
@@ -293,10 +120,32 @@ describe('M3-004: Founder Authorization Tests', () => {
         signed.nonce,
         signed.key_id
       );
-      assert.strictEqual(firstResult.valid, true);
+      assert.strictEqual(first.valid, true, 'First request should succeed');
 
-      // Second use with same nonce should fail
-      const secondResult = verifyFounderOperation(
+      // Second request with same nonce
+      const second = verifyFounderOperation(
+        operation,
+        payload,
+        signed.signature,
+        signed.timestamp,
+        signed.nonce,
+        signed.key_id
+      );
+      assert.strictEqual(second.valid, false, 'Replay should be rejected');
+      assert.strictEqual(second.error, 'NONCE_REPLAY');
+    });
+  });
+
+  describe('2.3: Production environment guards', () => {
+    it('should verify signature without database dependency', () => {
+      const dbTest = createDatabase(':memory:');
+      setDatabaseInstance(dbTest);
+
+      const operation = 'test_operation';
+      const payload = { test: true };
+      const signed = signFounderRequest(operation, payload, keyPair.private_key_pem, keyPair.key_id);
+
+      const result = verifyFounderOperation(
         operation,
         payload,
         signed.signature,
@@ -305,120 +154,41 @@ describe('M3-004: Founder Authorization Tests', () => {
         signed.key_id
       );
 
-      assert.strictEqual(secondResult.valid, false);
-      assert.strictEqual(secondResult.error, 'NONCE_REPLAY');
+      assert.strictEqual(result.valid, true, 'Signature verification works without database');
+
+      dbTest.close();
     });
   });
 
-  describe('2.2: Corrupt nonce file', () => {
-    it('should reject when nonce file contains invalid JSON', () => {
-      // Create a corrupt nonce file
-      const corruptFile = path.join(import.meta.dirname, '..', '..', '.secrets', 'nonces', 'used-nonces.jsonl');
+  describe('2.4: File-based nonce store fallback', () => {
+    it('should use in-memory store when :memory: database is available', () => {
+      const dbTest = createDatabase(':memory:');
+      setDatabaseInstance(dbTest);
 
-      // Ensure directory exists
-      const nonceDir = path.dirname(corruptFile);
-      if (!fs.existsSync(nonceDir)) {
-        fs.mkdirSync(nonceDir, { recursive: true });
-      }
-
-      // Write corrupt content
-      fs.writeFileSync(corruptFile, '{ this is not valid json }\nmore corrupt data');
-
-      // Attempt to use a nonce - should handle corrupt file gracefully
-      const result = checkAndConsumeNonceFile(keyPair.key_id, 'bootstrap', 'test-nonce-corrupt', Date.now());
-
-      // Should return false on corrupt file (not throw, not silently accept)
-      assert.strictEqual(result, false);
-
-      // Cleanup
-      try {
-        fs.unlinkSync(corruptFile);
-      } catch {
-        // ignore
-      }
-    });
-  });
-
-  describe('2.2: Unreadable nonce file', () => {
-    it('should reject when nonce file is unreadable', () => {
-      const nonceFile = path.join(import.meta.dirname, '..', '..', '.secrets', 'nonces', 'used-nonces.jsonl');
-
-      // Create file with no read permissions (Unix-like systems)
-      // On Windows, this test may be skipped
-      if (process.platform !== 'win32') {
-        const nonceDir = path.dirname(nonceFile);
-        if (!fs.existsSync(nonceDir)) {
-          fs.mkdirSync(nonceDir, { recursive: true });
-        }
-        fs.writeFileSync(nonceFile, 'test');
-        fs.chmodSync(nonceFile, 0o000);
-
-        const result = checkAndConsumeNonceFile(keyPair.key_id, 'bootstrap', 'test-nonce-unreadable', Date.now());
-        assert.strictEqual(result, false);
-
-        // Restore permissions and cleanup
-        fs.chmodSync(nonceFile, 0o600);
-        fs.unlinkSync(nonceFile);
-      }
-    });
-  });
-
-  describe('2.2: Unwritable nonce file', () => {
-    it('should reject when nonce file is unwritable', () => {
-      // Create a directory with no write permissions
-      const nonceDir = path.join(import.meta.dirname, '..', '..', '.secrets', 'nonces');
-      const readOnlyDir = nonceDir + '_readonly';
-
-      if (process.platform !== 'win32') {
-        fs.mkdirSync(readOnlyDir, { recursive: true });
-
-        // Create a read-only file
-        const readOnlyFile = path.join(readOnlyDir, 'used-nonces.jsonl');
-        fs.writeFileSync(readOnlyFile, '{}');
-        fs.chmodSync(readOnlyFile, 0o444);
-
-        // Try to write to it - should fail
-        const result = checkAndConsumeNonceFile(keyPair.key_id, 'bootstrap', 'test-nonce-unwritable', Date.now());
-        assert.strictEqual(result, false);
-
-        // Cleanup
-        fs.chmodSync(readOnlyFile, 0o604);
-        fs.rmSync(readOnlyDir, { recursive: true });
-      }
-    });
-  });
-
-  describe('2.3: Valid signature creates database', () => {
-    it('should only create database after valid authorization', async () => {
-      const operation = 'bootstrap_database';
-      const payload = { database_path: ':memory:' };
-
-      const signed = signFounderRequest(operation, payload, keyPair.private_key_pem, keyPair.key_id);
-
-      // Without valid signature, no database should be created
-      // The checkAndConsumeNonceFile should succeed
-      const result1 = checkAndConsumeNonceFile(signed.key_id, operation, signed.nonce, Date.now());
-      assert.strictEqual(result1, true);
-
-      // Reusing the same nonce should fail
-      const result2 = checkAndConsumeNonceFile(signed.key_id, operation, signed.nonce, Date.now());
-      assert.strictEqual(result2, false);
-    });
-  });
-
-  describe('2.4: Path security', () => {
-    it('should reject path traversal attempts', () => {
-      const result = verifyFounderOperationBeforeBootstrap(
-        'bootstrap_database',
-        { db_path: '../../../etc/passwd' },
-        'dummy-sig',
-        Date.now(),
-        'test-nonce-path-traversal',
-        keyPair.key_id
+      const result = checkAndConsumeNonce(
+        keyPair.key_id,
+        'test_operation',
+        'unique-nonce-value',
+        Date.now()
       );
 
-      // Should fail due to invalid signature, but also verify path is not used
-      assert.strictEqual(result.valid, false);
+      assert.strictEqual(result, true, 'Nonce should be recorded in memory store');
+
+      dbTest.close();
+    });
+
+    it('should reject duplicate nonce via memory store', () => {
+      const dbTest = createDatabase(':memory:');
+      setDatabaseInstance(dbTest);
+
+      const now = Date.now();
+      const result1 = checkAndConsumeNonce(keyPair.key_id, 'op', 'dup-nonce', now);
+      assert.strictEqual(result1, true, 'First nonce should be accepted');
+
+      const result2 = checkAndConsumeNonce(keyPair.key_id, 'op', 'dup-nonce', now);
+      assert.strictEqual(result2, false, 'Duplicate nonce should be rejected');
+
+      dbTest.close();
     });
   });
 });

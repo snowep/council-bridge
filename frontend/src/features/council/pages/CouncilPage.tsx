@@ -2,12 +2,6 @@ import React, { useState, useEffect } from 'react';
 import {
   Box,
   Typography,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
   Chip,
   CircularProgress,
   Alert,
@@ -19,6 +13,12 @@ import {
   Divider,
   Tabs,
   Tab,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
 } from '@mui/material';
 import {
   AccountBalanceOutlined,
@@ -30,7 +30,7 @@ import {
   RefreshOutlined,
 } from '@mui/icons-material';
 import { apiClient } from '@shared/api/client';
-import type { CouncilSeat, Persona, RuntimePersonaAssignment, Constitution, FounderApproval } from '@shared/types/api';
+import type { CouncilSeat, Persona, RuntimePersonaAssignment, Constitution, ApprovalRequest } from '@shared/types/api';
 import { TabPanel } from '@shared/components/TabPanel';
 
 const statusChipColors: Record<string, 'default' | 'primary' | 'secondary' | 'error' | 'info' | 'success' | 'warning'> = {
@@ -58,7 +58,7 @@ const CouncilPage: React.FC = () => {
   const [personas, setPersonas] = useState<Persona[]>([]);
   const [runtimeAssignments, setRuntimeAssignments] = useState<RuntimePersonaAssignment[]>([]);
   const [constitution, setConstitution] = useState<Constitution | null>(null);
-  const [founderApprovals, setFounderApprovals] = useState<FounderApproval[]>([]);
+  const [approvals, setApprovals] = useState<ApprovalRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -78,18 +78,18 @@ const CouncilPage: React.FC = () => {
         constitutionResponse,
         approvalsResponse,
       ] = await Promise.all([
-        apiClient.get<{ data: CouncilSeat[] }>('/api/council/seats'),
+        apiClient.get<{ seats: CouncilSeat[] }>('/api/council/seats'),
         apiClient.get<{ data: Persona[] }>('/api/council/personas'),
         apiClient.get<{ data: RuntimePersonaAssignment[] }>('/api/council/runtime-assignments'),
-        apiClient.get<Constitution>('/api/council/constitution'),
-        apiClient.get<{ data: FounderApproval[] }>('/api/approvals'),
+        apiClient.get<{ data: Constitution }>('/api/council/constitution'),
+        apiClient.get<{ data: ApprovalRequest[]; limit: number; offset: number }>('/api/approvals'),
       ]);
 
-      setSeats(Array.isArray(seatsResponse.data) ? seatsResponse.data : []);
+      setSeats(Array.isArray(seatsResponse.seats) ? seatsResponse.seats : []);
       setPersonas(Array.isArray(personasResponse.data) ? personasResponse.data : []);
       setRuntimeAssignments(Array.isArray(assignmentsResponse.data) ? assignmentsResponse.data : []);
-      setConstitution(constitutionResponse);
-      setFounderApprovals(Array.isArray(approvalsResponse.data) ? approvalsResponse.data : []);
+      setConstitution(constitutionResponse.data);
+      setApprovals(Array.isArray(approvalsResponse.data) ? approvalsResponse.data : []);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to fetch council data';
       setError(message);
@@ -160,7 +160,7 @@ const CouncilPage: React.FC = () => {
           <Tab id="council-tab-1" label="Personas" icon={<PersonOutlined />} aria-controls="council-tabpanel-1" />
           <Tab id="council-tab-2" label="Runtime Assignments" icon={<MemoryOutlined />} aria-controls="council-tabpanel-2" />
           <Tab id="council-tab-3" label="Constitution" icon={<DescriptionOutlined />} aria-controls="council-tabpanel-3" />
-          <Tab id="council-tab-4" label="Decisions" icon={<GavelOutlined />} aria-controls="council-tabpanel-4" />
+          <Tab id="council-tab-4" label="Approvals" icon={<GavelOutlined />} aria-controls="council-tabpanel-4" />
           <Tab id="council-tab-5" label="Voting" icon={<HowToVoteOutlined />} aria-controls="council-tabpanel-5" />
         </Tabs>
       </Box>
@@ -417,83 +417,38 @@ const CouncilPage: React.FC = () => {
       {/* Constitution Tab */}
       <TabPanel value={value} index={3}>
         {constitution ? (
-          <Box>
-            <Card sx={{ mb: 3 }}>
-              <CardContent>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2, flexWrap: 'wrap', gap: 2 }}>
-                  <Box>
-                    <Typography variant="h5" gutterBottom>Constitution</Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      Version: {constitution.version} • Status: {constitution.status}
-                    </Typography>
-                  </Box>
-                  <Box sx={{ display: 'flex', gap: 1 }}>
-                    <Chip
-                      label={constitution.status}
-                      color={
-                        constitution.status === 'active' ? 'success' :
-                        constitution.status === 'draft' ? 'warning' : 'default'
-                      }
-                      size="small"
-                    />
-                  </Box>
+          <Card sx={{ maxWidth: 800, mx: 'auto' }}>
+            <CardContent>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2, flexWrap: 'wrap', gap: 2 }}>
+                <Box>
+                  <Typography variant="h5" gutterBottom>Constitution</Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Version: {constitution.version} • Status: {constitution.status}
+                  </Typography>
                 </Box>
+                <Chip
+                  label={constitution.status}
+                  color={
+                    constitution.status === 'active' ? 'success' :
+                    constitution.status === 'draft' ? 'warning' : 'default'
+                  }
+                  size="small"
+                />
+              </Box>
 
-                <Divider sx={{ mb: 2 }} />
+              <Divider sx={{ mb: 2 }} />
 
-                <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap', fontFamily: 'monospace', fontSize: '0.875rem', lineHeight: 1.6 }}>
-                  {constitution.content}
-                </Typography>
+              <Box sx={{ whiteSpace: 'pre-wrap', fontFamily: 'monospace', fontSize: '0.875rem', lineHeight: 1.6 }}>
+                {constitution.content}
+              </Box>
 
-                <Divider sx={{ my: 2 }} />
+              <Divider sx={{ my: 2 }} />
 
-                <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', color: 'text.secondary', fontSize: 'small' }}>
-                  <Typography>Created: {new Date(constitution.created_at).toLocaleString()}</Typography>
-                  <Typography>Updated: {new Date(constitution.updated_at).toLocaleString()}</Typography>
-                  <Typography>ID: {constitution.constitution_id}</Typography>
-                </Box>
-              </CardContent>
-            </Card>
-
-            {founderApprovals.length > 0 && (
-              <Card>
-                <CardContent>
-                  <Typography variant="h6" gutterBottom>Founder Approvals</Typography>
-                  <TableContainer>
-                    <Table size="small" stickyHeader>
-                      <TableHead>
-                        <TableRow>
-                          <TableCell>Approval ID</TableCell>
-                          <TableCell>Status</TableCell>
-                          <TableCell>Notes</TableCell>
-                          <TableCell>Date</TableCell>
-                        </TableRow>
-                      </TableHead>
-                      <TableBody>
-                        {founderApprovals.map((approval) => (
-                          <TableRow key={approval.approval_id} hover>
-                            <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.875rem' }}>{approval.approval_id}</TableCell>
-                            <TableCell>
-                              <Chip
-                                label={approval.approved ? 'Approved' : 'Pending'}
-                                size="small"
-                                color={approval.approved ? 'success' : 'warning'}
-                                variant="outlined"
-                              />
-                            </TableCell>
-                            <TableCell>{approval.notes || '—'}</TableCell>
-                            <TableCell sx={{ fontSize: '0.875rem', color: 'text.secondary' }}>
-                              {new Date(approval.created_at).toLocaleString()}
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </TableContainer>
-                </CardContent>
-              </Card>
-            )}
-          </Box>
+              <Typography variant="caption" color="text.secondary">
+                Created: {new Date(constitution.created_at).toLocaleString()} • Updated: {new Date(constitution.updated_at).toLocaleString()} • ID: {constitution.constitution_id}
+              </Typography>
+            </CardContent>
+          </Card>
         ) : (
           <Typography variant="body1" color="text.secondary" sx={{ textAlign: 'center', py: 4 }}>
             No constitution found
@@ -501,11 +456,55 @@ const CouncilPage: React.FC = () => {
         )}
       </TabPanel>
 
-      {/* Decisions Tab */}
+      {/* Approvals Tab */}
       <TabPanel value={value} index={4}>
-        <Typography variant="body1" color="text.secondary" sx={{ textAlign: 'center', py: 4 }}>
-          Council Decisions - Coming Soon
-        </Typography>
+        {approvals.length === 0 ? (
+          <Typography variant="body1" color="text.secondary" sx={{ textAlign: 'center', py: 4 }}>
+            No approval requests found
+          </Typography>
+        ) : (
+          <TableContainer>
+            <Table stickyHeader>
+              <TableHead>
+                <TableRow>
+                  <TableCell>Approval ID</TableCell>
+                  <TableCell>Execution ID</TableCell>
+                  <TableCell>Action</TableCell>
+                  <TableCell>Status</TableCell>
+                  <TableCell>Created</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {approvals.map((approval) => (
+                  <TableRow key={approval.approval_request_id} hover>
+                    <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.875rem' }}>
+                      #{approval.approval_request_id.slice(0, 8)}
+                    </TableCell>
+                    <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.875rem' }}>
+                      #{approval.execution_id.slice(0, 8)}
+                    </TableCell>
+                    <TableCell>
+                      <Typography variant="body2" sx={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {approval.action_description}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>
+                      <Chip
+                        label={approval.status}
+                        size="small"
+                        color={approval.status === 'approved' ? 'success' : approval.status === 'rejected' ? 'error' : 'warning'}
+                        variant="outlined"
+                      />
+                    </TableCell>
+                    <TableCell sx={{ fontSize: '0.875rem', color: 'text.secondary' }}>
+                      {new Date(approval.created_at).toLocaleDateString()}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        )}
       </TabPanel>
 
       {/* Voting Tab */}

@@ -4,9 +4,7 @@
 
 import { describe, it, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import Database from 'better-sqlite3';
-import { createDatabase, DatabaseInstance } from '../../src/database.js';
-import { setDatabaseInstance } from '../../src/auth/founder.js';
+import { createDatabase, setDatabaseInstance, DatabaseInstance } from '../../src/database.js';
 import {
   generateFounderKeyPair,
   clearFounderKeyCache,
@@ -15,7 +13,6 @@ import {
   stopNonceCleanupInterval,
   checkAndConsumeNonce,
   verifyFounderOperation,
-  verifyFounderRequestWithLoadedKeys,
   FounderKeyPair,
   signFounderRequest
 } from '../../src/auth/founder.js';
@@ -53,7 +50,7 @@ describe('SEC-06: Founder Nonce Cleanup', () => {
       // Mock setInterval to verify interval setup
       const originalSetInterval = global.setInterval;
       const intervals: number[] = [];
-      (global as any).setInterval = (callback: () => void, ms: number) => {
+      (global as any).setInterval = (_callback: () => void, ms: number) => {
         intervals.push(ms);
         intervalStarted = true;
         return 0 as unknown as NodeJS.Timeout;
@@ -99,7 +96,7 @@ describe('SEC-06: Founder Nonce Cleanup', () => {
       const originalSetInterval = global.setInterval;
       const originalClearInterval = global.clearInterval;
 
-      (global as any).setInterval = (callback: () => void, ms: number) => {
+      (global as any).setInterval = (_callback: () => void, ms: number) => {
         intervalRef = 0 as unknown as NodeJS.Timeout; // mock reference
         return intervalRef;
       };

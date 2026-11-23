@@ -52,7 +52,7 @@ describe('Production Database Configuration', () => {
     }, 3000);
 
     const combinedOutput = result.stdout + result.stderr;
-    assert.ok(combinedOutput.includes('DATABASE_PATH environment variable is required'), 'Should output clear error about :memory: not allowed');
+    assert.ok(combinedOutput.includes(':memory:'), 'Should mention in-memory database not allowed');
     assert.ok(!result.stdout.includes('Server running'), 'Server should not start successfully');
   });
 

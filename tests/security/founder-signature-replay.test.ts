@@ -3,20 +3,14 @@
 
 import { describe, it, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert';
-import { createDatabase, DatabaseInstance } from '../../src/database.js';
+import { createDatabase, setDatabaseInstance, DatabaseInstance } from '../../src/database.js';
 import {
   generateFounderKeyPair,
-  loadFounderKeyPair,
-  initializeFounderKeys,
   signFounderRequest,
   verifyFounderOperation,
-  verifyFounderRequestWithLoadedKeys,
-  canonicalizeForSigning,
-  setDatabaseInstance,
   clearFounderKeyCache,
   setFounderKeyCache
 } from '../../src/auth/founder.js';
-import crypto from 'crypto';
 
 let db: DatabaseInstance;
 

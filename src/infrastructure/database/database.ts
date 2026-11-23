@@ -1817,7 +1817,7 @@ interface GenerateIdFunction {
 }
 
 const _generateId: GenerateIdFunction = new Proxy(function() { return getInstance().generateId(); }, {
-  get(target, prop) {
+  get(_target, prop) {
     return (getInstance().generateId as any)[prop];
   }
 }) as GenerateIdFunction;

@@ -8,12 +8,8 @@
 
 import { createDatabase } from '../src/database.js';
 import { initializeCouncil, createDefaultConstitution } from './seed/initialize-council.js';
-import {
-  verifyFounderRequest,
-  loadFounderPublicKey,
-  setDatabaseInstance,
-  checkAndConsumeNonceFile
-} from '../src/auth/founder.js';
+import { verifyFounderRequest, loadFounderPublicKey, checkAndConsumeNonceFile } from '../src/auth/founder.js';
+import { setDatabaseInstance } from '../src/database.js';
 import { validateSeedDatabasePath } from '../src/security/database-seeding-guard.js';
 
 interface BootstrapOptions {

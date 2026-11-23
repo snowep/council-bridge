@@ -191,7 +191,7 @@ export interface CouncilService {
   calculateWeightedScore(scores: Record<string, number>, criteria: EvaluationCriteria[]): number;
 
   // Evaluation
-  submitEvaluation(input: { id: string; meeting_id: string; evaluator_seat_id: string; evaluator_persona_id: string; subject_seat_id: string; subject_persona_id: string; cultural_impact_score: number; creative_output_score: number; collaborative_spirit_score: number; strategic_vision_score: number; authenticity_score: number; weighted_score: number; notes: string }): Evaluation;
+  submitEvaluation(input: { id: string; meeting_id: string; evaluator_seat_id: string; evaluator_persona_id: string; subject_seat_id: string; subject_persona_id: string; cultural_impact_score: number; creative_output_score: number; collaborative_spirit_score: number; strategic_vision_score: number; authenticity_score: number; weighted_score?: number; notes: string }): Evaluation;
   getEvaluations(meetingId: string): AnonymousEvaluation[];
   getEvaluationsBySubject(subjectSeatId: string): AnonymousEvaluation[];
   getEvaluationsInternal(meetingId: string): Evaluation[];

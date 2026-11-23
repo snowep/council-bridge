@@ -62,6 +62,7 @@ import type {
   DeliverableVersion,
   ReviewerType,
   QualityThreshold,
+  Task,
 } from '@shared/types/api';
 import { TabPanel } from '@shared/components/TabPanel';
 
@@ -145,9 +146,8 @@ export default function DeliverablesPage() {
     try {
       setLoading(true);
       setError(null);
-      const res = await apiClient.get<any>('/api/deliverables');
-      const list = Array.isArray(res) ? res : res.data || [];
-      setDeliverables(list);
+      const res = await apiClient.get<{ deliverables: Deliverable[]; limit: number; offset: number }>('/api/deliverables');
+      setDeliverables(res.deliverables || []);
     } catch (err: any) {
       setError(getErrorMessage(err, 'Failed to fetch deliverables'));
     } finally {
@@ -157,8 +157,8 @@ export default function DeliverablesPage() {
 
   const fetchQualityThresholds = async () => {
     try {
-      const res = await apiClient.get<any>('/api/quality-thresholds');
-      setQualityThresholds(Array.isArray(res) ? res : res.data || []);
+      const res = await apiClient.get<{ thresholds: QualityThreshold[] }>('/api/quality-thresholds');
+      setQualityThresholds(res.thresholds || []);
     } catch (err) {
       console.error('Failed to fetch quality thresholds:', err);
     }
@@ -166,8 +166,8 @@ export default function DeliverablesPage() {
 
   const fetchTasks = async () => {
     try {
-      const res = await apiClient.get<any>('/api/tasks');
-      setTasks(Array.isArray(res) ? res : res.data || []);
+      const res = await apiClient.get<{ tasks: Task[] }>('/api/tasks');
+      setTasks(res.tasks || []);
     } catch (err) {
       console.error('Failed to fetch tasks:', err);
     }

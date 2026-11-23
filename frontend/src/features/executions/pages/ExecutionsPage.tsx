@@ -62,6 +62,7 @@ import type {
   TaskAutonomyLevel,
   ExecutionHistory,
   ApprovalRequest,
+  Task,
 } from '@shared/types/api';
 import { TabPanel } from '@shared/components/TabPanel';
 
@@ -135,9 +136,8 @@ export default function ExecutionsPage() {
     try {
       setLoading(true);
       setError(null);
-      const res = await apiClient.get<any>('/api/executions');
-      const list = Array.isArray(res) ? res : res.data || [];
-      setExecutions(list);
+      const res = await apiClient.get<{ executions: ExecutionRequest[]; limit: number; offset: number }>('/api/executions');
+      setExecutions(res.executions || []);
     } catch (err: any) {
       setError(getErrorMessage(err, 'Failed to fetch executions'));
     } finally {
@@ -147,8 +147,8 @@ export default function ExecutionsPage() {
 
   const fetchAutonomyLevels = async () => {
     try {
-      const res = await apiClient.get<any>('/api/executions/autonomy-levels');
-      setAutonomyLevels(Array.isArray(res) ? res : res.data || []);
+      const res = await apiClient.get<{ autonomyLevels: TaskAutonomyLevel[] }>('/api/executions/autonomy-levels');
+      setAutonomyLevels(res.autonomyLevels || []);
     } catch (err) {
       console.error('Failed to fetch autonomy levels:', err);
     }
@@ -156,8 +156,8 @@ export default function ExecutionsPage() {
 
   const fetchApprovalRequests = async () => {
     try {
-      const res = await apiClient.get<any>('/api/approvals');
-      setApprovalRequests(Array.isArray(res) ? res : res.data || []);
+      const res = await apiClient.get<{ data: ApprovalRequest[]; limit: number; offset: number }>('/api/approvals');
+      setApprovalRequests(res.data || []);
     } catch (err) {
       console.error('Failed to fetch approval requests:', err);
     }
@@ -165,8 +165,8 @@ export default function ExecutionsPage() {
 
   const fetchTasks = async () => {
     try {
-      const res = await apiClient.get<any>('/api/tasks');
-      setTasks(Array.isArray(res) ? res : res.data || []);
+      const res = await apiClient.get<{ tasks: Task[] }>('/api/tasks');
+      setTasks(res.tasks || []);
     } catch (err) {
       console.error('Failed to fetch tasks:', err);
     }
