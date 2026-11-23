@@ -7,17 +7,14 @@ import { Router, Request, Response } from 'express';
 import {
   createDeliverableDraft,
   submitDeliverable,
-  reviewDeliverable,
   requestRevision,
-  resubmitDeliverable,
   approveDeliverable,
   rejectDeliverable,
   getDeliverableHistory,
   assignReviewer,
 } from '../../council/task-delegation.js';
 import { listDeliverablesByTask, getDeliverableById } from '../../council/divisions.js';
-import { getDatabase } from '../../database.js';
-import { authMiddleware, getAuthContext, requireAuth } from '../middleware/authentication.js';
+import { authMiddleware, requireAuth } from '../middleware/authentication.js';
 import { asyncHandler, NotFoundError, ValidationError } from '../middleware/error-handler.js';
 import {
   CreateDeliverableSchema,
@@ -72,7 +69,7 @@ router.get('/', asyncHandler(async (req: Request, res: Response) => {
 
 // GET /api/deliverables/:id - Get deliverable details
 router.get('/:id', asyncHandler(async (req: Request, res: Response) => {
-  requireAuth(req);
+  const ctx = requireAuth(req);
   const id = getParamId(req.params, 'id');
 
   if (!id) {
@@ -83,6 +80,27 @@ router.get('/:id', asyncHandler(async (req: Request, res: Response) => {
 
   if (!deliverable) {
     throw new NotFoundError('Deliverable not found');
+  }
+
+  // Authorization check: verify user can access this deliverable
+  // Get the associated task and check access
+  const task = db.query('SELECT * FROM tasks WHERE task_id = ?', [deliverable.task_id])[0] as any;
+  if (!task) {
+    // Return 404 to avoid leaking existence
+    throw new NotFoundError('Deliverable not found');
+  }
+
+  // Founder can access all
+  if (ctx.owner_type !== 'founder') {
+    // Check if user is related to the task
+    const isTaskAssignee = task.assigned_to_type === ctx.owner_type && task.assigned_to_id === ctx.owner_id;
+    const isDeliverableSubmitter = deliverable.submitted_by_type === ctx.owner_type && deliverable.submitted_by_id === ctx.owner_id;
+    const isTaskCreator = task.created_by_type === ctx.owner_type && task.created_by_id === ctx.owner_id;
+
+    if (!isTaskAssignee && !isDeliverableSubmitter && !isTaskCreator) {
+      // Return 404 to avoid leaking existence
+      throw new NotFoundError('Deliverable not found');
+    }
   }
 
   res.json({ deliverable });

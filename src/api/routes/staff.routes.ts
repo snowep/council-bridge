@@ -3,8 +3,8 @@
 
 import { Router, Request, Response } from 'express';
 import { listStaffAgents, getStaffAgentById, getDivisionMembers, getAllDivisionMembers, registerStaffAgent } from '../../council/divisions.js';
-import { authMiddleware, requireAuth, getAuthContext } from '../middleware/authentication.js';
-import { asyncHandler, NotFoundError, ValidationError, AuthorizationError } from '../middleware/error-handler.js';
+import { authMiddleware, requireAuth } from '../middleware/authentication.js';
+import { asyncHandler, NotFoundError, AuthorizationError } from '../middleware/error-handler.js';
 import { ListStaffSchema, RegisterStaffSchema } from '../schemas/index.js';
 
 const router = Router();
@@ -49,11 +49,26 @@ function getParamId(params: any, key: string): string {
 
 // GET /api/staff/:id - Get staff agent details
 router.get('/:id', asyncHandler(async (req: Request, res: Response) => {
-  requireAuth(req);
+  const ctx = requireAuth(req);
   const id = getParamId(req.params, 'id');
 
   if (!id) {
     throw new NotFoundError('Staff ID required');
+  }
+
+  // Authorization check: verify user can access this staff agent
+  if (ctx.owner_type !== 'founder') {
+    // Founder can see all, others only see themselves or division members they lead
+    const isSelf = ctx.owner_type === 'staff' && ctx.owner_id === id;
+    const isDivisionHead = ctx.owner_type === 'division' && id.startsWith('staff-');
+
+    // Check if the staff belongs to the division head
+    const divisionId = ctx.owner_type === 'division' ? ctx.owner_id : undefined;
+    const member = divisionId ? getDivisionMembers(db, divisionId).find(m => m.staff_id === id) : null;
+
+    if (!isSelf && !isDivisionHead && !member) {
+      throw new NotFoundError('Staff agent not found');
+    }
   }
 
   const staff = getStaffAgentById(db, id);

@@ -384,7 +384,7 @@ export default function DashboardPage() {
       loading: loading.executions,
       error: errors.executions,
       onClick: () => navigate('/executions'),
-      emptyAction: totalExecutions === 0 ? { label: 'Request Execution', onClick: () => { }} : null,
+      emptyAction: totalExecutions === 0 ? { label: 'View Executions', onClick: () => navigate('/executions') } : null,
       retryKey: 'executions',
     },
   ];

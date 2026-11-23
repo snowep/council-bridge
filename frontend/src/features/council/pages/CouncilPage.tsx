@@ -119,15 +119,12 @@ const CouncilPage: React.FC = () => {
       setConstitution(response.data);
     } catch (err) {
       // Constitution 404 is expected when not yet active - show empty state
-      if (err instanceof Error && 'code' in (err as any)) {
-        const errorAny = err as any;
-        if (errorAny.code === 404 || errorAny.response?.status === 404) {
-          setConstitution(null);
-        } else {
-          setErrorConstitution(err.message);
-        }
-      } else {
+      const errorAny = err as any;
+      const statusCode = errorAny?.response?.status;
+      if (statusCode === 404 || errorAny?.code === 'NOT_FOUND') {
         setConstitution(null);
+      } else {
+        setErrorConstitution(err instanceof Error ? err.message : 'Failed to fetch constitution');
       }
     } finally {
       setLoadingConstitution(false);
