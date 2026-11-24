@@ -37,7 +37,7 @@ export const DEFAULT_AUTH_CONFIG: AuthConfig = {
     'revoke_cross_division_access',
     'create_session'
   ],
-  allow_hardcoded_fallback: true, // Only in development mode
+  allow_hardcoded_fallback: false,
   local_single_user_mode: process.env.LOCAL_SINGLE_USER_MODE === 'true',
   local_single_user_bind_address: process.env.LOCAL_SINGLE_USER_BIND_ADDRESS || '127.0.0.1',
   session_secret: process.env.SESSION_SECRET || ''
@@ -71,7 +71,7 @@ export function getAuthConfig(): AuthConfig {
   return {
     ...DEFAULT_AUTH_CONFIG,
     mode,
-    allow_hardcoded_fallback: true,
+    allow_hardcoded_fallback: process.env.ALLOW_HARDCODED_FALLBACK === 'true',
     local_single_user_mode: process.env.LOCAL_SINGLE_USER_MODE === 'true',
     local_single_user_bind_address: process.env.LOCAL_SINGLE_USER_BIND_ADDRESS || '127.0.0.1',
     session_secret: devSecret

@@ -413,26 +413,61 @@ export function listActivity(
   } else {
     // Non-Founder: Only show memories they have access to
     // This includes: owned memories, division_shared (their division), cross_division (shared with their division)
-    var memories = db.query(`
-      SELECT m.memory_id, m.title, m.memory_type, m.category, m.owner_type, m.owner_id, m.created_at, m.updated_at
-      FROM memory_entries m
-      LEFT JOIN cross_division_shares cds ON m.memory_id = cds.memory_id AND cds.revoked_at IS NULL
-      WHERE m.archived_at IS NULL
-        AND (
-          m.category IN ('council_shared', 'decision_resolution', 'lesson_learned', 'business_context', 'idea_proposal', 'research_evidence', 'unresolved_question')
-          OR (m.owner_type = 'staff' AND m.owner_id = ? AND m.category = 'staff_private')
-          OR (m.owner_type = 'division' AND m.owner_id = ? AND m.category IN ('division_shared', 'division_private'))
-          OR (m.category = 'division_shared' AND cds.division_id = ?)
-          OR (m.category = 'cross_division' AND cds.division_id IS NOT NULL)
-          OR (m.category = 'task_history' AND m.task_id IN (
-            SELECT task_id FROM tasks WHERE (assigned_to_type = 'staff' AND assigned_to_id = ?)
-              OR (assigned_to_type = 'division' AND assigned_to_id = ?)
-          ))
-          OR (m.owner_type = ? AND m.owner_id = ?)
-        )
-      ORDER BY m.updated_at DESC
-      LIMIT ?
-    `, [ctx.owner_type, ctx.owner_type, ctx.owner_id, ctx.owner_id, ctx.owner_type, ctx.owner_id, batchSize]);
+    // For staff: also shared with their divisions via division_members
+    // Build recipient divisions list based on authenticated context
+    if (ctx.owner_type === 'division') {
+      // Division: their own division membership
+      var memories = db.query(`
+        SELECT m.memory_id, m.title, m.memory_type, m.category, m.owner_type, m.owner_id, m.created_at, m.updated_at
+        FROM memory_entries m
+        WHERE m.archived_at IS NULL
+          AND (
+            m.category IN ('council_shared', 'decision_resolution', 'lesson_learned', 'business_context', 'idea_proposal', 'research_evidence', 'unresolved_question')
+            OR (m.owner_type = 'division' AND m.owner_id = ? AND m.category IN ('division_shared', 'division_private'))
+            OR (m.category = 'division_shared' AND m.division_id = ?)
+            OR (m.category = 'cross_division' AND EXISTS (
+              SELECT 1 FROM cross_division_shares
+              WHERE memory_id = m.memory_id
+                AND status = 'approved'
+                AND revoked_at IS NULL
+                AND division_id = ?
+            ))
+            OR (m.category = 'task_history' AND m.task_id IN (
+              SELECT task_id FROM tasks WHERE (assigned_to_type = 'division' AND assigned_to_id = ?) OR (created_by_type = 'division_head' AND created_by_id = ?)
+            ))
+            OR (m.owner_type = ? AND m.owner_id = ?)
+          )
+        ORDER BY m.updated_at DESC
+        LIMIT ?
+      `, [ctx.owner_id, ctx.owner_id, ctx.owner_id, ctx.owner_type, ctx.owner_id, batchSize]);
+    } else if (ctx.owner_type === 'staff') {
+      // Staff: member of their divisions via division_members
+      var memories = db.query(`
+        SELECT m.memory_id, m.title, m.memory_type, m.category, m.owner_type, m.owner_id, m.created_at, m.updated_at
+        FROM memory_entries m
+        WHERE m.archived_at IS NULL
+          AND (
+            m.category IN ('council_shared', 'decision_resolution', 'lesson_learned', 'business_context', 'idea_proposal', 'research_evidence', 'unresolved_question')
+            OR (m.owner_type = 'staff' AND m.owner_id = ? AND m.category = 'staff_private')
+            OR (m.category = 'division_shared' AND m.division_id IN (SELECT division_id FROM division_members WHERE staff_id = ?))
+            OR (m.category = 'cross_division' AND EXISTS (
+              SELECT 1 FROM cross_division_shares
+              WHERE memory_id = m.memory_id
+                AND status = 'approved'
+                AND revoked_at IS NULL
+                AND division_id IN (SELECT division_id FROM division_members WHERE staff_id = ?)
+            ))
+            OR (m.category = 'task_history' AND m.task_id IN (
+              SELECT task_id FROM tasks WHERE assigned_to_type = 'staff' AND assigned_to_id = ?
+            ))
+            OR (m.owner_type = ? AND m.owner_id = ?)
+          )
+        ORDER BY m.updated_at DESC
+        LIMIT ?
+      `, [ctx.owner_id, ctx.owner_id, ctx.owner_id, ctx.owner_type, ctx.owner_id, batchSize]);
+    } else {
+      throw new Error('Unsupported owner type for activity query');
+    }
   }
 
   for (const mem of memories) {

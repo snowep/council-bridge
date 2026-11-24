@@ -284,29 +284,16 @@ export function createRuntimeExecutionGuard(db: DatabaseInstance) {
       const now = Date.now();
       const newExpiresAt = now + EXECUTION_PERMIT_DURATION_MS;
 
-      // Verify session is still active (connected + valid lease) before attempting renewal
-      const session = db.stmt.getRuntimeSessionBySession.get(sessionId) as
-        | { runtime: RuntimeId; session_id: string; connection_status: string; lease_expires_at: string | null; generation: number }
-        | undefined;
+      const result = db.stmt.renewExecutionPermit.run(
+        newExpiresAt,
+        executionId,
+        sessionId,
+        sessionId,
+        sessionId,
+        now
+      );
 
-      if (!session) {
-        return false;
-      }
-
-      if (session.connection_status !== 'connected') {
-        return false;
-      }
-
-      const leaseExpires = session.lease_expires_at;
-      const leaseExpiresMs = parseUnixMs(leaseExpires);
-
-      if (leaseExpiresMs === null || leaseExpiresMs <= now) {
-        return false;
-      }
-
-      // Use the prepared statement that checks generation matches (runtime switching fencing)
-      const result = db.stmt.renewExecutionPermit.run(newExpiresAt, sessionId, executionId, sessionId);
-      return (result as any).changes > 0;
+      return (result as any).changes === 1;
     } catch {
       return false;
     }

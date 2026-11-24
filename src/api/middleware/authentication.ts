@@ -151,6 +151,17 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
       });
     }
     // Development mode with hardcoded fallback enabled - auto-auth as founder
+    // Verify loopback restriction for security
+    if (
+      currentConfig.allow_hardcoded_fallback &&
+      !isLoopbackAddress(clientIp)
+    ) {
+      return res.status(401).json({
+        error: 'Development fallback is restricted to loopback connections',
+        code: 'DEV_FALLBACK_LOOPBACK_ONLY',
+      });
+    }
+
     (req as any).authContext = {
       owner_type: 'founder',
       owner_id: 'founder',
@@ -208,6 +219,32 @@ export function requireFounder(req: Request): AuthContext {
     throw new Error('Founder authorization required');
   }
   return ctx;
+}
+
+export function founderOnly(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): void {
+  const ctx = getAuthContext(req);
+
+  if (!ctx) {
+    res.status(401).json({
+      error: 'Authentication required',
+      code: 'AUTH_REQUIRED',
+    });
+    return;
+  }
+
+  if (ctx.owner_type !== 'founder' || ctx.owner_id !== 'founder') {
+    res.status(403).json({
+      error: 'Founder authorization required',
+      code: 'FOUNDER_REQUIRED',
+    });
+    return;
+  }
+
+  next();
 }
 
 export function requireStaff(req: Request): AuthContext {

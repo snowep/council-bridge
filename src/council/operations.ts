@@ -97,11 +97,11 @@ function getTaskForActor(
     if ((task.assigned_to_type === 'division' && task.assigned_to_id === ctx.owner_id) ||
         (task.created_by_type === 'division_head' && task.created_by_id === ctx.owner_id)) return task;
     if (task.assigned_to_type === 'staff') {
-      const staff = db.query(
-        'SELECT 1 FROM staff_agents WHERE staff_id = ? AND division_id = ?',
+      const membership = db.query(
+        'SELECT 1 FROM division_members WHERE staff_id = ? AND division_id = ?',
         [task.assigned_to_id, ctx.owner_id]
       );
-      if (staff.length > 0) return task;
+      if (membership.length > 0) return task;
     }
   }
 
@@ -240,9 +240,28 @@ export function checkMemoryAccess(
 
   if (memory.category === 'cross_division' && memory.division_id) {
     if (memory.owner_type === ctx.owner_type && memory.owner_id === ctx.owner_id) return true;
-    const shares = db.query('SELECT division_id FROM cross_division_shares WHERE memory_id = ? AND revoked_at IS NULL', [memory.memory_id]) as CrossDivisionShare[];
-    const targetDivisionId = ctx.owner_type === 'division' ? ctx.owner_id : memory.division_id;
-    return shares.some(s => s.division_id === targetDivisionId);
+    // Build recipient divisions list from authenticated context
+    let recipientDivisions: string[] = [];
+    if (ctx.owner_type === 'division') {
+      recipientDivisions = [ctx.owner_id];
+    } else if (ctx.owner_type === 'staff') {
+      const members = db.query(
+        'SELECT division_id FROM division_members WHERE staff_id = ?',
+        [ctx.owner_id]
+      ) as { division_id: string }[];
+      recipientDivisions = members.map(m => m.division_id);
+    }
+    if (recipientDivisions.length === 0) return false;
+    // Query cross_division_shares with EXISTING check for: status='approved', revoked_at IS NULL, and division_id IN recipient list
+    const shares = db.query(
+      `SELECT 1 FROM cross_division_shares
+       WHERE memory_id = ?
+         AND status = 'approved'
+         AND revoked_at IS NULL
+         AND division_id IN (${recipientDivisions.map(() => '?').join(',')})`,
+      [memory.memory_id, ...recipientDivisions]
+    );
+    return shares.length > 0;
   }
 
   if (memory.category === 'task_history') {
@@ -286,14 +305,18 @@ export function buildPrivacyFilter(
       m.category IN ('council_shared', 'decision_resolution', 'lesson_learned', 'business_context', 'idea_proposal', 'research_evidence', 'unresolved_question')
       OR (m.owner_type = 'division' AND m.owner_id = ? AND m.category IN ('division_shared', 'division_private'))
       OR (m.category = 'division_shared' AND m.division_id = ?)
-      OR (m.category = 'cross_division' AND m.division_id IN (
-        SELECT division_id FROM cross_division_shares WHERE memory_id = m.memory_id AND revoked_at IS NULL
+      OR (m.category = 'cross_division' AND EXISTS (
+        SELECT 1 FROM cross_division_shares
+        WHERE memory_id = m.memory_id
+          AND status = 'approved'
+          AND revoked_at IS NULL
+          AND division_id = ?
       ))
       OR (m.category = 'task_history' AND m.task_id IN (
         SELECT task_id FROM tasks WHERE (assigned_to_type = 'division' AND assigned_to_id = ?) OR (created_by_type = 'division_head' AND created_by_id = ?)
       ))
     )`;
-    values.push(ctx.owner_id, ctx.owner_id, ctx.owner_id, ctx.owner_id);
+    values.push(ctx.owner_id, ctx.owner_id, ctx.owner_id, ctx.owner_id, ctx.owner_id);
   } else if (ctx.owner_type === 'staff') {
     sql = `(
       m.category IN ('council_shared', 'decision_resolution', 'lesson_learned', 'business_context', 'idea_proposal', 'research_evidence', 'unresolved_question')
@@ -301,14 +324,18 @@ export function buildPrivacyFilter(
       OR (m.category = 'division_shared' AND m.division_id IN (
         SELECT division_id FROM division_members WHERE staff_id = ?
       ))
-      OR (m.category = 'cross_division' AND m.division_id IN (
-        SELECT division_id FROM cross_division_shares WHERE memory_id = m.memory_id AND revoked_at IS NULL
+      OR (m.category = 'cross_division' AND EXISTS (
+        SELECT 1 FROM cross_division_shares
+        WHERE memory_id = m.memory_id
+          AND status = 'approved'
+          AND revoked_at IS NULL
+          AND division_id IN (SELECT division_id FROM division_members WHERE staff_id = ?)
       ))
       OR (m.category = 'task_history' AND m.task_id IN (
         SELECT task_id FROM tasks WHERE assigned_to_type = 'staff' AND assigned_to_id = ?
       ))
     )`;
-    values.push(ctx.owner_id, ctx.owner_id, ctx.owner_id);
+    values.push(ctx.owner_id, ctx.owner_id, ctx.owner_id, ctx.owner_id);
   }
 
   return { sql, values };

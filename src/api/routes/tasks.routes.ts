@@ -16,6 +16,48 @@ function getParamId(params: any, key: string): string {
   return Array.isArray(val) ? val[0] : val;
 }
 
+function assertDivisionDestination(
+  ctx: ReturnType<typeof requireAuth>,
+  assignedType: 'division' | 'staff',
+  assignedId: string
+): void {
+  if (ctx.owner_type === 'founder') return;
+
+  if (ctx.owner_type !== 'division') {
+    throw new ValidationError(
+      'Only Founder or the owning Division Head can assign tasks',
+      { owner_type: ctx.owner_type }
+    );
+  }
+
+  if (assignedType === 'division') {
+    if (assignedId !== ctx.owner_id) {
+      throw new ValidationError(
+        'Division Head cannot assign tasks to another division',
+        { assigned_to_id: assignedId }
+      );
+    }
+    return;
+  }
+
+  const membership = db.query(
+    `SELECT 1
+     FROM division_members
+     WHERE staff_id = ?
+       AND division_id = ?
+       AND (SELECT status FROM staff_agents WHERE staff_id = ?) = 'active'
+     LIMIT 1`,
+    [assignedId, ctx.owner_id, assignedId]
+  );
+
+  if (membership.length === 0) {
+    throw new ValidationError(
+      'Destination staff must be active and belong to the authenticated division',
+      { assigned_to_id: assignedId }
+    );
+  }
+}
+
 // Apply auth middleware to all routes
 router.use(authMiddleware);
 
@@ -24,38 +66,33 @@ router.get('/', asyncHandler(async (req: Request, res: Response) => {
   const ctx = requireAuth(req);
   const { limit, offset, assigned_to_type, assigned_to_id, status } = ListTasksSchema.parse(req.query);
 
-  // Authorization filtering using canonical assertTaskAccess policy
-  let effectiveAssignedToType = assigned_to_type as any;
-  let effectiveAssignedToId = assigned_to_id as string | undefined;
+  // 1. Load candidates using only non-authorization filters (status only)
+  let candidates = listTasks(db, { status: status as any });
 
-  if (ctx.owner_type === 'staff') {
-    effectiveAssignedToType = 'staff';
-    effectiveAssignedToId = ctx.owner_id;
-  } else if (ctx.owner_type === 'division') {
-    effectiveAssignedToType = 'division';
-    effectiveAssignedToId = ctx.owner_id;
-  }
-
-  const allTasks = listTasks(db, {
-    assigned_to_type: effectiveAssignedToType,
-    assigned_to_id: effectiveAssignedToId,
-    status: status as any,
-  });
-
-  // Filter by canonical task access policy
-  const filteredTasks = allTasks.filter((task) => {
+  // 2. Apply authorization via canonical assertTaskAccess() first
+  let filteredTasks: any[] = [];
+  for (const task of candidates) {
     try {
       assertTaskAccess(db, ctx, task.task_id);
-      return true;
+      filteredTasks.push(task);
     } catch (error) {
       if (error instanceof Error && error.message === 'Authorization denied') {
-        // Allow founder to see all tasks
-        return ctx.owner_type === 'founder';
+        // Skip tasks the caller cannot access
+      } else {
+        throw error;
       }
-      throw error;
     }
-  });
+  }
 
+  // 3. Apply caller-supplied filters (assigned_to_type, assigned_to_id) which can only narrow, not widen results
+  if (assigned_to_type) {
+    filteredTasks = filteredTasks.filter((task) => task.assigned_to_type === assigned_to_type);
+  }
+  if (assigned_to_id) {
+    filteredTasks = filteredTasks.filter((task) => task.assigned_to_id === assigned_to_id);
+  }
+
+  // 4. Apply pagination
   const paginated = filteredTasks.slice(offset, offset + limit);
   res.json({ tasks: paginated, limit, offset });
 }));
@@ -94,6 +131,13 @@ router.post('/', asyncHandler(async (req: Request, res: Response) => {
 
   const input = CreateTaskSchema.parse(req.body);
 
+  // Validate assignment scope for non-Founder creators
+  assertDivisionDestination(
+    ctx,
+    input.assigned_to_type,
+    input.assigned_to_id
+  );
+
   // Task creator identity MUST come from authenticated identity, not caller-supplied
   // Reject any caller-supplied created_by_type/created_by_id (schema requires them but we override)
   const task = createTask(db, {
@@ -125,49 +169,34 @@ router.put('/:id/assign', asyncHandler(async (req: Request, res: Response) => {
     throw error;
   }
 
-  // Authorization: Only Founder or the Division Head that owns the assigned division can reassign
+  // Validate current task's management scope before validating the destination
+  // This prevents a Division Head from changing the destination of a task they didn't originally own
   if (ctx.owner_type !== 'founder') {
-    // Division head can only reassign tasks in their division
-    if (task.assigned_to_type === 'division' && task.assigned_to_id !== ctx.owner_id) {
-      throw new ValidationError('Insufficient permissions to assign this task', { owner_type: ctx.owner_type, task_id: id });
+    if (ctx.owner_type !== 'division') {
+      throw new ValidationError('Only Founder or the owning Division Head can reassign tasks', {});
     }
-    // Staff cannot reassign tasks
-    if (ctx.owner_type === 'staff') {
-      throw new ValidationError('Staff agents cannot reassign tasks', { owner_type: ctx.owner_type, task_id: id });
+
+    let currentTaskBelongsToDivision = false;
+
+    if (task.assigned_to_type === 'division') {
+      currentTaskBelongsToDivision = task.assigned_to_id === ctx.owner_id;
+    } else if (task.assigned_to_type === 'staff') {
+      const membership = db.query(
+        'SELECT 1 FROM division_members WHERE staff_id = ? AND division_id = ?',
+        [task.assigned_to_id, ctx.owner_id]
+      );
+      currentTaskBelongsToDivision = membership.length > 0;
+    }
+
+    if (!currentTaskBelongsToDivision) {
+      throw new ValidationError('Division Head cannot reassign a task outside their division', {});
     }
   }
 
   const input = AssignTaskSchema.parse(req.body);
 
-  // Verify current task ownership (destination assignee permissions)
-  // If assigning to staff: verify staff exists, is active, and is member of task's division
-  if (input.assigned_to_type === 'staff') {
-    const staff = db.query('SELECT * FROM staff_agents WHERE staff_id = ?', [input.assigned_to_id]);
-    if (staff.length === 0) {
-      throw new ValidationError('Destination staff agent not found', { assigned_to_id: input.assigned_to_id });
-    }
-    if ((staff[0] as any).status !== 'active') {
-      throw new ValidationError('Cannot assign to inactive staff agent', { assigned_to_id: input.assigned_to_id });
-    }
-    // If source task is division-assigned, verify staff is member of that division
-    if (task.assigned_to_type === 'division') {
-      const membership = db.query(
-        'SELECT 1 FROM division_members WHERE staff_id = ? AND division_id = ?',
-        [input.assigned_to_id, task.assigned_to_id]
-      );
-      if (membership.length === 0) {
-        throw new ValidationError('Destination staff is not a member of the source division', { assigned_to_id: input.assigned_to_id });
-      }
-    }
-  }
-
-  // If assigning to division: verify division exists
-  if (input.assigned_to_type === 'division') {
-    const division = db.query('SELECT * FROM divisions WHERE division_id = ?', [input.assigned_to_id]);
-    if (division.length === 0) {
-      throw new ValidationError('Destination division not found', { assigned_to_id: input.assigned_to_id });
-    }
-  }
+  // Validate assignment destination permissions
+  assertDivisionDestination(ctx, input.assigned_to_type, input.assigned_to_id);
 
   const updatedTask = updateTask(db, id, {
     assigned_to_type: input.assigned_to_type,

@@ -42,9 +42,19 @@ function verifyDeliverableAccess(ctx: any, deliverable: any): boolean {
   // Founder can access all
   if (ctx.owner_type === 'founder') return true;
 
-  // Get the associated task and check access using canonical policy
+  // Get the associated task
   const task = db.query('SELECT * FROM tasks WHERE task_id = ?', [deliverable.task_id])[0] as any;
   if (!task) return false;
+
+  // Check if user is the designated reviewer for this deliverable
+  // Reviewers can be: founder, council, or division_head
+  if (deliverable.reviewer_type && deliverable.reviewer_id) {
+    const isReviewer =
+      (deliverable.reviewer_type === 'founder' && ctx.owner_type === 'founder' && ctx.owner_id === 'founder') ||
+      (deliverable.reviewer_type === 'council' && ctx.owner_type === 'seat' && deliverable.reviewer_id === ctx.owner_id) ||
+      (deliverable.reviewer_type === 'division_head') && ctx.owner_type === 'staff' && deliverable.reviewer_id === ctx.owner_id;
+    if (isReviewer) return true;
+  }
 
   // Use canonical task access policy
   try {
@@ -58,53 +68,78 @@ function verifyDeliverableAccess(ctx: any, deliverable: any): boolean {
 // GET /api/deliverables - List deliverables with filters
 router.get('/', asyncHandler(async (req: Request, res: Response) => {
   const ctx = requireAuth(req);
-  const { limit, offset, task_id, status, submitted_by_type, submitted_by_id } = ListDeliverablesSchema.parse(req.query);
 
-  // Authorization filtering
-  let effectiveSubmittedByType = submitted_by_type as any;
-  let effectiveSubmittedById = submitted_by_id as string | undefined;
+  const {
+    limit,
+    offset,
+    task_id,
+    status,
+    submitted_by_type,
+    submitted_by_id,
+  } = ListDeliverablesSchema.parse(req.query);
 
-  if (ctx.owner_type === 'staff') {
-    effectiveSubmittedByType = 'staff';
-    effectiveSubmittedById = ctx.owner_id;
-  } else if (ctx.owner_type === 'division') {
-    effectiveSubmittedByType = 'division';
-    effectiveSubmittedById = ctx.owner_id;
-  }
-
-  // If task_id is provided, verify access to the task first
-  let filteredDeliverables: any[] = [];
   if (task_id) {
-    // Verify task exists and user has access
-    let task: any;
     try {
-      task = assertTaskAccess(db, ctx, task_id);
+      assertTaskAccess(db, ctx, task_id);
     } catch (error) {
-      if (error instanceof Error && (error.message === 'Authorization denied' || error.message.includes('not found'))) {
+      if (
+        error instanceof Error &&
+        (
+          error.message === 'Authorization denied' ||
+          error.message.includes('not found')
+        )
+      ) {
         throw new NotFoundError('Task not found');
       }
+
       throw error;
     }
-
-    // Get deliverables for this task
-    const deliverables = listDeliverablesByTask(db, task_id);
-
-    // Filter by status and submitted_by if provided
-    filteredDeliverables = deliverables.filter(d => {
-      if (status && d.status !== status) return false;
-      if (effectiveSubmittedByType && effectiveSubmittedById) {
-        if (d.submitted_by_type !== effectiveSubmittedByType || d.submitted_by_id !== effectiveSubmittedById) return false;
-      }
-      return true;
-    });
-  } else {
-    // No task filter - founder can see all, others limited by division/staff context
-    throw new ValidationError('task_id is required for listing deliverables', { task_id: 'required' });
   }
 
-  // Apply pagination
-  const paginated = filteredDeliverables.slice(offset, offset + limit);
-  res.json({ deliverables: paginated, limit, offset });
+  const candidates = task_id
+    ? listDeliverablesByTask(db, task_id)
+    : db.query(
+        'SELECT * FROM deliverables ORDER BY created_at DESC'
+      );
+
+  const filtered = candidates.filter((deliverable: any) => {
+    if (task_id && deliverable.task_id !== task_id) {
+      return false;
+    }
+
+    if (!verifyDeliverableAccess(ctx, deliverable)) {
+      return false;
+    }
+
+    if (status && deliverable.status !== status) {
+      return false;
+    }
+
+    // Request filters can narrow, never widen, access.
+    if (
+      submitted_by_type &&
+      deliverable.submitted_by_type !== submitted_by_type
+    ) {
+      return false;
+    }
+
+    if (
+      submitted_by_id &&
+      deliverable.submitted_by_id !== submitted_by_id
+    ) {
+      return false;
+    }
+
+    return true;
+  });
+
+  const paginated = filtered.slice(offset, offset + limit);
+
+  res.json({
+    deliverables: paginated,
+    limit,
+    offset,
+  });
 }));
 
 // GET /api/deliverables/:id - Get deliverable details
@@ -195,7 +230,7 @@ router.put('/:id/review', asyncHandler(async (req: Request, res: Response) => {
     const result = approveDeliverable(db, { owner_type: ctx.owner_type, owner_id: ctx.owner_id, runtime: ctx.runtime }, {
       deliverable_id: id,
       quality_score: input.quality_score,
-      founder_signature: input.reviewer_id, // Level 3 founder signature
+      founder_signature: input.founder_signature,
     });
     res.json({ deliverable: result });
   } else if (input.status === 'rejected') {

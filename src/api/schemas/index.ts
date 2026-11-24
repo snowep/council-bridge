@@ -229,6 +229,7 @@ export const ReviewDeliverableSchema = z.object({
   quality_score: z.number().int().min(0).max(100).optional(),
   reviewer_type: z.enum(['founder', 'council', 'division_head']),
   reviewer_id: z.string().min(1).max(255),
+  founder_signature: z.string().optional(),
   revision_notes: z.string().optional(),
 });
 export type ReviewDeliverableInput = z.infer<typeof ReviewDeliverableSchema>;

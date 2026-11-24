@@ -203,6 +203,23 @@ const founderSignatureRateLimit = rateLimit({
   legacyHeaders: false
 });
 
+// Helper to check for loopback addresses (same logic as authentication.ts)
+function isLoopbackAddress(ip: string | undefined): boolean {
+  if (!ip) return false;
+  // IPv4 loopback
+  if (ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1') return true;
+  // IPv4 loopback range
+  if (ip.startsWith('127.')) return true;
+  // IPv6 loopback
+  if (ip === 'localhost') return true;
+  return false;
+}
+
+// Helper to get client IP from request
+function getClientIp(req: Request): string {
+  return req.socket?.remoteAddress || req.ip || 'unknown';
+}
+
 // Founder signature middleware for privileged operations
 function founderSignatureMiddleware(requiredOperations: string[]) {
   return (req: Request, res: Response, next: NextFunction) => {
@@ -279,7 +296,9 @@ app.get('/health', (req, res) => {
 app.post('/api/auth/session', founderSignatureRateLimit, async (req, res) => {
   try {
     const { owner_type, owner_id, runtime } = req.body;
+    const clientIp = getClientIp(req);
 
+    // Validate request body fields
     if (!owner_type || !owner_id || !runtime) {
       return res.status(400).json({ error: 'owner_type, owner_id, and runtime required' });
     }
@@ -292,51 +311,67 @@ app.post('/api/auth/session', founderSignatureRateLimit, async (req, res) => {
       return res.status(400).json({ error: 'Invalid runtime' });
     }
 
-    if (PRODUCTION_MODE) {
-      const { founder_signature, founder_timestamp, founder_nonce, founder_key_id } = req.body;
+    // Prevent anonymous Founder session provisioning
+    // A request body with owner_type='founder', owner_id='founder' is NOT authorization
+    if (owner_type === 'founder' && owner_id === 'founder') {
+      // Production mode: require cryptographic founder signature
+      if (PRODUCTION_MODE) {
+        const { founder_signature, founder_timestamp, founder_nonce, founder_key_id } = req.body;
 
-      if (!founder_signature || !founder_timestamp || !founder_nonce || !founder_key_id) {
+        if (!founder_signature || !founder_timestamp || !founder_nonce || !founder_key_id) {
+          return res.status(403).json({
+            error: 'Founder signature required for Founder session provisioning',
+            code: 'FOUNDER_SIGNATURE_REQUIRED',
+            required_fields: ['founder_signature', 'founder_timestamp', 'founder_nonce', 'founder_key_id']
+          });
+        }
+
+        const body = { ...req.body };
+        delete body.founder_signature;
+        delete body.founder_timestamp;
+        delete body.founder_nonce;
+        delete body.founder_key_id;
+
+        const result = verifyFounderOperation(
+          'create_session',
+          body,
+          founder_signature,
+          founder_timestamp,
+          founder_nonce,
+          founder_key_id
+        );
+
+        if (!result.valid) {
+          return handleFounderVerificationError(res, result);
+        }
+      } else if (LOCAL_MODE) {
+        // Local single-user mode: only loopback requests may use the local Founder bootstrap
+        if (!isLoopbackAddress(clientIp)) {
+          return res.status(403).json({
+            error: 'Development fallback is restricted to loopback connections',
+            code: 'DEV_FALLBACK_LOOPBACK_ONLY',
+            client_ip: clientIp
+          });
+        }
+      } else {
+        // Non-local development: require authenticated Founder authority or verified Founder signature
+        // Since allow_hardcoded_fallback is disabled by default, founder bootstrap is not available
         return res.status(403).json({
-          error: 'Founder signature required for session provisioning in production',
-          code: 'FOUNDER_SIGNATURE_REQUIRED',
-          required_fields: ['founder_signature', 'founder_timestamp', 'founder_nonce', 'founder_key_id']
+          error: 'Founder session provisioning requires authentication in non-local development mode',
+          code: 'FOUNDER_SESSION_REQUIRES_AUTH'
         });
       }
+    }
 
-      const body = { ...req.body };
-      delete body.founder_signature;
-      delete body.founder_timestamp;
-      delete body.founder_nonce;
-      delete body.founder_key_id;
-
-      const result = verifyFounderOperation(
-        'create_session',
-        body,
-        founder_signature,
-        founder_timestamp,
-        founder_nonce,
-        founder_key_id
-      );
-
-      if (!result.valid) {
-        return handleFounderVerificationError(res, result);
-      }
-
-      // Validate requested identity against database
-      const { validateIdentityForSession } = await import('./auth/index.js');
-      const identityValid = await validateIdentityForSession(db, owner_type, owner_id, runtime);
-      if (!identityValid) {
-        return res.status(403).json({
-          error: 'Invalid or inactive identity for session provisioning',
-          code: 'INVALID_IDENTITY'
-        });
-      }
-    } else {
-      const { validateIdentityForSession } = await import('./auth/index.js');
-      const identityValid = await validateIdentityForSession(db, owner_type, owner_id, runtime);
-      if (!identityValid) {
-        return res.status(400).json({ error: 'Invalid identity for session provisioning' });
-      }
+    // Validate requested identity against database
+    const { validateIdentityForSession } = await import('./auth/index.js');
+    const identityValid = await validateIdentityForSession(db, owner_type, owner_id, runtime);
+    if (!identityValid) {
+      const errorCode = PRODUCTION_MODE ? 'INVALID_IDENTITY' : 'INVALID_SESSION';
+      return res.status(403).json({
+        error: 'Invalid identity for session provisioning',
+        code: errorCode
+      });
     }
 
     const { generateSessionToken } = await import('./auth/session.js');
@@ -344,7 +379,7 @@ app.post('/api/auth/session', founderSignatureRateLimit, async (req, res) => {
       owner_type,
       owner_id,
       runtime,
-      client_ip: req.ip,
+      client_ip: clientIp,
       user_agent: req.get('user-agent')
     });
 
@@ -522,19 +557,16 @@ app.all('/mcp', mcpRuntimeAuthMiddleware, async (req, res) => {
     registerMcpTools(requestMcpServer, db, () => authContext);
 
     await requestTransport.handleRequest(req, res, req.body);
-
-    // Release execution permit on success
-    await executionGuard.releaseExecutionPermit(executionContext.executionId);
-  } catch (error) {
-    // Release execution permit on error
-    await executionGuard.releaseExecutionPermit(executionContext.executionId);
-    throw error;
   } finally {
-    // Stop heartbeat renewal interval if it was started
-    // For bootstrap sessions, no heartbeat is started, but we clean up anyway for safety
     if (executionContext.heartbeatInterval) {
       clearInterval(executionContext.heartbeatInterval);
     }
+
+    if (executionContext.permitRenewalInterval) {
+      clearInterval(executionContext.permitRenewalInterval);
+    }
+
+    await executionGuard.releaseExecutionPermit(executionContext.executionId);
   }
 });
 
@@ -567,7 +599,11 @@ initDb().then(async () => {
     // Start deterministic founder nonce cleanup
     startNonceCleanupInterval();
 
-  const bindAddress = LOCAL_MODE ? LOCAL_BIND_ADDRESS : '0.0.0.0';
+  const bindAddress = LOCAL_MODE
+    ? LOCAL_BIND_ADDRESS
+    : DEVELOPMENT_MODE
+      ? '127.0.0.1'
+      : '0.0.0.0';
   app.listen(PORT, bindAddress, () => {
     console.log(`Server running on ${bindAddress}:${PORT} [${config.mode.toUpperCase()}${LOCAL_MODE ? ' + LOCAL' : ''}]`);
   });

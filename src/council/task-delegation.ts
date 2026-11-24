@@ -797,6 +797,20 @@ export function verifyFounderSignature(db: DatabaseInstance, signature: string, 
   }
 }
 
+// Resolve task's division through staff membership (fixes assigned_to_id misuse)
+function resolveTaskDivision(db: DatabaseInstance, task: Task): string {
+  if (task.assigned_to_type === 'division') {
+    return task.assigned_to_id;
+  }
+  // For staff-assigned tasks, resolve division through staff agent
+  const staff = db.query('SELECT division_id FROM staff_agents WHERE staff_id = ?', [task.assigned_to_id]);
+  if (staff.length > 0) {
+    return (staff[0] as any).division_id;
+  }
+  // Fallback: return assigned_to_id as division (shouldn't happen with valid data)
+  return task.assigned_to_id;
+}
+
 // Enforce HITL approval based on autonomy level
 export function enforceHITLApproval(
   db: DatabaseInstance,
@@ -817,11 +831,13 @@ export function enforceHITLApproval(
     throw new Error(`Quality score ${qualityScore} below threshold ${threshold.min_quality_score}`);
   }
 
+  const taskDivision = resolveTaskDivision(db, task);
+
   switch (autonomyLevel) {
     case 1: // Autonomous - auto-approve if quality passes
       return { requiresFounderSig: false };
-    case 2: // Permission check / Division head approval
-      if (!isDivisionHead(ctx, task.assigned_to_id, db) && !isFounder(ctx)) {
+    case 2: // Division Head approval
+      if (!isDivisionHead(identity, taskDivision, db) && !isFounder(ctx)) {
         throw new Error('Level 2 requires Division Head or Founder approval');
       }
       return { requiresFounderSig: false };
@@ -1106,7 +1122,7 @@ export function assignReviewer(
   };
 }
 
-// Request revision on a deliverable
+// Request revision on a deliverable with proper reviewer authorization
 export function requestRevision(
   db: DatabaseInstance,
   ctx: OperationContext,
@@ -1114,22 +1130,51 @@ export function requestRevision(
 ): { deliverable_id: string; status: string; revision_notes: string } {
   const identity = requireAuthenticated(ctx);
 
-  // Get deliverable
+  // Get deliverable and task
   const deliverable = db.query('SELECT * FROM deliverables WHERE deliverable_id = ?', [input.deliverable_id]);
   if (deliverable.length === 0) {
     throw new Error(`Deliverable '${input.deliverable_id}' not found`);
   }
 
-  // Only assigned reviewer or founder can request revision
-  if (identity.owner_type !== 'founder') {
-    // Map owner_type to reviewer_type for comparison
-    const expectedReviewerType = identity.owner_type === 'staff' ? 'division_head'
-      : identity.owner_type === 'division' ? 'division_head'
-      : identity.owner_type; // founder, council
+  const task = db.query('SELECT * FROM tasks WHERE task_id = ?', [deliverable[0].task_id]);
+  if (task.length === 0) {
+    throw new Error('Associated task not found');
+  }
 
-    if (deliverable[0].reviewer_type !== expectedReviewerType ||
-        deliverable[0].reviewer_id !== identity.owner_id) {
-      throw new Error('Only the assigned reviewer or Founder can request revision');
+  const taskRecord = task[0] as Task;
+  const taskDivision = resolveTaskDivision(db, taskRecord);
+
+  // === AUTHORIZATION CHECK BEFORE REVISION REQUEST ===
+  // Apply the same reviewer policy as approveDeliverable
+  if (deliverable[0].reviewer_type === 'council') {
+    // Council reviewer: must be the designated seat
+    if (identity.owner_type !== 'seat' || deliverable[0].reviewer_id !== identity.owner_id) {
+      throw new Error('Authorization denied: Only the designated Council reviewer can request revision');
+    }
+  } else if (deliverable[0].reviewer_type === 'division_head') {
+    // Division Head reviewer: must be a staff member who is the division head
+    if (identity.owner_type !== 'staff') {
+      throw new Error('Authorization denied: Division Head reviewer must be a staff member');
+    }
+    if (deliverable[0].reviewer_id === identity.owner_id) {
+      if (!isDivisionHead(identity, taskDivision, db)) {
+        throw new Error('Authorization denied: Not the Division Head for this task\'s division');
+      }
+    }
+    // If not the assigned reviewer but is division head, allow (HITL-style flexibility)
+  } else if (deliverable[0].reviewer_type === 'founder') {
+    // Founder reviewer: must be a founder
+    if (!(identity.owner_type === 'founder' && identity.owner_id === 'founder')) {
+      throw new Error('Authorization denied: Founder reviewer must be a founder');
+    }
+  } else {
+    // No reviewer assigned - only submitter or Founder can request revision
+    // This allows Level 1 auto-approval scenarios
+    if (identity.owner_type !== 'founder') {
+      if (deliverable[0].submitted_by_type !== identity.owner_type ||
+          deliverable[0].submitted_by_id !== identity.owner_id) {
+        throw new Error('Authorization denied: Only the deliverable submitter or Founder can request revision when no reviewer is assigned');
+      }
     }
   }
 
@@ -1313,9 +1358,46 @@ export function approveDeliverable(
   }
 
   const taskRecord = task[0] as Task;
+  const taskDivision = resolveTaskDivision(db, taskRecord);
 
-  // Enforce HITL approval
+  // === HITL CHECK FIRST ===
+  // Determine level-based requirements (quality threshold + authorization by autonomy level)
   const hitlResult = enforceHITLApproval(db, ctx, taskRecord, input.quality_score ?? deliverable[0].quality_score ?? 0);
+
+  // === REVIEWER POLICY (after HITL check passes) ===
+  // If a reviewer is assigned, verify the approver has the correct role
+  // For council reviewer: must be the designated seat
+  // For division_head reviewer: must be division head (HITL already validated level)
+  // For founder reviewer: must be founder (HITL already validated level)
+  if (deliverable[0].reviewer_type === 'council') {
+    if (identity.owner_type !== 'seat' || deliverable[0].reviewer_id !== identity.owner_id) {
+      throw new Error('Authorization denied: Only the designated Council reviewer can approve');
+    }
+  } else if (deliverable[0].reviewer_type === 'division_head') {
+    if (identity.owner_type !== 'staff' && identity.owner_type !== 'division') {
+      throw new Error('Authorization denied: Division Head reviewer must be a staff member or division head');
+    }
+    if (!isDivisionHead(identity, taskDivision, db)) {
+      throw new Error('Authorization denied: Not the Division Head for this task\'s division');
+    }
+  } else if (deliverable[0].reviewer_type === 'founder') {
+    if (identity.owner_type !== 'founder') {
+      throw new Error('Authorization denied: Founder reviewer must be a founder');
+    }
+  } else {
+    // No reviewer assigned - for Level 1, submitter can auto-approve
+    // For Level 2/3, the HITL check already validated founder/division head authorization
+    if (hitlResult.requiresFounderSig === false) {
+      // Level 1 - verify submitter is the approver (or founder)
+      if (identity.owner_type !== 'founder') {
+        if (deliverable[0].submitted_by_type !== identity.owner_type ||
+            deliverable[0].submitted_by_id !== identity.owner_id) {
+          throw new Error('Authorization denied: Only the deliverable submitter or Founder can approve when no reviewer is assigned');
+        }
+      }
+    }
+    // For Level 2/3 without reviewer, HITL check already validated the authorization
+  }
 
   // For Level 3, verify founder signature
   if (hitlResult.requiresFounderSig) {
@@ -1403,7 +1485,7 @@ export function approveDeliverable(
   };
 }
 
-// Reject a deliverable
+// Reject a deliverable with proper reviewer authorization
 export function rejectDeliverable(
   db: DatabaseInstance,
   ctx: OperationContext,
@@ -1411,23 +1493,45 @@ export function rejectDeliverable(
 ): void {
   const identity = requireAuthenticated(ctx);
 
-  // Get deliverable
+  // Get deliverable and task
   const deliverable = db.query('SELECT * FROM deliverables WHERE deliverable_id = ?', [input.deliverable_id]);
   if (deliverable.length === 0) {
     throw new Error(`Deliverable '${input.deliverable_id}' not found`);
   }
 
-  // Only assigned reviewer, task creator, division head, or founder can reject
-  let canReject = false;
-  if (identity.owner_type === 'founder') {
-    canReject = true;
-  } else if (deliverable[0].reviewer_type === identity.owner_type &&
-             deliverable[0].reviewer_id === identity.owner_id) {
-    canReject = true;
+  const task = db.query('SELECT * FROM tasks WHERE task_id = ?', [deliverable[0].task_id]);
+  if (task.length === 0) {
+    throw new Error('Associated task not found');
   }
 
-  if (!canReject) {
-    throw new Error('Authorization denied: Only assigned reviewer, task creator, Division Head, or Founder can reject');
+  const taskRecord = task[0] as Task;
+  const taskDivision = resolveTaskDivision(db, taskRecord);
+
+  // === AUTHORIZATION CHECK BEFORE REJECTION ===
+  // Apply the same reviewer policy as approveDeliverable
+  // If no reviewer assigned, only founder can reject
+  if (!deliverable[0].reviewer_type || deliverable[0].reviewer_type === null) {
+    if (identity.owner_type !== 'founder') {
+      throw new Error('Authorization denied: No reviewer assigned, only Founder can reject');
+    }
+  } else if (deliverable[0].reviewer_type === 'council') {
+    if (identity.owner_type !== 'seat' || deliverable[0].reviewer_id !== identity.owner_id) {
+      throw new Error('Authorization denied: Only the designated Council reviewer can reject');
+    }
+  } else if (deliverable[0].reviewer_type === 'division_head') {
+    if (identity.owner_type !== 'staff') {
+      throw new Error('Authorization denied: Division Head reviewer must be a staff member');
+    }
+    if (deliverable[0].reviewer_id === identity.owner_id) {
+      if (!isDivisionHead(identity, taskDivision, db)) {
+        throw new Error('Authorization denied: Not the Division Head for this task\'s division');
+      }
+    }
+    // If not the assigned reviewer but is division head, allow (HITL-style flexibility)
+  } else if (deliverable[0].reviewer_type === 'founder') {
+    if (identity.owner_type !== 'founder') {
+      throw new Error('Authorization denied: Founder reviewer must be a founder');
+    }
   }
 
   const now = new Date().toISOString();

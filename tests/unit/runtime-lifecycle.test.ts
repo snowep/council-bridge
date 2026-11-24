@@ -128,11 +128,17 @@ describe('Runtime Lifecycle Manager', () => {
 
   describe('Switch Runtime', () => {
     it('should switch from Hermes to Claude', () => {
-      manager.connect({ runtime: 'hermes', clientIp: '127.0.0.1' });
+      const hermes = manager.connect({ runtime: 'hermes', clientIp: '127.0.0.1' });
+      assert.strictEqual(hermes.success, true);
 
-      const result = manager.switch({ newRuntime: 'claude' });
+      const result = manager.switch({ newRuntime: 'claude', sessionId: hermes.state!.sessionId! });
       assert.strictEqual(result.success, true);
       assert.strictEqual(result.state?.activeRuntime, 'claude');
+
+      // Cleanup
+      if (result.state?.sessionId) {
+        manager.disconnect({ sessionId: result.state.sessionId });
+      }
     });
   });
 
@@ -228,10 +234,11 @@ describe('Timestamp Consistency Tests', () => {
 
   it('should verify timestamps created by switch() contain numeric Unix milliseconds', () => {
     // First connect with claude
-    manager.connect({ runtime: 'claude', clientIp: '127.0.0.1' });
+    const claude = manager.connect({ runtime: 'claude', clientIp: '127.0.0.1' });
+    assert.strictEqual(claude.success, true);
 
     // Now switch to hermes
-    const result = manager.switch({ newRuntime: 'hermes', clientIp: '127.0.0.1' });
+    const result = manager.switch({ newRuntime: 'hermes', sessionId: claude.state!.sessionId!, clientIp: '127.0.0.1' });
     assert.strictEqual(result.success, true);
 
     const state = result.state;
@@ -378,16 +385,16 @@ describe('Heartbeat Ownership and Expiry Tests', () => {
     assert.ok(claudeState?.sessionId);
 
     // Switch to Hermes (this takes ownership)
-    // The old Claude session is deleted to free its session_id for reuse
-    const switchResult = manager.switch({ newRuntime: 'hermes', clientIp: '127.0.0.1' });
+    // The old Claude session is disconnected but preserved for history
+    const switchResult = manager.switch({ newRuntime: 'hermes', sessionId: claudeState.sessionId!, clientIp: '127.0.0.1' });
     assert.strictEqual(switchResult.success, true);
 
     // Try heartbeat with original Claude session ID
-    // Should fail - session was deleted during switch
+    // Should fail - session was disconnected during switch (preserved for history)
     const hbResult = manager.heartbeat({ sessionId: claudeState!.sessionId! });
     assert.strictEqual(hbResult.success, false);
-    // Accept either "Session not found" (deleted) or "not eligible" (disconnected)
-    const validErrors = ['Session not found', 'not eligible', 'expired'];
+    // Session is now disconnected (preserved), so should be "not eligible"
+    const validErrors = ['not eligible', 'expired'];
     const hasValidError = validErrors.some(err => hbResult.error?.includes(err));
     assert.ok(hasValidError, `Expected error to contain one of: ${validErrors.join(', ')}, got: ${hbResult.error}`);
   });
@@ -469,15 +476,261 @@ describe('Runtime Switching Safety', () => {
     assert.strictEqual(claudeResult.success, true);
 
     // Switch to Hermes
-    const switchResult = manager.switch({ newRuntime: 'hermes' });
+    const switchResult = manager.switch({ newRuntime: 'hermes', sessionId: claudeResult.state!.sessionId! });
     assert.strictEqual(switchResult.success, true);
     assert.strictEqual(switchResult.state?.activeRuntime, 'hermes');
 
     // Clean up
-    const state = manager.getState();
-    if (state.sessionId) {
-      manager.disconnect({ sessionId: state.sessionId });
+    if (switchResult.state?.sessionId) {
+      manager.disconnect({ sessionId: switchResult.state.sessionId });
     }
+  });
+});
+
+describe('Runtime Switching Regression Tests', () => {
+  let db: ReturnType<typeof createDatabase>;
+  let manager: RuntimeLifecycleManager;
+
+  beforeEach(() => {
+    resetRuntimeLifecycleManager();
+    const testDb = createTestDatabase();
+    db = testDb.instance;
+    manager = new RuntimeLifecycleManager(db);
+  });
+
+  after(async () => {
+    if (db) {
+      try {
+        db.db.pragma('wal_checkpoint(TRUNCATE)');
+      } catch {}
+      db.close();
+    }
+    if (fs.existsSync(TEST_DB_DIR)) {
+      try {
+        fs.rmSync(TEST_DB_DIR, { recursive: true, force: true });
+      } catch {}
+    }
+  });
+
+  it('should preserve session history when switching Claude -> Hermes', async () => {
+    // Connect Claude
+    const claudeResult = manager.connect({ runtime: 'claude', clientIp: '127.0.0.1' });
+    assert.strictEqual(claudeResult.success, true);
+
+    const claudeState = claudeResult.state;
+    assert.ok(claudeState?.sessionId);
+
+    // Switch to Hermes - should preserve Claude session in DB
+    const switchResult = manager.switch({
+      newRuntime: 'hermes',
+      sessionId: claudeState.sessionId!,
+      clientIp: '127.0.0.1'
+    });
+    assert.strictEqual(switchResult.success, true);
+    assert.strictEqual(switchResult.state?.activeRuntime, 'hermes');
+
+    // Verify Claude session still exists in DB but is disconnected
+    const claudeDbSession = db.stmt.getRuntimeSessionBySession.get(claudeState.sessionId!) as any | undefined;
+    assert.ok(claudeDbSession, 'Claude session should still exist in database');
+    assert.strictEqual(claudeDbSession.connection_status, 'disconnected', 'Claude session should be disconnected');
+
+    // Verify Hermes has its own session_id (not the same as Claude's)
+    const hermesSessionId = switchResult.state?.sessionId;
+    assert.ok(hermesSessionId, 'Hermes should have a session ID');
+    assert.notStrictEqual(hermesSessionId, claudeState.sessionId, 'Hermes session ID should be different from Claude');
+
+    // Check PRAGMA foreign_key_check
+    const fkCheck = db.db.prepare('PRAGMA foreign_key_check').all();
+    assert.strictEqual(fkCheck.length, 0, 'PRAGMA foreign_key_check should return no violations');
+
+    // Cleanup
+    if (hermesSessionId) {
+      manager.disconnect({ sessionId: hermesSessionId });
+    }
+  });
+
+  it('should preserve session history when switching Hermes -> Claude', async () => {
+    // Connect Hermes first
+    const hermesResult = manager.connect({ runtime: 'hermes', clientIp: '127.0.0.1' });
+    assert.strictEqual(hermesResult.success, true);
+
+    const hermesState = hermesResult.state;
+    assert.ok(hermesState?.sessionId);
+
+    // Switch to Claude
+    const switchResult = manager.switch({
+      newRuntime: 'claude',
+      sessionId: hermesState.sessionId!,
+      clientIp: '127.0.0.1'
+    });
+    assert.strictEqual(switchResult.success, true);
+    assert.strictEqual(switchResult.state?.activeRuntime, 'claude');
+
+    // Verify Hermes session still exists in DB but is disconnected
+    const hermesDbSession = db.stmt.getRuntimeSessionBySession.get(hermesState.sessionId!) as any | undefined;
+    assert.ok(hermesDbSession, 'Hermes session should still exist in database');
+    assert.strictEqual(hermesDbSession.connection_status, 'disconnected', 'Hermes session should be disconnected');
+
+    // Check PRAGMA foreign_key_check
+    const fkCheck = db.db.prepare('PRAGMA foreign_key_check').all();
+    assert.strictEqual(fkCheck.length, 0, 'PRAGMA foreign_key_check should return no violations');
+
+    // Cleanup
+    if (switchResult.state?.sessionId) {
+      manager.disconnect({ sessionId: switchResult.state.sessionId });
+    }
+  });
+
+  it('should allow Claude -> Hermes -> Claude cycle preserving history', async () => {
+    // Connect Claude
+    const claudeResult = manager.connect({ runtime: 'claude', clientIp: '127.0.0.1' });
+    assert.strictEqual(claudeResult.success, true);
+    const claudeSession1 = claudeResult.state?.sessionId!;
+
+    // Switch to Hermes
+    const hermesResult = manager.switch({
+      newRuntime: 'hermes',
+      sessionId: claudeSession1,
+      clientIp: '127.0.0.1'
+    });
+    assert.strictEqual(hermesResult.success, true);
+    const hermesSession = hermesResult.state?.sessionId!;
+
+    // Switch back to Claude
+    const claudeResult2 = manager.switch({
+      newRuntime: 'claude',
+      sessionId: hermesSession,
+      clientIp: '127.0.0.1'
+    });
+    assert.strictEqual(claudeResult2.success, true);
+    const claudeSession2 = claudeResult2.state?.sessionId!;
+
+    // Verify we have three sessions in DB:
+    // 1. Original Claude (disconnected)
+    // 2. Hermes (disconnected)
+    // 3. New Claude (connected)
+    assert.notStrictEqual(claudeSession1, hermesSession, 'Session IDs should be unique');
+    assert.notStrictEqual(hermesSession, claudeSession2, 'Session IDs should be unique');
+
+    // Check PRAGMA foreign_key_check
+    const fkCheck = db.db.prepare('PRAGMA foreign_key_check').all();
+    assert.strictEqual(fkCheck.length, 0, 'PRAGMA foreign_key_check should return no violations');
+
+    // Cleanup
+    if (claudeSession2) {
+      manager.disconnect({ sessionId: claudeSession2 });
+    }
+  });
+
+  it('should allow repeated switching when both runtime rows have completed execution history', async () => {
+    // First cycle
+    const claude1 = manager.connect({ runtime: 'claude', clientIp: '127.0.0.1' });
+    assert.strictEqual(claude1.success, true);
+
+    const hermes1 = manager.switch({
+      newRuntime: 'hermes',
+      sessionId: claude1.state!.sessionId!,
+      clientIp: '127.0.0.1'
+    });
+    assert.strictEqual(hermes1.success, true);
+
+    const claude2 = manager.switch({
+      newRuntime: 'claude',
+      sessionId: hermes1.state!.sessionId!,
+      clientIp: '127.0.0.1'
+    });
+    assert.strictEqual(claude2.success, true);
+
+    // Second cycle
+    const hermes2 = manager.switch({
+      newRuntime: 'hermes',
+      sessionId: claude2.state!.sessionId!,
+      clientIp: '127.0.0.1'
+    });
+    assert.strictEqual(hermes2.success, true);
+
+    const claude3 = manager.switch({
+      newRuntime: 'claude',
+      sessionId: hermes2.state!.sessionId!,
+      clientIp: '127.0.0.1'
+    });
+    assert.strictEqual(claude3.success, true);
+
+    // Check PRAGMA foreign_key_check
+    const fkCheck = db.db.prepare('PRAGMA foreign_key_check').all();
+    assert.strictEqual(fkCheck.length, 0, 'PRAGMA foreign_key_check should return no violations');
+
+    // Cleanup
+    if (claude3.state?.sessionId) {
+      manager.disconnect({ sessionId: claude3.state.sessionId });
+    }
+  });
+
+  it('should prevent switching while an execution remains incomplete', async () => {
+    // Connect Claude
+    const claude = manager.connect({ runtime: 'claude', clientIp: '127.0.0.1' });
+    assert.strictEqual(claude.success, true);
+
+    // Insert an incomplete execution record directly
+    db.db.prepare(`
+      INSERT INTO execution_records (id, session_id, runtime_id, started_at, expires_at, completed, generation, created_at)
+      VALUES (?, ?, ?, ?, ?, 0, 1, ?)
+    `).run('exec-1', claude.state!.sessionId!, 'claude', String(Date.now()), String(Date.now() + 60000), String(Date.now()));
+
+    // Try to switch - should fail
+    const switchResult = manager.switch({
+      newRuntime: 'hermes',
+      sessionId: claude.state!.sessionId!,
+      clientIp: '127.0.0.1'
+    });
+    assert.strictEqual(switchResult.success, false);
+    assert.ok(switchResult.error?.includes('Cannot switch while an MCP execution is active'), `Got error: ${switchResult.error}`);
+
+    // Check PRAGMA foreign_key_check
+    const fkCheck = db.db.prepare('PRAGMA foreign_key_check').all();
+    assert.strictEqual(fkCheck.length, 0, 'PRAGMA foreign_key_check should return no violations');
+
+    // Cleanup
+    manager.disconnect({ sessionId: claude.state!.sessionId! });
+  });
+
+  it('should prevent switching when target runtime has unfinished execution', async () => {
+    // Connect Claude
+    const claude1 = manager.connect({ runtime: 'claude', clientIp: '127.0.0.1' });
+    assert.strictEqual(claude1.success, true);
+    const claudeSession = claude1.state!.sessionId!;
+
+    // Switch to Hermes (this preserves Claude session as disconnected)
+    const hermes1 = manager.switch({
+      newRuntime: 'hermes',
+      sessionId: claudeSession,
+      clientIp: '127.0.0.1'
+    });
+    assert.strictEqual(hermes1.success, true);
+
+    // Get Hermes session ID and insert unfinished execution
+    const hermesSession = hermes1.state!.sessionId!;
+    db.db.prepare(`
+      INSERT INTO execution_records (id, session_id, runtime_id, started_at, expires_at, completed, generation, created_at)
+      VALUES (?, ?, ?, ?, ?, 0, 1, ?)
+    `).run('exec-2', hermesSession, 'hermes', String(Date.now()), String(Date.now() + 60000), String(Date.now()));
+
+    // Disconnect Hermes (should fail because of unfinished execution)
+    const disconnectResult = manager.disconnect({ sessionId: hermesSession });
+    assert.strictEqual(disconnectResult.success, false);
+    assert.ok(disconnectResult.error?.includes('Cannot disconnect while an MCP execution is active'), `Got error: ${disconnectResult.error}`);
+
+    // Verify Hermes is still active
+    const state = manager.getState();
+    assert.strictEqual(state.connectionStatus, 'connected', 'Hermes should still be connected');
+
+    // Check PRAGMA foreign_key_check
+    const fkCheck = db.db.prepare('PRAGMA foreign_key_check').all();
+    assert.strictEqual(fkCheck.length, 0, 'PRAGMA foreign_key_check should return no violations');
+
+    // Cleanup - need to complete the execution first
+    db.db.prepare('UPDATE execution_records SET completed = 1 WHERE session_id = ?').run(hermesSession);
+    manager.disconnect({ sessionId: hermesSession });
   });
 });
 

@@ -113,10 +113,32 @@ export class RuntimeLifecycleManager {
 
   getSessionOwnership(sessionId: string): { runtime: RuntimeType | null; isOwner: boolean } {
     const row = this.db.stmt.getRuntimeSessionBySession.get(sessionId) as RuntimeSessionRow | undefined;
+
     if (!row || row.session_id !== sessionId) {
-      return { runtime: null, isOwner: false };
+      return {
+        runtime: null,
+        isOwner: false,
+      };
     }
-    return { runtime: row.runtime, isOwner: true };
+
+    const active = this.db.stmt.getActiveRuntimeSession.get() as RuntimeSessionRow | undefined;
+
+    if (
+      !active ||
+      active.session_id !== sessionId ||
+      active.runtime !== row.runtime ||
+      active.connection_status !== 'connected'
+    ) {
+      return {
+        runtime: row.runtime,
+        isOwner: false,
+      };
+    }
+
+    return {
+      runtime: row.runtime,
+      isOwner: true,
+    };
   }
 
   connect(options: ConnectRuntimeOptions): { success: boolean; state?: RuntimeConnectionState; error?: string } {
@@ -244,124 +266,262 @@ export class RuntimeLifecycleManager {
     const { sessionId } = options;
 
     if (!sessionId) {
-      return { success: false, error: 'Session ID required' };
-    }
-
-    // Verify ownership
-    const session = this.db.stmt.getRuntimeSessionBySession.get(sessionId) as RuntimeSessionRow | undefined;
-    if (!session) {
-      return { success: false, error: 'Session not found' };
-    }
-
-    // Check if already disconnected
-    if (session.connection_status === 'disconnected') {
-      const state = this.getState();
-      return { success: true, state };
+      return {
+        success: false,
+        error: 'Session ID required',
+      };
     }
 
     try {
       this.db.runPreparedStatement('beginTransaction', []);
 
-      this.db.stmt.updateRuntimeSessionStatus.run(
-        'disconnected',
-        null,
-        session.session_id
+      const session = this.db.stmt.getRuntimeSessionBySession.get(
+        sessionId
+      ) as RuntimeSessionRow | undefined;
+
+      if (!session) {
+        this.db.runPreparedStatement('rollbackTransaction', []);
+
+        return {
+          success: false,
+          error: 'Session not found',
+        };
+      }
+
+      if (session.connection_status === 'disconnected') {
+        this.db.runPreparedStatement('commitTransaction', []);
+
+        return {
+          success: true,
+          state: this.getState(),
+        };
+      }
+
+      const executions = this.db.query(
+        `SELECT id
+         FROM execution_records
+         WHERE session_id = ?
+           AND completed = 0
+         LIMIT 1`,
+        [sessionId]
       );
 
+      if (executions.length > 0) {
+        this.db.runPreparedStatement('rollbackTransaction', []);
+
+        return {
+          success: false,
+          error: 'Cannot disconnect while an MCP execution is active',
+        };
+      }
+
+      const result = this.db.db.prepare(`
+        UPDATE runtime_sessions
+        SET connection_status = 'disconnected',
+            generation = COALESCE(generation, 0) + 1,
+            last_error = NULL,
+            updated_at = ?
+        WHERE session_id = ?
+          AND connection_status = 'connected'
+      `).run(String(Date.now()), sessionId);
+
+      if (result.changes !== 1) {
+        this.db.runPreparedStatement('rollbackTransaction', []);
+
+        return {
+          success: false,
+          error: 'Runtime session changed during disconnect',
+        };
+      }
+
       this.db.runPreparedStatement('commitTransaction', []);
-      const newState = this.getState();
-      return { success: true, state: newState };
+
+      return {
+        success: true,
+        state: this.getState(),
+      };
     } catch (error) {
-      this.db.runPreparedStatement('rollbackTransaction', []);
+      try {
+        this.db.runPreparedStatement('rollbackTransaction', []);
+      } catch {
+        // Preserve original error.
+      }
+
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Failed to disconnect runtime'
+        error: error instanceof Error
+          ? error.message
+          : 'Failed to disconnect runtime',
       };
     }
   }
 
   switch(options: SwitchRuntimeOptions): { success: boolean; state?: RuntimeConnectionState; error?: string } {
-    const { newRuntime, sessionId, clientIp, userAgent } = options;
+    const { newRuntime, sessionId: sourceSessionId, clientIp, userAgent } = options;
 
-    // Validate runtime
     if (newRuntime !== 'claude' && newRuntime !== 'hermes') {
-      return { success: false, error: 'Invalid runtime identifier' };
+      return {
+        success: false,
+        error: 'Invalid runtime identifier',
+      };
     }
 
-    const newSessionId = sessionId || randomUUID();
-    const now = getCurrentTimestamp();
-    const leaseExpires = String(Number(now) + LEASE_DURATION_MS);
+    if (!sourceSessionId) {
+      return {
+        success: false,
+        error: 'Source session ID is required',
+      };
+    }
+
+    const nowMs = Date.now();
+    const now = String(nowMs);
+    const leaseExpires = String(nowMs + LEASE_DURATION_MS);
 
     try {
       this.db.runPreparedStatement('beginTransaction', []);
 
-      // Get current active session
       const currentActive = this.db.stmt.getActiveRuntimeSession.get() as RuntimeSessionRow | undefined;
 
-      // Check if already active with same session (same runtime, same session_id = idempotent)
-      if (currentActive && currentActive.runtime === newRuntime && currentActive.session_id === newSessionId) {
-        this.db.runPreparedStatement('commitTransaction', []);
-        const state = this.getState();
-        return { success: true, state };
+      if (
+        !currentActive ||
+        currentActive.session_id !== sourceSessionId ||
+        currentActive.connection_status !== 'connected'
+      ) {
+        this.db.runPreparedStatement('rollbackTransaction', []);
+
+        return {
+          success: false,
+          error: 'Source session is not the active connected runtime',
+        };
       }
 
-      // If another runtime is active, handle switch
-      if (currentActive && currentActive.runtime !== newRuntime) {
-        // Verify session ownership if provided - only allow switch with ownership
-        if (sessionId && currentActive.session_id !== sessionId) {
+      if (currentActive.runtime === newRuntime) {
+        this.db.runPreparedStatement('commitTransaction', []);
+
+        return {
+          success: true,
+          state: this.getState(),
+        };
+      }
+
+      // Never switch while an MCP execution is still active.
+      // The current MCP tool handlers do not yet propagate cancellation
+      // reliably through their service operations.
+      const sourceExecutions = this.db.query(
+        `SELECT id
+         FROM execution_records
+         WHERE session_id = ?
+           AND completed = 0
+         LIMIT 1`,
+        [sourceSessionId]
+      );
+
+      if (sourceExecutions.length > 0) {
+        this.db.runPreparedStatement('rollbackTransaction', []);
+
+        return {
+          success: false,
+          error: 'Cannot switch while an MCP execution is active',
+        };
+      }
+
+      // Reuse the target runtime's own historical session ID.
+      // Never reuse the source runtime's session ID.
+      const targetExisting = this.db.stmt.getRuntimeSessionByRuntime.get(newRuntime) as RuntimeSessionRow | undefined;
+
+      if (
+        targetExisting &&
+        targetExisting.connection_status === 'connected'
+      ) {
+        this.db.runPreparedStatement('rollbackTransaction', []);
+
+        return {
+          success: false,
+          error: 'Target runtime already has an active session',
+        };
+      }
+
+      if (targetExisting) {
+        const targetExecutions = this.db.query(
+          `SELECT id
+         FROM execution_records
+         WHERE session_id = ?
+           AND completed = 0
+         LIMIT 1`,
+          [targetExisting.session_id]
+        );
+
+        if (targetExecutions.length > 0) {
           this.db.runPreparedStatement('rollbackTransaction', []);
+
           return {
             success: false,
-            error: 'Session ownership mismatch: you cannot switch away from another session'
+            error: 'Target runtime has an unfinished execution record',
           };
         }
-
-        // Disconnect the old session instead of deleting it
-        // This preserves historical session data for audit and recovery
-        const nowStr = getCurrentTimestamp();
-        this.db.db.prepare(`
-          UPDATE runtime_sessions
-          SET connection_status = 'disconnected',
-              last_error = 'Session replaced by runtime switch',
-              updated_at = ?
-          WHERE runtime = ? AND session_id = ?
-        `).run(nowStr, currentActive.runtime, currentActive.session_id);
-
-        // Increment generation for the old session to invalidate any pending operations
-        this.db.db.prepare(`
-          UPDATE execution_records
-          SET generation = generation + 1,
-              completed = 1
-          WHERE session_id = ? AND completed = 0
-        `).run(currentActive.session_id);
       }
 
-      // Insert new session
+      const targetSessionId =
+        targetExisting?.session_id ?? randomUUID();
+
+      const targetGeneration = targetExisting
+        ? Math.max(Number(targetExisting.generation ?? 0) + 1, 1)
+        : 1;
+
+      const targetCredentialId =
+        targetExisting?.credential_id ?? null;
+
+      // Retain the source session record and invalidate its generation.
+      this.db.db.prepare(`
+        UPDATE runtime_sessions
+        SET connection_status = 'disconnected',
+            generation = COALESCE(generation, 0) + 1,
+            last_error = 'Session replaced by runtime switch',
+            updated_at = ?
+        WHERE runtime = ?
+          AND session_id = ?
+          AND connection_status = 'connected'
+      `).run(
+        now,
+        currentActive.runtime,
+        sourceSessionId
+      );
+
+      // Activate the target runtime using its own session identity.
       this.db.stmt.upsertRuntimeSession.run(
         newRuntime,
-        newSessionId,
+        targetSessionId,
         'connected',
         now,
         now,
         leaseExpires,
-        clientIp || null,
-        userAgent || null,
+        clientIp ?? targetExisting?.client_ip ?? null,
+        userAgent ?? targetExisting?.user_agent ?? null,
         null,
-        1,  // generation - initial value for new sessions
-        null,  // credential_id - not set during switch (session continuity handled by auth middleware)
+        targetGeneration,
+        targetCredentialId,
         now,
         now
       );
 
       this.db.runPreparedStatement('commitTransaction', []);
 
-      const newState = this.getState();
-      return { success: true, state: newState };
+      return {
+        success: true,
+        state: this.getState(),
+      };
     } catch (error) {
-      this.db.runPreparedStatement('rollbackTransaction', []);
+      try {
+        this.db.runPreparedStatement('rollbackTransaction', []);
+      } catch {
+        // Preserve the original database error.
+      }
+
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Failed to switch runtime'
+        error: error instanceof Error
+          ? error.message
+          : 'Failed to switch runtime',
       };
     }
   }

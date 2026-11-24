@@ -1622,7 +1622,9 @@ function createDatabase(dbPath?: string): DatabaseInstance {
     getActiveRuntimeSession: db.prepare(`
       SELECT * FROM runtime_sessions
       WHERE connection_status = 'connected'
-      AND (lease_expires_at IS NULL OR CAST(lease_expires_at AS INTEGER) > CAST(strftime('%s', 'now') || '000' AS INTEGER))
+        AND lease_expires_at IS NOT NULL
+        AND CAST(lease_expires_at AS INTEGER) >
+            CAST(strftime('%s', 'now') || '000' AS INTEGER)
     `) as PreparedStatement,
 
     getConnectedRuntimeSession: db.prepare(`
@@ -1675,8 +1677,10 @@ function createDatabase(dbPath?: string): DatabaseInstance {
       UPDATE runtime_sessions
       SET last_heartbeat_at = ?, lease_expires_at = ?, updated_at = datetime('now')
       WHERE session_id = ?
-      AND connection_status = 'connected'
-      AND (lease_expires_at IS NULL OR CAST(lease_expires_at AS INTEGER) > CAST(strftime('%s', 'now') || '000' AS INTEGER))
+        AND connection_status = 'connected'
+        AND lease_expires_at IS NOT NULL
+        AND CAST(lease_expires_at AS INTEGER) >
+            CAST(strftime('%s', 'now') || '000' AS INTEGER)
     `) as PreparedStatement,
 
     // Phase 10: Execution Records for MCP Execution Guard
@@ -1710,8 +1714,25 @@ function createDatabase(dbPath?: string): DatabaseInstance {
     // Update execution record expires_at for permit renewal (generation check included)
     renewExecutionPermit: db.prepare(`
       UPDATE execution_records
-      SET expires_at = ?, generation = (SELECT generation FROM runtime_sessions WHERE session_id = ?), updated_at = datetime('now')
-      WHERE id = ? AND generation = (SELECT generation FROM runtime_sessions WHERE session_id = ?)
+      SET expires_at = ?,
+          updated_at = datetime('now')
+      WHERE id = ?
+        AND session_id = ?
+        AND completed = 0
+        AND generation = (
+          SELECT generation
+          FROM runtime_sessions
+          WHERE session_id = ?
+        )
+        AND EXISTS (
+          SELECT 1
+          FROM runtime_sessions rs
+          WHERE rs.session_id = ?
+            AND rs.runtime = execution_records.runtime_id
+            AND rs.connection_status = 'connected'
+            AND rs.lease_expires_at IS NOT NULL
+            AND CAST(rs.lease_expires_at AS INTEGER) > ?
+        )
     `) as PreparedStatement,
 
     // Get session with generation for fencing checks
