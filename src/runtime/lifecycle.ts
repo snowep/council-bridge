@@ -1,5 +1,6 @@
 // Runtime Lifecycle Manager - Single Active Runtime Enforcement
 // Phase 10: Enables runtime switching with shared persistent intelligence
+// Phase 1: Problem D - MCP runtime authentication requires validateRuntimeCredential
 
 import { DatabaseInstance } from '../database.js';
 import { randomUUID } from 'node:crypto';
@@ -29,6 +30,7 @@ export interface ConnectRuntimeOptions {
   sessionId?: string;
   clientIp?: string;
   userAgent?: string;
+  credentialId?: string;  // Workstream A-R1: bind session to credential
 }
 
 export interface DisconnectRuntimeOptions {
@@ -118,7 +120,7 @@ export class RuntimeLifecycleManager {
   }
 
   connect(options: ConnectRuntimeOptions): { success: boolean; state?: RuntimeConnectionState; error?: string } {
-    const { runtime, sessionId, clientIp, userAgent } = options;
+    const { runtime, sessionId, clientIp, userAgent, credentialId } = options;
 
     // Validate runtime
     if (runtime !== 'claude' && runtime !== 'hermes') {
@@ -132,11 +134,11 @@ export class RuntimeLifecycleManager {
     try {
       this.db.runPreparedStatement('beginTransaction', []);
 
-      // Check for existing active session
+      // Check for existing session by runtime (could be connected or disconnected)
       const existing = this.db.stmt.getRuntimeSessionByRuntime.get(runtime) as RuntimeSessionRow | undefined;
       const active = this.db.stmt.getActiveRuntimeSession.get() as RuntimeSessionRow | undefined;
 
-      // If same runtime already active with same session, be idempotent or reconnect
+      // If same runtime already active with same session, be idempotent
       if (existing && existing.session_id === newSessionId) {
         if (existing.connection_status === 'connected') {
           // Already connected - idempotent success
@@ -151,9 +153,10 @@ export class RuntimeLifecycleManager {
               connected_at = ?,
               last_heartbeat_at = ?,
               lease_expires_at = ?,
+              credential_id = COALESCE(?, credential_id),
               updated_at = datetime('now')
           WHERE session_id = ?
-        `).run(now, now, leaseExpires, newSessionId);
+        `).run(now, now, leaseExpires, credentialId || null, newSessionId);
         this.db.runPreparedStatement('commitTransaction', []);
         const newState = this.getState();
         return { success: true, state: newState };
@@ -169,20 +172,46 @@ export class RuntimeLifecycleManager {
         };
       }
 
-      // If same runtime has a session with different session_id, disconnect old session first
-            // This handles the case where a previous session needs to be replaced
-            if (existing && existing.session_id !== newSessionId) {
-              // Clean up execution records for the old session to avoid FK constraint violation
-              // when upsertRuntimeSession tries to change session_id
-              this.db.db.prepare(`
-                DELETE FROM execution_records WHERE session_id = ?
-              `).run(existing.session_id);
-        
-              this.db.stmt.updateRuntimeSessionStatus.run('disconnected', null, existing.session_id);
-            }
+      // If same runtime has a session with different session_id
+      if (existing && existing.session_id !== newSessionId) {
+        // WORKSTREAM A-R1: Check if credential_id matches
+        // If credential_id differs, the old session was for a different credential
+        // (revoked/rotated) - we MUST create a new session (delete old execution records)
+        // If credential_id matches, we should REUSE the existing session_id to maintain continuity
+        const credentialMatches = credentialId && existing.credential_id === credentialId;
 
-            // Insert or replace the session
-            this.db.stmt.upsertRuntimeSession.run(
+        if (credentialMatches) {
+          // Same credential - reuse existing session_id for continuity
+          // Update the existing session row with new timestamps and connection status
+          this.db.db.prepare(`
+            UPDATE runtime_sessions
+            SET connection_status = 'connected',
+                connected_at = ?,
+                last_heartbeat_at = ?,
+                lease_expires_at = ?,
+                client_ip = ?,
+                user_agent = ?,
+                updated_at = datetime('now')
+            WHERE session_id = ?
+          `).run(now, now, leaseExpires, clientIp || null, userAgent || null, existing.session_id);
+
+          this.db.runPreparedStatement('commitTransaction', []);
+          const newState = this.getState();
+          return { success: true, state: newState };
+        } else {
+          // Different credential (or no credential provided) - old session is for different credential
+          // Clean up execution records for the old session to avoid FK constraint violation
+          // when upsertRuntimeSession tries to change session_id
+          this.db.db.prepare(`
+            DELETE FROM execution_records WHERE session_id = ?
+          `).run(existing.session_id);
+
+          this.db.stmt.updateRuntimeSessionStatus.run('disconnected', null, existing.session_id);
+        }
+      }
+
+      // Insert or replace the session
+      this.db.stmt.upsertRuntimeSession.run(
         runtime,
         newSessionId,
         'connected',
@@ -193,6 +222,7 @@ export class RuntimeLifecycleManager {
         userAgent || null,
         null,
         1,  // generation - initial value for new sessions
+        credentialId || null,  // Workstream A-R1: store credential_id
         now,
         now
       );
@@ -318,6 +348,7 @@ export class RuntimeLifecycleManager {
         userAgent || null,
         null,
         1,  // generation - initial value for new sessions
+        null,  // credential_id - not set during switch (session continuity handled by auth middleware)
         now,
         now
       );

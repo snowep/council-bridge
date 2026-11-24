@@ -1,9 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   Typography,
   Chip,
-  CircularProgress,
   Alert,
   Button,
   IconButton,
@@ -19,6 +18,7 @@ import {
   TableContainer,
   TableHead,
   TableRow,
+  CircularProgress,
 } from '@mui/material';
 import {
   AccountBalanceOutlined,
@@ -52,114 +52,94 @@ const getStatusLabel = (status: string) => {
   return labels[status] || status;
 };
 
+interface SectionState<T> {
+  data: T;
+  loading: boolean;
+  error: string | null;
+}
+
 const CouncilPage: React.FC = () => {
   const [value, setValue] = useState(0);
-  const [seats, setSeats] = useState<CouncilSeat[]>([]);
-  const [personas, setPersonas] = useState<Persona[]>([]);
-  const [runtimeAssignments, setRuntimeAssignments] = useState<RuntimePersonaAssignment[]>([]);
-  const [constitution, setConstitution] = useState<Constitution | null>(null);
-  const [approvals, setApprovals] = useState<ApprovalRequest[]>([]);
-
-  const [loadingSeats, setLoadingSeats] = useState(true);
-  const [loadingPersonas, setLoadingPersonas] = useState(true);
-  const [loadingAssignments, setLoadingAssignments] = useState(true);
-  const [loadingConstitution, setLoadingConstitution] = useState(true);
-  const [loadingApprovals, setLoadingApprovals] = useState(true);
-
-  const [errorSeats, setErrorSeats] = useState<string | null>(null);
-  const [errorPersonas, setErrorPersonas] = useState<string | null>(null);
-  const [errorAssignments, setErrorAssignments] = useState<string | null>(null);
-  const [errorConstitution, setErrorConstitution] = useState<string | null>(null);
-  const [errorApprovals, setErrorApprovals] = useState<string | null>(null);
 
   const handleChange = (_event: React.SyntheticEvent, newValue: number) => {
     setValue(newValue);
   };
 
-  // Fetch each section independently
-  const fetchSeats = async () => {
+  const [seats, setSeats] = useState<SectionState<CouncilSeat[]>>({ data: [], loading: true, error: null });
+  const [personas, setPersonas] = useState<SectionState<Persona[]>>({ data: [], loading: true, error: null });
+  const [runtimeAssignments, setRuntimeAssignments] = useState<SectionState<RuntimePersonaAssignment[]>>({ data: [], loading: true, error: null });
+  const [constitution, setConstitution] = useState<SectionState<Constitution | null>>({ data: null, loading: true, error: null });
+  const [approvals, setApprovals] = useState<SectionState<ApprovalRequest[]>>({ data: [], loading: true, error: null });
+
+  const fetchSeats = useCallback(async () => {
+    setSeats(prev => ({ ...prev, loading: true, error: null }));
     try {
       const response = await apiClient.get<{ seats: CouncilSeat[] }>('/api/council/seats');
-      setSeats(Array.isArray(response.seats) ? response.seats : []);
+      setSeats({ data: Array.isArray(response.seats) ? response.seats : [], loading: false, error: null });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to fetch seats';
-      setErrorSeats(message);
-    } finally {
-      setLoadingSeats(false);
+      setSeats(prev => ({ ...prev, loading: false, error: message }));
     }
-  };
+  }, []);
 
-  const fetchPersonas = async () => {
+  const fetchPersonas = useCallback(async () => {
+    setPersonas(prev => ({ ...prev, loading: true, error: null }));
     try {
       const response = await apiClient.get<{ data: Persona[] }>('/api/council/personas');
-      setPersonas(Array.isArray(response.data) ? response.data : []);
+      setPersonas({ data: Array.isArray(response.data) ? response.data : [], loading: false, error: null });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to fetch personas';
-      setErrorPersonas(message);
-    } finally {
-      setLoadingPersonas(false);
+      setPersonas(prev => ({ ...prev, loading: false, error: message }));
     }
-  };
+  }, []);
 
-  const fetchRuntimeAssignments = async () => {
+  const fetchRuntimeAssignments = useCallback(async () => {
+    setRuntimeAssignments(prev => ({ ...prev, loading: true, error: null }));
     try {
       const response = await apiClient.get<{ data: RuntimePersonaAssignment[] }>('/api/council/runtime-assignments');
-      setRuntimeAssignments(Array.isArray(response.data) ? response.data : []);
+      setRuntimeAssignments({ data: Array.isArray(response.data) ? response.data : [], loading: false, error: null });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to fetch runtime assignments';
-      setErrorAssignments(message);
-    } finally {
-      setLoadingAssignments(false);
+      setRuntimeAssignments(prev => ({ ...prev, loading: false, error: message }));
     }
-  };
+  }, []);
 
-  const fetchConstitution = async () => {
+  const fetchConstitution = useCallback(async () => {
+    setConstitution(prev => ({ ...prev, loading: true, error: null }));
     try {
       const response = await apiClient.get<{ data: Constitution }>('/api/council/constitution');
-      setConstitution(response.data);
+      setConstitution({ data: response.data, loading: false, error: null });
     } catch (err) {
       // Constitution 404 is expected when not yet active - show empty state
       const errorAny = err as any;
       const statusCode = errorAny?.response?.status;
       if (statusCode === 404 || errorAny?.code === 'NOT_FOUND') {
-        setConstitution(null);
+        setConstitution({ data: null, loading: false, error: null });
       } else {
-        setErrorConstitution(err instanceof Error ? err.message : 'Failed to fetch constitution');
+        const message = err instanceof Error ? err.message : 'Failed to fetch constitution';
+        setConstitution(prev => ({ ...prev, loading: false, error: message }));
       }
-    } finally {
-      setLoadingConstitution(false);
     }
-  };
+  }, []);
 
-  const fetchApprovals = async () => {
+  const fetchApprovals = useCallback(async () => {
+    setApprovals(prev => ({ ...prev, loading: true, error: null }));
     try {
       const response = await apiClient.get<{ data: ApprovalRequest[]; limit: number; offset: number }>('/api/approvals');
-      setApprovals(Array.isArray(response.data) ? response.data : []);
+      setApprovals({ data: Array.isArray(response.data) ? response.data : [], loading: false, error: null });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to fetch approvals';
-      setErrorApprovals(message);
-    } finally {
-      setLoadingApprovals(false);
+      setApprovals(prev => ({ ...prev, loading: false, error: message }));
     }
-  };
+  }, []);
 
-  const handleRefresh = () => {
-    setLoadingSeats(true);
-    setLoadingPersonas(true);
-    setLoadingAssignments(true);
-    setLoadingConstitution(true);
-    setLoadingApprovals(true);
-    setErrorSeats(null);
-    setErrorPersonas(null);
-    setErrorAssignments(null);
-    setErrorConstitution(null);
-    setErrorApprovals(null);
+  const handleRefresh = useCallback(() => {
     fetchSeats();
     fetchPersonas();
     fetchRuntimeAssignments();
     fetchConstitution();
     fetchApprovals();
-  };
+  }, [fetchSeats, fetchPersonas, fetchRuntimeAssignments, fetchConstitution, fetchApprovals]);
 
   useEffect(() => {
     fetchSeats();
@@ -167,45 +147,17 @@ const CouncilPage: React.FC = () => {
     fetchRuntimeAssignments();
     fetchConstitution();
     fetchApprovals();
-  }, []);
+  }, [fetchSeats, fetchPersonas, fetchRuntimeAssignments, fetchConstitution, fetchApprovals]);
 
   const getPersonaForSeat = (seatId: string) => {
-    return personas.find(p => p.seat_id === seatId);
+    return personas.data.find(p => p.seat_id === seatId);
   };
 
   const getRuntimeForPersona = (personaId: string) => {
-    return runtimeAssignments.find(a => a.persona_id === personaId);
+    return runtimeAssignments.data.find(a => a.persona_id === personaId);
   };
 
-  const isAnyLoading = loadingSeats || loadingPersonas || loadingAssignments || loadingConstitution || loadingApprovals;
-
-  if (isAnyLoading) {
-    return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '60vh' }}>
-        <CircularProgress />
-      </Box>
-    );
-  }
-
-  const hasAnyError = errorSeats || errorPersonas || errorAssignments || errorConstitution || errorApprovals;
-
-  if (hasAnyError) {
-    return (
-      <Box sx={{ p: 3, textAlign: 'center' }}>
-        <Alert severity="error" onClose={() => {}} sx={{ mb: 2 }}>
-          Failed to load some data. Check console for details.
-          {errorSeats && <><br />Seats: {errorSeats}</>}</Alert>
-        <Button
-          onClick={handleRefresh}
-          startIcon={<RefreshOutlined />}
-          size="small"
-          sx={{ mt: 2 }}
-        >
-          Retry
-        </Button>
-      </Box>
-    );
-  }
+  const anyLoading = seats.loading || personas.loading || runtimeAssignments.loading || constitution.loading || approvals.loading;
 
   return (
     <Box sx={{ width: '100%' }}>
@@ -214,7 +166,7 @@ const CouncilPage: React.FC = () => {
           Council Membership
         </Typography>
         <Tooltip title="Refresh council data">
-          <IconButton onClick={handleRefresh} disabled={isAnyLoading} aria-label="Refresh">
+          <IconButton onClick={handleRefresh} disabled={anyLoading} aria-label="Refresh">
             <RefreshOutlined />
           </IconButton>
         </Tooltip>
@@ -233,7 +185,18 @@ const CouncilPage: React.FC = () => {
 
       {/* Seats Tab */}
       <TabPanel value={value} index={0}>
-        {seats.length === 0 ? (
+        {seats.loading ? (
+          <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+            <CircularProgress size={24} />
+          </Box>
+        ) : seats.error ? (
+          <Alert severity="error" sx={{ mb: 2 }}>
+            Failed to load seats: {seats.error}
+            <Button size="small" startIcon={<RefreshOutlined />} onClick={fetchSeats} sx={{ ml: 2 }}>
+              Retry
+            </Button>
+          </Alert>
+        ) : seats.data.length === 0 ? (
           <Typography variant="body1" color="text.secondary" sx={{ textAlign: 'center', py: 4 }}>
             No council seats found
           </Typography>
@@ -253,7 +216,7 @@ const CouncilPage: React.FC = () => {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {seats.map((seat) => {
+                {seats.data.map((seat) => {
                   const persona = getPersonaForSeat(seat.seat_id);
                   const runtimeAssignment = persona ? getRuntimeForPersona(persona.persona_id) : null;
 
@@ -319,7 +282,18 @@ const CouncilPage: React.FC = () => {
 
       {/* Personas Tab */}
       <TabPanel value={value} index={1}>
-        {personas.length === 0 ? (
+        {personas.loading ? (
+          <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+            <CircularProgress size={24} />
+          </Box>
+        ) : personas.error ? (
+          <Alert severity="error" sx={{ mb: 2 }}>
+            Failed to load personas: {personas.error}
+            <Button size="small" startIcon={<RefreshOutlined />} onClick={fetchPersonas} sx={{ ml: 2 }}>
+              Retry
+            </Button>
+          </Alert>
+        ) : personas.data.length === 0 ? (
           <Typography variant="body1" color="text.secondary" sx={{ textAlign: 'center', py: 4 }}>
             No personas found
           </Typography>
@@ -337,8 +311,8 @@ const CouncilPage: React.FC = () => {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {personas.map((persona) => {
-                  const seat = seats.find(s => s.seat_id === persona.seat_id);
+                {personas.data.map((persona) => {
+                  const seat = seats.data.find(s => s.seat_id === persona.seat_id);
                   const runtimeAssignment = getRuntimeForPersona(persona.persona_id);
 
                   return (
@@ -385,7 +359,18 @@ const CouncilPage: React.FC = () => {
 
       {/* Runtime Assignments Tab */}
       <TabPanel value={value} index={2}>
-        {runtimeAssignments.length === 0 ? (
+        {runtimeAssignments.loading ? (
+          <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+            <CircularProgress size={24} />
+          </Box>
+        ) : runtimeAssignments.error ? (
+          <Alert severity="error" sx={{ mb: 2 }}>
+            Failed to load runtime assignments: {runtimeAssignments.error}
+            <Button size="small" startIcon={<RefreshOutlined />} onClick={fetchRuntimeAssignments} sx={{ ml: 2 }}>
+              Retry
+            </Button>
+          </Alert>
+        ) : runtimeAssignments.data.length === 0 ? (
           <Typography variant="body1" color="text.secondary" sx={{ textAlign: 'center', py: 4 }}>
             No runtime assignments found
           </Typography>
@@ -403,11 +388,11 @@ const CouncilPage: React.FC = () => {
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {runtimeAssignments
+                  {runtimeAssignments.data
                     .filter(a => a.runtime === 'claude')
                     .map((assignment) => {
-                      const persona = personas.find(p => p.persona_id === assignment.persona_id);
-                      const seat = persona ? seats.find(s => s.seat_id === persona.seat_id) : null;
+                      const persona = personas.data.find(p => p.persona_id === assignment.persona_id);
+                      const seat = persona ? seats.data.find(s => s.seat_id === persona.seat_id) : null;
 
                       return (
                         <TableRow key={assignment.persona_id} hover>
@@ -447,11 +432,11 @@ const CouncilPage: React.FC = () => {
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {runtimeAssignments
+                  {runtimeAssignments.data
                     .filter(a => a.runtime === 'hermes')
                     .map((assignment) => {
-                      const persona = personas.find(p => p.persona_id === assignment.persona_id);
-                      const seat = persona ? seats.find(s => s.seat_id === persona.seat_id) : null;
+                      const persona = personas.data.find(p => p.persona_id === assignment.persona_id);
+                      const seat = persona ? seats.data.find(s => s.seat_id === persona.seat_id) : null;
 
                       return (
                         <TableRow key={assignment.persona_id} hover>
@@ -482,21 +467,32 @@ const CouncilPage: React.FC = () => {
 
       {/* Constitution Tab */}
       <TabPanel value={value} index={3}>
-        {constitution ? (
+        {constitution.loading ? (
+          <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+            <CircularProgress size={24} />
+          </Box>
+        ) : constitution.error ? (
+          <Alert severity="error" sx={{ mb: 2 }}>
+            Failed to load constitution: {constitution.error}
+            <Button size="small" startIcon={<RefreshOutlined />} onClick={fetchConstitution} sx={{ ml: 2 }}>
+              Retry
+            </Button>
+          </Alert>
+        ) : constitution.data ? (
           <Card sx={{ maxWidth: 800, mx: 'auto' }}>
             <CardContent>
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2, flexWrap: 'wrap', gap: 2 }}>
                 <Box>
                   <Typography variant="h5" gutterBottom>Constitution</Typography>
                   <Typography variant="body2" color="text.secondary">
-                    Version: {constitution.version} • Status: {constitution.status}
+                    Version: {constitution.data.version} • Status: {constitution.data.status}
                   </Typography>
                 </Box>
                 <Chip
-                  label={constitution.status}
+                  label={constitution.data.status}
                   color={
-                    constitution.status === 'active' ? 'success' :
-                    constitution.status === 'draft' ? 'warning' : 'default'
+                    constitution.data.status === 'active' ? 'success' :
+                    constitution.data.status === 'draft' ? 'warning' : 'default'
                   }
                   size="small"
                 />
@@ -505,13 +501,13 @@ const CouncilPage: React.FC = () => {
               <Divider sx={{ mb: 2 }} />
 
               <Box sx={{ whiteSpace: 'pre-wrap', fontFamily: 'monospace', fontSize: '0.875rem', lineHeight: 1.6 }}>
-                {constitution.content}
+                {constitution.data.content}
               </Box>
 
               <Divider sx={{ my: 2 }} />
 
               <Typography variant="caption" color="text.secondary">
-                Created: {new Date(constitution.created_at).toLocaleString()} • Updated: {new Date(constitution.updated_at).toLocaleString()} • ID: {constitution.constitution_id}
+                Created: {new Date(constitution.data.created_at).toLocaleString()} • Updated: {new Date(constitution.data.updated_at).toLocaleString()} • ID: {constitution.data.constitution_id}
               </Typography>
             </CardContent>
           </Card>
@@ -524,7 +520,18 @@ const CouncilPage: React.FC = () => {
 
       {/* Approvals Tab */}
       <TabPanel value={value} index={4}>
-        {approvals.length === 0 ? (
+        {approvals.loading ? (
+          <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+            <CircularProgress size={24} />
+          </Box>
+        ) : approvals.error ? (
+          <Alert severity="error" sx={{ mb: 2 }}>
+            Failed to load approvals: {approvals.error}
+            <Button size="small" startIcon={<RefreshOutlined />} onClick={fetchApprovals} sx={{ ml: 2 }}>
+              Retry
+            </Button>
+          </Alert>
+        ) : approvals.data.length === 0 ? (
           <Typography variant="body1" color="text.secondary" sx={{ textAlign: 'center', py: 4 }}>
             No approval requests found
           </Typography>
@@ -541,7 +548,7 @@ const CouncilPage: React.FC = () => {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {approvals.map((approval) => (
+                {approvals.data.map((approval) => (
                   <TableRow key={approval.approval_request_id} hover>
                     <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.875rem' }}>
                       #{approval.approval_request_id.slice(0, 8)}

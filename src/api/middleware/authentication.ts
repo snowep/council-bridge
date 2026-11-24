@@ -341,6 +341,7 @@ export async function mcpRuntimeAuthMiddleware(
   // 7. Establish runtime session using lifecycle manager
   // This creates a session_id that ownership/execution guards can validate
   // FIX R1: Check for existing session to maintain continuity
+  // SECURITY: Derive runtime identity only from validated credentials; ensure revoked credentials cannot reuse old sessions
   const { getRuntimeLifecycleManager, parseUnixMs } = await import('../../runtime/lifecycle.js');
   const lifecycle = getRuntimeLifecycleManager(db);
   const clientIp = req.socket?.remoteAddress || 'unknown';
@@ -355,19 +356,27 @@ export async function mcpRuntimeAuthMiddleware(
     if (leaseExpiresAt) {
       const leaseExpiresMs = parseUnixMs(leaseExpiresAt);
       if (leaseExpiresMs && leaseExpiresMs > Date.now()) {
-        // Session is valid and not expired - reuse it
-        existingSessionId = existingSession.session_id;
+        // Session is valid and not expired - check credential binding
+        // WORKSTREAM A-R1: Only reuse session if credential_id matches (revoked credentials get new sessions)
+        if (existingSession.credential_id === runtimePrincipal.credentialId) {
+          existingSessionId = existingSession.session_id;
+        }
+        // If credential_id differs, the old session is for a different credential
+        // (revoked/rotated) - we must create a new session
       }
     } else {
       // No lease expiration set - treat as always valid
-      existingSessionId = existingSession.session_id;
+      if (existingSession.credential_id === runtimePrincipal.credentialId) {
+        existingSessionId = existingSession.session_id;
+      }
     }
   }
 
   const connResult = lifecycle.connect({
     runtime: runtimePrincipal.runtimeId,
     sessionId: existingSessionId,
-    clientIp
+    clientIp,
+    credentialId: runtimePrincipal.credentialId
   });
 
   if (!connResult.success || !connResult.state) {

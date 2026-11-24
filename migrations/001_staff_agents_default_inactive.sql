@@ -52,3 +52,4 @@ PRAGMA foreign_keys = ON;
 -- SELECT status FROM staff_agents WHERE staff_id = 'test';  -- should be 'inactive'
 -- MODIFIED
 -- MODIFIED
+-- MODIFIED

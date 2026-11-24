@@ -106,6 +106,7 @@ router.post('/connect', authMiddleware, requireFounder, asyncHandler(async (req:
 // POST /api/runtime/disconnect - Disconnect current runtime (Founder only)
 router.post('/disconnect', authMiddleware, requireFounder, asyncHandler(async (req: Request, res: Response) => {
   const lifecycle = getRuntimeLifecycleManager(db);
+  const authContext = getAuthContext(req);
 
   // Validate request
   const result = disconnectSchema.safeParse(req.body);
@@ -118,6 +119,25 @@ router.post('/disconnect', authMiddleware, requireFounder, asyncHandler(async (r
   }
 
   const { session_id } = result.data;
+
+  // Bind to authenticated session: reject if request body session_id doesn't match authenticated identity
+  if (authContext && authContext.session_id && authContext.session_id !== session_id) {
+    return res.status(403).json({
+      success: false,
+      error: 'Session ownership mismatch: cannot disconnect foreign session',
+      code: 'SESSION_OWNERSHIP_MISMATCH'
+    });
+  }
+
+  // Validate session ownership via lifecycle (fail-closed)
+  const ownership = lifecycle.getSessionOwnership(session_id);
+  if (!ownership.isOwner) {
+    return res.status(404).json({
+      success: false,
+      error: 'Session not found or not owned by authenticated identity',
+      code: 'SESSION_NOT_OWNED'
+    });
+  }
 
   const disconnectResult = lifecycle.disconnect({ sessionId: session_id });
 
@@ -137,6 +157,7 @@ router.post('/disconnect', authMiddleware, requireFounder, asyncHandler(async (r
 // POST /api/runtime/switch - Switch between runtimes (Founder only)
 router.post('/switch', authMiddleware, requireFounder, asyncHandler(async (req: Request, res: Response) => {
   const lifecycle = getRuntimeLifecycleManager(db);
+  const authContext = getAuthContext(req);
 
   // Validate request
   const result = switchSchema.safeParse(req.body);
@@ -149,6 +170,43 @@ router.post('/switch', authMiddleware, requireFounder, asyncHandler(async (req: 
   }
 
   const { new_runtime, session_id, client_ip, user_agent } = result.data;
+
+  // Session ID must be provided for switch operation (binds to authenticated session)
+  if (!session_id) {
+    return res.status(400).json({
+      success: false,
+      error: 'Session ID required for runtime switch'
+    });
+  }
+
+  // Bind to authenticated session: reject if request body session_id doesn't match authenticated identity
+  if (authContext && authContext.session_id && authContext.session_id !== session_id) {
+    return res.status(403).json({
+      success: false,
+      error: 'Session ownership mismatch: cannot switch away from foreign session',
+      code: 'SESSION_OWNERSHIP_MISMATCH'
+    });
+  }
+
+  // Validate session ownership via lifecycle (fail-closed)
+  const ownership = lifecycle.getSessionOwnership(session_id);
+  if (!ownership.isOwner) {
+    return res.status(404).json({
+      success: false,
+      error: 'Session not found or not owned by authenticated identity',
+      code: 'SESSION_NOT_OWNED'
+    });
+  }
+
+  // Verify the session being switched FROM is the currently active session
+  const state = lifecycle.getState();
+  if (state.sessionId !== session_id || state.connectionStatus !== 'connected') {
+    return res.status(409).json({
+      success: false,
+      error: 'Cannot switch: session is not the active connected session',
+      code: 'RUNTIME_SWITCH_CONFLICT'
+    });
+  }
 
   const switchResult = lifecycle.switch({
     newRuntime: new_runtime,
@@ -204,14 +262,10 @@ router.post('/heartbeat', authMiddleware, asyncHandler(async (req: Request, res:
     throw new AuthorizationError('Session ownership required for heartbeat');
   }
 
-  // For runtime sessions, verify the session_id matches the authenticated runtime
-  if (ctx.owner_type === 'runtime') {
-    if (ctx.session_id !== session_id) {
-      throw new AuthorizationError('Session ownership required for heartbeat');
-    }
+  // Bind to authenticated session: reject if request body session_id doesn't match authenticated identity
+  if (ctx.session_id !== session_id) {
+    throw new AuthorizationError('Session ownership required for heartbeat');
   }
-  // For Founder sessions (local mode), allow heartbeat for any connected session
-  // This enables the bootstrap flow where Founder creates/connects a runtime
 
   // Verify the session exists and is connected via the lifecycle manager
   const ownership = lifecycle.getSessionOwnership(session_id);
@@ -219,12 +273,18 @@ router.post('/heartbeat', authMiddleware, asyncHandler(async (req: Request, res:
     throw new NotFoundError('Session not found or not active');
   }
 
+  // Fail-closed: verify session is connected and lease is valid
+  const state = lifecycle.getState();
+  if (state.sessionId !== session_id || state.connectionStatus !== 'connected') {
+    throw new AuthorizationError('Session is not the active connected session');
+  }
+
   const heartbeatResult = lifecycle.heartbeat({ sessionId: session_id });
 
   if (!heartbeatResult.success) {
     const error = heartbeatResult.error || 'Unknown error';
 
-    if (error === 'Session expired') {
+    if (error === 'Session expired' || error.includes('not eligible')) {
       return res.status(410).json({
         success: false,
         error,

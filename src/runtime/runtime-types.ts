@@ -17,6 +17,7 @@ export interface RuntimeSessionRow {
   created_at: string;
   updated_at: string;
   generation: number;                 // Added for generation-based execution fencing
+  credential_id: string | null;       // Workstream A-R1: link session to validated credential
 }
 
 // In-memory session type for API use

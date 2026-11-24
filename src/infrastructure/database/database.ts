@@ -1083,6 +1083,7 @@ function createDatabase(dbPath?: string): DatabaseInstance {
 
   // Ensure runtime_sessions table exists (Migration 017/020)
   // With generation column for Loop 3 execution fencing
+  // Added credential_id column for Workstream A-R1: session continuity & credential binding
   db.prepare(`
     CREATE TABLE IF NOT EXISTS runtime_sessions (
       runtime TEXT PRIMARY KEY,
@@ -1095,6 +1096,7 @@ function createDatabase(dbPath?: string): DatabaseInstance {
       user_agent TEXT,
       last_error TEXT,
       generation INTEGER DEFAULT 0,
+      credential_id TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now')),
       UNIQUE(session_id)
@@ -1121,6 +1123,13 @@ function createDatabase(dbPath?: string): DatabaseInstance {
     .some(col => col.name === 'generation');
   if (!hasRuntimeSessionGeneration) {
     db.prepare(`ALTER TABLE runtime_sessions ADD COLUMN generation INTEGER DEFAULT 0`).run();
+  }
+
+  // Add credential_id column to existing runtime_sessions tables (Workstream A-R1 migration)
+  const hasCredentialId = (db.prepare('PRAGMA table_info(runtime_sessions)').all() as Array<{ name: string }>)
+    .some(col => col.name === 'credential_id');
+  if (!hasCredentialId) {
+    db.prepare(`ALTER TABLE runtime_sessions ADD COLUMN credential_id TEXT`).run();
   }
 
   // Ensure runtime_control table exists (Migration 020)
@@ -1590,8 +1599,8 @@ function createDatabase(dbPath?: string): DatabaseInstance {
     // Phase 10: Runtime Session Management
     upsertRuntimeSession: db.prepare(`
       INSERT INTO runtime_sessions
-        (runtime, session_id, connection_status, connected_at, last_heartbeat_at, lease_expires_at, client_ip, user_agent, last_error, generation, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (runtime, session_id, connection_status, connected_at, last_heartbeat_at, lease_expires_at, client_ip, user_agent, last_error, generation, credential_id, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(runtime) DO UPDATE SET
         session_id = excluded.session_id,
         connection_status = excluded.connection_status,
@@ -1601,6 +1610,8 @@ function createDatabase(dbPath?: string): DatabaseInstance {
         client_ip = excluded.client_ip,
         user_agent = excluded.user_agent,
         last_error = excluded.last_error,
+        generation = excluded.generation,
+        credential_id = excluded.credential_id,
         updated_at = datetime('now')
     `) as PreparedStatement,
 

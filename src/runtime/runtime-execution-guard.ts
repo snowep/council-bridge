@@ -23,7 +23,7 @@ export interface RuntimeExecutionContext {
   permitRenewalInterval?: NodeJS.Timeout;
 }
 
-export type RuntimeToolExecutor<T> = (context: RuntimeExecutionContext) => Promise<T>;
+export type RuntimeToolExecutor<T> = (context: RuntimeExecutionContext, signal: AbortSignal) => Promise<T>;
 
 export interface ExecutionGuardResult<T> {
   success: boolean;
@@ -273,7 +273,8 @@ export function createRuntimeExecutionGuard(db: DatabaseInstance) {
   /**
    * Renews an execution permit by updating its expiration time
    * Also checks that the session generation hasn't changed (runtime switching)
-   * Returns true if renewal succeeded, false if session switched or expired
+   * Validates that runtime remains active (connected + valid lease)
+   * Returns true if renewal succeeded, false if session switched, expired, or inactive
    */
   function renewExecutionPermit(
     sessionId: string,
@@ -282,6 +283,26 @@ export function createRuntimeExecutionGuard(db: DatabaseInstance) {
     try {
       const now = Date.now();
       const newExpiresAt = now + EXECUTION_PERMIT_DURATION_MS;
+
+      // Verify session is still active (connected + valid lease) before attempting renewal
+      const session = db.stmt.getRuntimeSessionBySession.get(sessionId) as
+        | { runtime: RuntimeId; session_id: string; connection_status: string; lease_expires_at: string | null; generation: number }
+        | undefined;
+
+      if (!session) {
+        return false;
+      }
+
+      if (session.connection_status !== 'connected') {
+        return false;
+      }
+
+      const leaseExpires = session.lease_expires_at;
+      const leaseExpiresMs = parseUnixMs(leaseExpires);
+
+      if (leaseExpiresMs === null || leaseExpiresMs <= now) {
+        return false;
+      }
 
       // Use the prepared statement that checks generation matches (runtime switching fencing)
       const result = db.stmt.renewExecutionPermit.run(newExpiresAt, sessionId, executionId, sessionId);
@@ -333,8 +354,53 @@ export function createRuntimeExecutionGuard(db: DatabaseInstance) {
   }
 
   /**
+   * Starts permit renewal interval with abort signal for failure detection
+   * Aborts when session switches, expires, or becomes inactive (stale execution detection)
+   */
+  function startPermitRenewalWithAbort(
+    sessionId: string,
+    executionId: string,
+    abortController: AbortController
+  ): { interval: NodeJS.Timeout; stop: () => void } {
+    const initialSession = db.stmt.getSessionWithGeneration.get(sessionId) as
+      | { session_id: string; generation: number }
+      | undefined;
+    let currentGeneration = initialSession?.generation ?? 1;
+
+    const interval = setInterval(() => {
+      // Check if session has switched (generation changed) or become inactive
+      const updatedSession = db.stmt.getSessionWithGeneration.get(sessionId) as
+        | { session_id: string; generation: number }
+        | undefined;
+
+      if (!updatedSession || updatedSession.generation !== currentGeneration) {
+        // Session switched - abort execution
+        abortController.abort();
+        clearInterval(interval);
+        return;
+      }
+
+      // Attempt to renew the permit with generation check and runtime active validation
+      const renewed = renewExecutionPermit(sessionId, executionId);
+      if (!renewed) {
+        // Permit renewal failed (generation mismatch, expired, or not active)
+        abortController.abort();
+        clearInterval(interval);
+      }
+    }, PERMIT_RENEWAL_INTERVAL_MS);
+
+    interval.unref?.();
+
+    return {
+      interval,
+      stop: () => clearInterval(interval)
+    };
+  }
+
+  /**
    * Main execution guard function that wraps MCP tool execution
-   * Automatically renews heartbeat during long-running executions
+   * Automatically renews permit and heartbeat during long-running executions
+   * Aborts protected work if permit renewal fails (stale execution)
    */
   async function executeWithGuard<T>(
     authContext: AuthContext,
@@ -352,9 +418,50 @@ export function createRuntimeExecutionGuard(db: DatabaseInstance) {
 
     const context = permitResult.context;
 
+    // Create AbortController for signaling permit renewal failure
+    const abortController = new AbortController();
+    const signal = abortController.signal;
+
+    // Track if termination was requested due to stale execution
+    let executionTerminated = false;
+
+    // Monitor the abort signal and set termination flag when aborted
+    signal.addEventListener('abort', () => {
+      executionTerminated = true;
+    }, { once: true });
+
+    // Replace the permit renewal with one that signals abort on failure
+    if (context.permitRenewalInterval) {
+      clearInterval(context.permitRenewalInterval);
+      const newPermitRenewal = startPermitRenewalWithAbort(context.sessionId, context.executionId, abortController);
+      context.permitRenewalInterval = newPermitRenewal.interval;
+    }
+
     try {
-      // Step 2: Execute the MCP tool callback
-      const result = await toolExecutor(context);
+      // Step 2: Execute the MCP tool callback with abort signal
+      // Tool executors should check signal.aborted and throw AbortError if needed
+      let result: T;
+      try {
+        result = await toolExecutor(context, signal);
+      } catch (error) {
+        // Handle abort signal from permit renewal failure
+        if (signal.aborted) {
+          executionTerminated = true;
+        }
+        throw error;
+      }
+
+      // If execution was terminated due to stale permit, return failure
+      if (executionTerminated) {
+        await releaseExecutionPermit(context.executionId);
+        return {
+          success: false,
+          error: {
+            code: 'PERMIT_RENEWAL_FAILED',
+            message: 'Execution permit renewal failed - session switched, expired, or became inactive'
+          }
+        };
+      }
 
       // Step 3: Release permit on success
       await releaseExecutionPermit(context.executionId);
@@ -363,6 +470,17 @@ export function createRuntimeExecutionGuard(db: DatabaseInstance) {
     } catch (error) {
       // Step 4: Release permit on error (finally block semantics)
       await releaseExecutionPermit(context.executionId);
+
+      // Return graceful termination if aborted
+      if (signal.aborted || executionTerminated) {
+        return {
+          success: false,
+          error: {
+            code: 'PERMIT_RENEWAL_FAILED',
+            message: 'Execution terminated due to stale permit - session switched, expired, or became inactive'
+          }
+        };
+      }
 
       return {
         success: false,
