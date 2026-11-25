@@ -35,9 +35,5 @@ CREATE INDEX IF NOT EXISTS idx_runtime_credentials_revoked
 CREATE UNIQUE INDEX IF NOT EXISTS idx_runtime_sessions_session_id_unique
     ON runtime_sessions(session_id);
 
--- Phase 10 Loop 3: Generation column for execution_records is handled by database.ts
--- The schema in database.ts includes generation INTEGER NOT NULL DEFAULT 1
--- For existing databases, database.ts checks and adds the column via ALTER TABLE if missing
-
--- Add generation index for efficient querying
+-- Add generation index for efficient querying (column added in Migration 018)
 CREATE INDEX IF NOT EXISTS idx_execution_records_generation ON execution_records(generation);

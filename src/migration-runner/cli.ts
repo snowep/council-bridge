@@ -19,9 +19,9 @@ program
   .description('Phase 6 Production Migration Runner')
   .version('1.0.0');
 
-const DB_PATH: string = 'data/council.db';
-const BACKUP_DIR = 'data/backups';
-const MIGRATIONS_DIR = 'migrations';
+const DB_PATH: string = process.env.DATABASE_PATH || 'data/council.db';
+const BACKUP_DIR = process.env.BACKUP_DIR || 'data/backups';
+const MIGRATIONS_DIR = process.env.MIGRATIONS_DIR || 'migrations';
 
 // Global instances
 let db: Database.Database;

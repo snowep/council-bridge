@@ -23,7 +23,7 @@ router.get('/', asyncHandler(async (req: Request, res: Response) => {
   const ctx = requireAuth(req);
   const { limit, offset, owner_type, owner_id, category, archived, search } = ListMemorySchema.parse(req.query);
 
-  const entries = listMemoryEntries(db, ctx, {
+  const result = listMemoryEntries(db, ctx, {
     owner_type: owner_type as any,
     owner_id: owner_id as any,
     category: category as any,
@@ -33,7 +33,10 @@ router.get('/', asyncHandler(async (req: Request, res: Response) => {
     offset,
   });
 
-  res.json({ entries, limit, offset });
+  // Set X-Total-Count header for pagination
+  res.set('X-Total-Count', String(result.total_count));
+
+  res.json({ entries: result.entries, total_count: result.total_count, limit, offset });
 }));
 
 // GET /api/memory/:id - Get memory entry details

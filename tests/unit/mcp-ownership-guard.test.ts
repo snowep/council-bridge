@@ -110,10 +110,10 @@ describe('MCP Runtime Ownership Guard - Phase 10', () => {
         founder_signed: true
       };
 
-      // Expired lease is filtered out by SQL query, resulting in no active session
+      // Expired lease is now detected by app layer and returns SESSION_EXPIRED
       const result = guard(authContext);
       assert.strictEqual(result.allowed, false);
-      assert.strictEqual(result.errorCode, 'NO_ACTIVE_SESSION');
+      assert.strictEqual(result.errorCode, 'SESSION_EXPIRED');
     });
 
     it('should reject request when session ID does not match active session', async () => {
@@ -423,10 +423,10 @@ describe('MCP Runtime Ownership Guard - Phase 10', () => {
         founder_signed: true
       };
 
-      // Expired lease is filtered out by SQL query, resulting in no active session
+      // Expired lease is now detected by app layer and returns SESSION_EXPIRED
       const result = guard(authContext);
       assert.strictEqual(result.allowed, false);
-      assert.strictEqual(result.errorCode, 'NO_ACTIVE_SESSION');
+      assert.strictEqual(result.errorCode, 'SESSION_EXPIRED');
     });
 
     it('should reject request when timestamp equals current time', async () => {
@@ -517,10 +517,10 @@ describe('MCP Runtime Ownership Guard - Phase 10', () => {
         founder_signed: true
       };
 
-      // Invalid lease timestamps are filtered out by the SQL query, resulting in no active session
+      // Empty string lease is now returned by SQL and rejected by app layer with specific error code
       const result = guard(authContext);
       assert.strictEqual(result.allowed, false);
-      assert.strictEqual(result.errorCode, 'NO_ACTIVE_SESSION');
+      assert.strictEqual(result.errorCode, 'INVALID_SESSION_LEASE');
     });
 
     it('should reject request when lease timestamp contains whitespace', async () => {
@@ -541,10 +541,10 @@ describe('MCP Runtime Ownership Guard - Phase 10', () => {
         founder_signed: true
       };
 
-      // Invalid lease timestamps are filtered out by the SQL query, resulting in no active session
+      // Invalid lease timestamps are now returned by SQL and rejected by app layer with specific error code
       const result = guard(authContext);
       assert.strictEqual(result.allowed, false);
-      assert.strictEqual(result.errorCode, 'NO_ACTIVE_SESSION');
+      assert.strictEqual(result.errorCode, 'INVALID_SESSION_LEASE');
     });
 
     it('should reject request when lease timestamp is malformed (123abc)', async () => {
@@ -565,10 +565,10 @@ describe('MCP Runtime Ownership Guard - Phase 10', () => {
         founder_signed: true
       };
 
-      // Invalid lease timestamps are filtered out by the SQL query, resulting in no active session
+      // Invalid lease timestamps are now returned by SQL and rejected by app layer with specific error code
       const result = guard(authContext);
       assert.strictEqual(result.allowed, false);
-      assert.strictEqual(result.errorCode, 'NO_ACTIVE_SESSION');
+      assert.strictEqual(result.errorCode, 'INVALID_SESSION_LEASE');
     });
 
     it('should reject request when lease timestamp is ISO format', async () => {
@@ -589,10 +589,10 @@ describe('MCP Runtime Ownership Guard - Phase 10', () => {
         founder_signed: true
       };
 
-      // Invalid lease timestamps are filtered out by the SQL query, resulting in no active session
+      // Invalid lease timestamps are now returned by SQL and rejected by app layer with specific error code
       const result = guard(authContext);
       assert.strictEqual(result.allowed, false);
-      assert.strictEqual(result.errorCode, 'NO_ACTIVE_SESSION');
+      assert.strictEqual(result.errorCode, 'INVALID_SESSION_LEASE');
     });
 
     it('should reject request when lease timestamp is NaN', async () => {
@@ -613,10 +613,10 @@ describe('MCP Runtime Ownership Guard - Phase 10', () => {
         founder_signed: true
       };
 
-      // Invalid lease timestamps are filtered out by the SQL query, resulting in no active session
+      // Invalid lease timestamps are now returned by SQL and rejected by app layer with specific error code
       const result = guard(authContext);
       assert.strictEqual(result.allowed, false);
-      assert.strictEqual(result.errorCode, 'NO_ACTIVE_SESSION');
+      assert.strictEqual(result.errorCode, 'INVALID_SESSION_LEASE');
     });
 
     it('should reject request when lease timestamp is Infinity', async () => {
@@ -637,10 +637,10 @@ describe('MCP Runtime Ownership Guard - Phase 10', () => {
         founder_signed: true
       };
 
-      // Invalid lease timestamps are filtered out by the SQL query, resulting in no active session
+      // Invalid lease timestamps are now returned by SQL and rejected by app layer with specific error code
       const result = guard(authContext);
       assert.strictEqual(result.allowed, false);
-      assert.strictEqual(result.errorCode, 'NO_ACTIVE_SESSION');
+      assert.strictEqual(result.errorCode, 'INVALID_SESSION_LEASE');
     });
 
     it('should reject request when lease timestamp is negative', async () => {
@@ -661,10 +661,10 @@ describe('MCP Runtime Ownership Guard - Phase 10', () => {
         founder_signed: true
       };
 
-      // Invalid lease timestamps are filtered out by the SQL query, resulting in no active session
+      // Invalid lease timestamps are now returned by SQL and rejected by app layer with specific error code
       const result = guard(authContext);
       assert.strictEqual(result.allowed, false);
-      assert.strictEqual(result.errorCode, 'NO_ACTIVE_SESSION');
+      assert.strictEqual(result.errorCode, 'INVALID_SESSION_LEASE');
     });
 
     it('should reject request when lease timestamp is zero', async () => {
@@ -685,10 +685,10 @@ describe('MCP Runtime Ownership Guard - Phase 10', () => {
         founder_signed: true
       };
 
-      // Invalid lease timestamps are filtered out by the SQL query, resulting in no active session
+      // Invalid lease timestamps are now returned by SQL and rejected by app layer with specific error code
       const result = guard(authContext);
       assert.strictEqual(result.allowed, false);
-      assert.strictEqual(result.errorCode, 'NO_ACTIVE_SESSION');
+      assert.strictEqual(result.errorCode, 'INVALID_SESSION_LEASE');
     });
 
     it('should reject request when database cannot establish validity', async () => {

@@ -9,6 +9,7 @@ export * from './session.js';
 export * from './founder.js';
 export * from './middleware.js';
 export * from './runtime-credentials.js';
+export * from './identity-credentials.js';
 
 export interface AuthContext {
   owner_type: 'founder' | 'staff' | 'division' | 'seat' | 'runtime';
@@ -119,15 +120,15 @@ export async function validateIdentityForSession(
       return owner_id === 'founder';
     case 'staff': {
       const staff = db.query('SELECT * FROM staff_agents WHERE staff_id = ?', [owner_id])[0] as any;
-      return staff && staff.status === 'active';
+      return Boolean(staff && staff.status === 'active');
     }
     case 'division': {
       const division = db.query('SELECT * FROM divisions WHERE division_id = ?', [owner_id])[0] as any;
-      return division !== undefined;
+      return Boolean(division !== undefined);
     }
     case 'seat': {
       const seat = db.query('SELECT * FROM council_seats WHERE seat_id = ?', [owner_id])[0] as any;
-      return seat !== undefined;
+      return Boolean(seat !== undefined);
     }
     default:
       return false;

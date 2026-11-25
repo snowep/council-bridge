@@ -34,7 +34,10 @@ router.get('/conversations', asyncHandler(async (req: Request, res: Response) =>
     search,
   });
 
-  res.json({ conversations, limit, offset });
+  // Set X-Total-Count header for pagination
+  res.set('X-Total-Count', String(conversations.length));
+
+  res.json({ conversations, total_count: conversations.length, limit, offset });
 }));
 
 // GET /api/messages/:conversationId - Get messages in a conversation with pagination
@@ -66,7 +69,10 @@ router.get('/:conversationId', asyncHandler(async (req: Request, res: Response) 
     messageService.markAsRead(ctx.owner_id, conversationId);
   }
 
-  res.json({ messages, limit, offset });
+  // Set X-Total-Count header for pagination
+  res.set('X-Total-Count', String(allMessages.length));
+
+  res.json({ messages, total_count: allMessages.length, limit, offset });
 }));
 
 // POST /api/messages - Send a message

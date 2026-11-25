@@ -91,15 +91,33 @@ describe('SEC-03: Production Auth Fallback Regression Tests', () => {
   });
 
   describe('Development Mode Authentication', () => {
-    it('should allow hardcoded fallback when allow_hardcoded_fallback is true (default)', async () => {
+    it('should fail without auth in development mode (fallback disabled)', async () => {
       process.env.AUTH_MODE = 'development';
       process.env.SESSION_SECRET = 'test-secret-key-for-dev-mode-testing';
 
       const { authMiddleware: middleware1 } = await import('../../src/auth/index.js');
       const app = createTestApp(middleware1);
 
-      // In development mode with allow_hardcoded_fallback=true (default),
-      // requests without auth should be allowed
+      // In development mode, allow_hardcoded_fallback is false by default (secure default)
+      // Requests without auth should be rejected
+      const response = await request(app)
+        .post('/mcp')
+        .send({ jsonrpc: '2.0', method: 'initialize', params: {}, id: 1 })
+        .expect(401);
+
+      assert.strictEqual(response.body.code, 'AUTH_REQUIRED');
+    });
+
+    it('should allow hardcoded fallback when explicitly enabled via ALLOW_HARDCODED_FALLBACK', async () => {
+      process.env.AUTH_MODE = 'development';
+      process.env.SESSION_SECRET = 'test-secret-key-for-dev-mode-testing';
+      process.env.ALLOW_HARDCODED_FALLBACK = 'true';
+
+      const { authMiddleware: middleware1 } = await import('../../src/auth/index.js');
+      const app = createTestApp(middleware1);
+
+      // In development mode with ALLOW_HARDCODED_FALLBACK=true,
+      // requests without auth should be allowed (explicit opt-in)
       const response = await request(app)
         .post('/mcp')
         .send({ jsonrpc: '2.0', method: 'initialize', params: {}, id: 1 })

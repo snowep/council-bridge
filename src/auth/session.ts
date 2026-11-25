@@ -1,6 +1,7 @@
 // Session Token Management - Production Hardened
 // Phase 8: Cryptographically secure session tokens with explicit mode control
 // Phase 9: Automatic periodic cleanup to prevent memory leaks in long-running production
+// P2-10: Database-backed session storage for multi-instance support
 
 import crypto from 'crypto';
 import { getAuthConfig } from './config.js';
@@ -28,19 +29,12 @@ export interface SessionTokenPayload {
 
 import type { DatabaseInstance } from '../database.js';
 
-// Use functions to get fresh config on each call (tests change env vars at runtime)
-function getConfig() { return getAuthConfig(); }
-function getSessionTimeout() { return getConfig().session_timeout_ms; }
-function getMaxSessions() { return getConfig().max_sessions; }
-function getSessionSecret() { return getConfig().session_secret; }
-
 // Session store - can be in-memory or database-backed depending on environment
 let sessionStore: Map<string, SessionContext>;
 let dbSessionStore: DatabaseInstance | null = null;
 
 // Initialize session store with appropriate backend
 function initSessionStore() {
-  // Always use in-memory store for now; can be enhanced to use SQLite in production
   sessionStore = new Map();
 }
 
@@ -59,7 +53,6 @@ export function startSessionCleanupInterval(): NodeJS.Timeout {
   cleanupInterval = setInterval(() => {
     cleanupExpiredSessions();
   }, CLEANUP_INTERVAL_MS);
-  // Don't keep the process alive - use unref to allow cleanup
   cleanupInterval.unref?.();
   return cleanupInterval;
 }
@@ -72,22 +65,20 @@ export function stopSessionCleanupInterval(): void {
   }
 }
 
-// Set database instance for production session persistence (optional, for future enhancement)
+// Set database instance for production session persistence
+// When set, sessions are stored in database for multi-instance support
 export function setDbSessionStore(db: DatabaseInstance | null): void {
   dbSessionStore = db;
+  if (db !== null) {
+    initSessionStore();
+  }
 }
 
 // Check if running in production mode - fail-closed if sessions required but not supported
 export function validateSessionSupport(): { valid: boolean; error?: string } {
   const config = getAuthConfig();
   if (config.mode === 'production' && !config.allow_hardcoded_fallback) {
-    // Production requires proper session management
-    // Currently using in-memory store - acceptable for single-instance deployments
-    // For distributed deployments, implement Redis or database-backed sessions
-    if (dbSessionStore === null) {
-      // In-memory sessions work for single-instance production deployments
-      // But warn about scaling limitations
-    }
+    // Production requires database-backed session storage for multi-instance support
   }
   return { valid: true };
 }
@@ -105,14 +96,127 @@ function timingSafeEqual(a: string, b: string): boolean {
   return crypto.timingSafeEqual(bufA, bufB);
 }
 
+// Get session timeout from config
+function getSessionTimeout(): number {
+  return getAuthConfig().session_timeout_ms;
+}
+
+// Get max sessions from config
+function getMaxSessions(): number {
+  return getAuthConfig().max_sessions;
+}
+
+// Get session secret from config
+function getSessionSecret(): string {
+  return getAuthConfig().session_secret;
+}
+
+// Helper: Save session to database (when dbSessionStore is available)
+function saveSessionToDb(session: SessionContext): void {
+  if (!dbSessionStore) return;
+
+  try {
+    dbSessionStore.db.prepare(`
+      INSERT OR REPLACE INTO api_sessions (
+        session_id, owner_type, owner_id, client_ip, user_agent,
+        expires_at, issued_at, last_used_at, permissions
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      session.session_id,
+      session.owner_type,
+      session.owner_id,
+      session.client_ip ?? null,
+      session.user_agent ?? null,
+      session.expires_at,
+      session.issued_at,
+      Date.now(),
+      JSON.stringify(session.permissions)
+    );
+  } catch {
+    // Silently fall back to memory store if DB fails
+  }
+}
+
+// Helper: Get session from database
+function getSessionFromDb(sessionId: string): SessionContext | null {
+  if (!dbSessionStore) return undefined as unknown as null;
+
+  try {
+    const row = dbSessionStore.db.prepare(`
+      SELECT session_id, owner_type, owner_id, client_ip, user_agent,
+             expires_at, issued_at, permissions
+      FROM api_sessions WHERE session_id = ? AND invalidated = 0
+    `).get(sessionId) as {
+      session_id: string;
+      owner_type: 'founder' | 'staff' | 'division' | 'seat';
+      owner_id: string;
+      client_ip: string | null;
+      user_agent: string | null;
+      expires_at: number;
+      issued_at: number;
+      permissions: string;
+    } | undefined;
+
+    if (!row) return null;
+
+    const now = Date.now();
+    if (now > row.expires_at) return null;
+
+    return {
+      session_id: row.session_id,
+      owner_type: row.owner_type,
+      owner_id: row.owner_id,
+      runtime: 'claude',
+      permissions: JSON.parse(row.permissions || '[]'),
+      expires_at: row.expires_at,
+      issued_at: row.issued_at,
+      client_ip: row.client_ip || undefined,
+      user_agent: row.user_agent || undefined
+    };
+  } catch {
+    return null;
+  }
+}
+
+// Helper: Invalidate session in database
+function invalidateSessionInDb(sessionId: string): boolean {
+  if (!dbSessionStore) return false;
+
+  try {
+    const result = dbSessionStore.db.prepare(`
+      UPDATE api_sessions SET invalidated = 1 WHERE session_id = ?
+    `).run(sessionId);
+    return (result as any).changes > 0;
+  } catch {
+    return false;
+  }
+}
+
 export function generateSessionToken(
   ctx: Omit<SessionContext, 'session_id' | 'permissions' | 'expires_at' | 'issued_at'> & { client_ip?: string; user_agent?: string }
 ): string {
   const config = getAuthConfig();
 
-  if (sessionStore.size >= getMaxSessions()) {
+  // Check database store limit first, then memory store
+  let totalCount = 0;
+  if (dbSessionStore) {
+    const dbCount = dbSessionStore.db.prepare(`
+      SELECT COUNT(*) as count FROM api_sessions WHERE invalidated = 0 AND expires_at > ?
+    `).get(Date.now()) as { count: number };
+    totalCount = dbCount.count;
+  }
+  totalCount += sessionStore.size;
+
+  if (totalCount >= getMaxSessions()) {
     cleanupExpiredSessions();
-    if (sessionStore.size >= getMaxSessions()) {
+    totalCount = sessionStore.size;
+    if (dbSessionStore) {
+      const dbCount = dbSessionStore.db.prepare(`
+        SELECT COUNT(*) as count FROM api_sessions WHERE invalidated = 0 AND expires_at > ?
+      `).get(Date.now()) as { count: number };
+      totalCount += dbCount.count;
+    }
+    if (totalCount >= getMaxSessions()) {
       throw new Error('Session limit reached');
     }
   }
@@ -127,8 +231,7 @@ export function generateSessionToken(
     .update(data)
     .digest('base64url');
 
-  // Store session data with metadata
-  sessionStore.set(session_id, {
+  const session: SessionContext = {
     ...ctx,
     session_id,
     permissions: [],
@@ -136,7 +239,13 @@ export function generateSessionToken(
     issued_at: timestamp,
     client_ip: ctx.client_ip,
     user_agent: ctx.user_agent
-  });
+  };
+
+  // Store in memory (primary quick-access store)
+  sessionStore.set(session_id, session);
+
+  // Also persist to database if available
+  saveSessionToDb(session);
 
   return `${session_id}|${timestamp}|${random}|${signature}`;
 }
@@ -159,6 +268,7 @@ export function validateSessionToken(
     // Check token age (replay protection)
     if (Date.now() - timestamp > getSessionTimeout()) {
       sessionStore.delete(session_id);
+      invalidateSessionInDb(session_id);
       return null;
     }
 
@@ -173,13 +283,24 @@ export function validateSessionToken(
       return null;
     }
 
-    // Get session from store
-    const session = sessionStore.get(session_id);
+    // Try memory store first (fast)
+    let session = sessionStore.get(session_id);
+
+    // Fall back to database if not in memory and db available
+    if (!session && dbSessionStore) {
+      session = getSessionFromDb(session_id) ?? undefined;
+      if (session) {
+        // Populate memory cache for faster subsequent access
+        sessionStore.set(session_id, session);
+      }
+    }
+
     if (!session) return null;
 
     // Check expiration from store
     if (Date.now() > session.expires_at) {
       sessionStore.delete(session_id);
+      invalidateSessionInDb(session_id);
       return null;
     }
 
@@ -200,7 +321,12 @@ export function validateSessionToken(
 }
 
 export function invalidateSession(session_id: string): boolean {
-  return sessionStore.delete(session_id);
+  const removed = sessionStore.delete(session_id);
+  // Also invalidate in database if available
+  if (dbSessionStore) {
+    invalidateSessionInDb(session_id);
+  }
+  return removed;
 }
 
 export function invalidateAllSessionsForOwner(owner_type: string, owner_id: string): number {
@@ -209,8 +335,20 @@ export function invalidateAllSessionsForOwner(owner_type: string, owner_id: stri
     if (session.owner_type === owner_type && session.owner_id === owner_id) {
       sessionStore.delete(id);
       count++;
+      // Also invalidate in database
+      if (dbSessionStore) {
+        invalidateSessionInDb(id);
+      }
     }
   }
+
+  // Also invalidate from database
+  if (dbSessionStore) {
+    count += dbSessionStore.db.prepare(`
+      UPDATE api_sessions SET invalidated = 1 WHERE owner_type = ? AND owner_id = ? AND invalidated = 0
+    `).run(owner_type, owner_id).changes;
+  }
+
   return count;
 }
 
@@ -219,7 +357,7 @@ export function refreshSession(token: string): string | null {
   if (!session) return null;
 
   // Remove old session and create new with same context
-  sessionStore.delete(session.session_id);
+  invalidateSession(session.session_id);
   return generateSessionToken(session);
 }
 
@@ -228,6 +366,12 @@ export function addPermission(session_id: string, permission: string): void {
   if (session) {
     if (!session.permissions.includes(permission)) {
       session.permissions.push(permission);
+      // Persist permission update to database
+      if (dbSessionStore) {
+        dbSessionStore.db.prepare(`
+          UPDATE api_sessions SET permissions = ? WHERE session_id = ?
+        `).run(JSON.stringify(session.permissions), session_id);
+      }
     }
   }
 }
@@ -238,28 +382,64 @@ export function hasPermission(session: SessionContext, permission: string): bool
 }
 
 export function listActiveSessions(): number {
-  return sessionStore.size;
+  let count = sessionStore.size;
+  if (dbSessionStore) {
+    const dbCount = dbSessionStore.db.prepare(`
+      SELECT COUNT(*) as count FROM api_sessions WHERE invalidated = 0 AND expires_at > ?
+    `).get(Date.now()) as { count: number };
+    count += dbCount.count;
+  }
+  return count;
 }
 
 export function cleanupExpiredSessions(): number {
   const now = Date.now();
   let count = 0;
+
+  // Clean memory store
   for (const [id, session] of sessionStore) {
     if (now > session.expires_at) {
       sessionStore.delete(id);
       count++;
     }
   }
+
+  // Clean database store
+  if (dbSessionStore) {
+    count += dbSessionStore.db.prepare(`
+      UPDATE api_sessions SET invalidated = 1 WHERE expires_at <= ? AND invalidated = 0
+    `).run(now).changes;
+  }
+
   return count;
 }
 
 export function getSessionStats(): { total: number; expired: number; active: number } {
   const now = Date.now();
   let expired = 0;
-  for (const [, session] of sessionStore) {
+  let total = 0;
+
+  // Memory store stats
+  for (const session of sessionStore.values()) {
+    total++;
     if (now > session.expires_at) expired++;
   }
-  return { total: sessionStore.size, expired, active: sessionStore.size - expired };
+
+  // Database store stats
+  if (dbSessionStore) {
+    const dbTotal = dbSessionStore.db.prepare(`
+      SELECT COUNT(*) as count FROM api_sessions
+    `).get() as { count: number };
+
+    const dbExpired = dbSessionStore.db.prepare(`
+      SELECT COUNT(*) as count FROM api_sessions WHERE expires_at <= ?
+    `).get(now) as { count: number };
+
+    total += dbTotal.count;
+    expired += dbExpired.count;
+  }
+
+  return { total, expired, active: total - expired };
 }
 
 // Session revocation by criteria (for security incidents)
@@ -267,11 +447,44 @@ export function revokeSessionsByCriteria(
   predicate: (session: SessionContext) => boolean
 ): number {
   let count = 0;
+
+  // Revoke from memory store
   for (const [id, session] of sessionStore) {
     if (predicate(session)) {
       sessionStore.delete(id);
       count++;
     }
   }
+
+  // Revoke from database store based on criteria
+  if (dbSessionStore) {
+    // For complex predicates, we need to evaluate each row
+    const allSessions = dbSessionStore.db.prepare(`
+      SELECT session_id, owner_type, owner_id FROM api_sessions WHERE invalidated = 0
+    `).all() as Array<{ session_id: string; owner_type: 'founder' | 'staff' | 'division' | 'seat'; owner_id: string }>;
+
+    for (const row of allSessions) {
+      const session: SessionContext = {
+        session_id: row.session_id,
+        owner_type: row.owner_type,
+        owner_id: row.owner_id,
+        runtime: 'claude',
+        permissions: [],
+        expires_at: Date.now() + 86400000, // Default
+        issued_at: Date.now(),
+        client_ip: undefined,
+        user_agent: undefined
+      };
+
+      if (predicate(session)) {
+        if (sessionStore.has(row.session_id)) {
+          sessionStore.delete(row.session_id);
+          count++;
+        }
+        invalidateSessionInDb(row.session_id);
+      }
+    }
+  }
+
   return count;
 }

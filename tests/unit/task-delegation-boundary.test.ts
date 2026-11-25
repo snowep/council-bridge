@@ -378,4 +378,125 @@ describe('Task Delegation Service Boundary — Phase 9 Task 5', () => {
       assert.ok(true);
     });
   });
+
+  // P1-04: Verify historical task creator loses access after reassignment
+  describe('Task Reassignment - Historical Access Revocation', () => {
+    it('should lose access after task reassigned to different division', () => {
+      // Setup Division B with a staff member
+      const divisionBId = 'div-b-reassign';
+      const divisionBStaffId = 'staff-div-b-001';
+      const divisionBHeadId = 'staff-div-b-head';
+
+      db.runPreparedStatement('insertDivision', [
+        divisionBId, 'Division B', 'Division B for reassignment test', divisionBHeadId, 0, '[]', '{}'
+      ]);
+
+      db.runPreparedStatement('insertStaffAgent', [
+        divisionBStaffId, 'Division B Staff', 'specialist', divisionBId, JSON.stringify(['claude']), '[]', 'active'
+      ]);
+
+      db.runPreparedStatement('insertStaffAgent', [
+        divisionBHeadId, 'Division B Head', 'head', divisionBId, JSON.stringify(['claude']), '[]', 'active'
+      ]);
+
+      db.runPreparedStatement('insertDivisionMember', [divisionBId, divisionBStaffId, 'member']);
+      db.runPreparedStatement('insertDivisionMember', [divisionBId, divisionBHeadId, 'head']);
+
+      // Create a task assigned to Division A staff
+      const divAStaffTaskId = randomUUID();
+      db.runPreparedStatement('insertTask', [
+        divAStaffTaskId, 'Division A Task', 'Task originally in Division A', 'staff', staffId, 'founder', 'founder',
+        'pending', 'medium', 0, null, null, new Date().toISOString(), new Date().toISOString(), '[]', null
+      ]);
+
+      // Verify Division A staff can initially access the task
+      const initialAccess = validateTaskAccess(db, staffCtx, divAStaffTaskId);
+      assert.strictEqual(initialAccess.task_id, divAStaffTaskId);
+
+      // Founder reassigns task to Division B
+      const now = new Date().toISOString();
+      db.db.prepare('UPDATE tasks SET assigned_to_type = ?, assigned_to_id = ?, updated_at = ? WHERE task_id = ?').run(
+        'division', divisionBId, now, divAStaffTaskId
+      );
+
+      // Verify Division A staff can NO LONGER access the task after reassignment
+      assert.throws(
+        () => validateTaskAccess(db, staffCtx, divAStaffTaskId),
+        /Staff can only request execution for their own tasks/
+      );
+
+      // Verify Division B staff CAN access the reassigned task
+      const divBStaffCtx: any = { owner_type: 'staff', owner_id: divisionBStaffId, runtime: 'claude' };
+      const divBAccess = validateTaskAccess(db, divBStaffCtx, divAStaffTaskId);
+      assert.strictEqual(divBAccess.task_id, divAStaffTaskId);
+    });
+
+    it('should lose access when task reassigned from division to staff in different division', () => {
+      // Setup Division B
+      const divisionBId = 'div-b-staff-reassign';
+      const divisionBStaffId = 'staff-div-b-reassign-001';
+      const divisionBHeadId = 'staff-div-b-head-reassign';
+
+      db.runPreparedStatement('insertDivision', [
+        divisionBId, 'Division B', 'Division B for staff reassignment test', divisionBHeadId, 0, '[]', '{}'
+      ]);
+
+      db.runPreparedStatement('insertStaffAgent', [
+        divisionBStaffId, 'Division B Staff', 'specialist', divisionBId, JSON.stringify(['claude']), '[]', 'active'
+      ]);
+
+      db.runPreparedStatement('insertStaffAgent', [
+        divisionBHeadId, 'Division B Head', 'head', divisionBId, JSON.stringify(['claude']), '[]', 'active'
+      ]);
+
+      db.runPreparedStatement('insertDivisionMember', [divisionBId, divisionBStaffId, 'member']);
+      db.runPreparedStatement('insertDivisionMember', [divisionBId, divisionBHeadId, 'head']);
+
+      // Create a task assigned to Division A
+      const divATaskId = randomUUID();
+      db.runPreparedStatement('insertTask', [
+        divATaskId, 'Division A Task', 'Task in Division A', 'division', divisionId, 'founder', 'founder',
+        'pending', 'medium', 0, null, null, new Date().toISOString(), new Date().toISOString(), '[]', null
+      ]);
+
+      // Verify Division A staff can initially access
+      const initialAccess = validateTaskAccess(db, staffCtx, divATaskId);
+      assert.strictEqual(initialAccess.task_id, divATaskId);
+
+      // Founder reassigns to Division B staff
+      const now = new Date().toISOString();
+      db.db.prepare('UPDATE tasks SET assigned_to_type = ?, assigned_to_id = ?, updated_at = ? WHERE task_id = ?').run(
+        'staff', divisionBStaffId, now, divATaskId
+      );
+
+      // Verify Division A staff can NO LONGER access
+      assert.throws(
+        () => validateTaskAccess(db, staffCtx, divATaskId),
+        /Staff can only request execution for their own tasks/
+      );
+
+      // Verify Division B staff CAN access
+      const divBStaffCtx: any = { owner_type: 'staff', owner_id: divisionBStaffId, runtime: 'claude' };
+      const divBAccess = validateTaskAccess(db, divBStaffCtx, divATaskId);
+      assert.strictEqual(divBAccess.task_id, divATaskId);
+    });
+
+    it('should verify founder retains access after any reassignment', () => {
+      // Create task
+      const taskIdReassign = randomUUID();
+      db.runPreparedStatement('insertTask', [
+        taskIdReassign, 'Test Task', 'Description', 'staff', staffId, 'founder', 'founder',
+        'pending', 'medium', 0, null, null, new Date().toISOString(), new Date().toISOString(), '[]', null
+      ]);
+
+      // Reassign task to other division
+      db.db.prepare('UPDATE tasks SET assigned_to_type = ?, assigned_to_id = ?, updated_at = ? WHERE task_id = ?').run(
+        'division', otherDivisionId, new Date().toISOString(), taskIdReassign
+      );
+
+      // Founder should always have access
+      const access = validateTaskAccess(db, founderCtx, taskIdReassign);
+      assert.strictEqual(access.task_id, taskIdReassign);
+    });
+  });
 });

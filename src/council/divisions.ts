@@ -137,8 +137,17 @@ export function getStaffAgentById(
 
 export function listStaffAgents(
   db: DatabaseInstance,
-  filters?: { division_id?: string; status?: string }
+  filters?: { division_id?: string; status?: string; by_membership?: boolean }
 ): StaffAgent[] {
+  // When by_membership=true, query division_members table instead of staff_agents.division_id
+  // This ensures staff who are members of a division are returned even if their
+  // primary division_id in staff_agents is different
+  if (filters?.division_id && filters?.by_membership !== false) {
+    // Use membership-based query (default behavior)
+    return listStaffByDivisionMembership(db, filters.division_id, filters.status ? { status: filters.status } : undefined);
+  }
+
+  // Original behavior: query by staff_agents.division_id
   const whereClauses: string[] = [];
   const params: any[] = [];
 
@@ -232,6 +241,37 @@ export function getAllDivisionMembers(
 ): DivisionMember[] {
   const result = db.query('SELECT * FROM division_members');
   return result as DivisionMember[];
+}
+
+/**
+ * List staff agents who are members of a specific division.
+ * This queries division_members table to find all staff in a division,
+ * regardless of their primary division_id in staff_agents table.
+ * This is the authoritative source for "who belongs to this division".
+ */
+export function listStaffByDivisionMembership(
+  db: DatabaseInstance,
+  divisionId: string,
+  filters?: { status?: string }
+): StaffAgent[] {
+  const whereClauses: string[] = ['dm.division_id = ?'];
+  const params: any[] = [divisionId];
+
+  // Add status filter if provided
+  if (filters?.status) {
+    whereClauses.push('sa.status = ?');
+    params.push(filters.status);
+  }
+
+  const where = whereClauses.join(' AND ');
+  const result = db.query(
+    `SELECT DISTINCT sa.* FROM staff_agents sa
+     INNER JOIN division_members dm ON sa.staff_id = dm.staff_id
+     WHERE ${where}
+     ORDER BY sa.created_at DESC`,
+    params
+  );
+  return result as StaffAgent[];
 }
 
 export function getStaffRuntimePersonas(
@@ -427,6 +467,7 @@ export function createDeliverable(
       input.reviewed_by_id ?? null,
       null,  // reviewed_at
       now,   // created_at
+      now,   // updated_at
       1,     // version
       null,  // quality_score
       null,  // reviewer_type
@@ -436,7 +477,11 @@ export function createDeliverable(
       null,  // approved_by_id
       null,  // founder_signature
       null,  // founder_signed_at
-      null   // revision_notes
+      null,  // revision_notes
+      JSON.stringify(input.file_references ?? []),
+      JSON.stringify(input.task_relationships ?? []),
+      JSON.stringify(input.audit_log ?? []),
+      null   // execution_id
     ]);
   } else {
     // Legacy schema (with or without migration 004 fields)
@@ -494,7 +539,11 @@ function normalizeDeliverable(row: Record<string, any>): Deliverable {
     file_references: row.file_references ?? '[]',
     task_relationships: row.task_relationships ?? '[]',
     audit_log: row.audit_log ?? '[]',
-    updated_at: row.updated_at ?? row.created_at,
+    updated_at: row.updated_at ?? row.created_at ?? row.created_at,
+    // P1-05: Ensure designated_by fields are properly typed
+    designated_by_type: row.designated_by_type ?? null,
+    designated_by_id: row.designated_by_id ?? null,
+    designated_at: row.designated_at ?? null,
   } as Deliverable;
 }
 
@@ -524,11 +573,12 @@ export function updateDeliverable(
 
   const now = new Date().toISOString();
   const columns = db.query('PRAGMA table_info(deliverables)') as Array<{ name: string }>;
-  const hasExtendedFields = ['file_references', 'task_relationships', 'audit_log']
+  const hasExtendedFields = ['file_references', 'task_relationships', 'audit_log', 'designated_by_type', 'designated_by_id', 'designated_at', 'updated_at',
+    'reviewer_type', 'reviewer_id', 'approved_at', 'approved_by_type', 'approved_by_id', 'founder_signature', 'founder_signed_at', 'revision_notes']
     .every((name) => columns.some((column) => column.name === name));
   if (hasExtendedFields) {
     db.db.prepare(`
-      UPDATE deliverables SET content = ?, status = ?, reviewed_by_type = ?, reviewed_by_id = ?, reviewed_at = ?, file_references = ?, task_relationships = ?, audit_log = ?
+      UPDATE deliverables SET content = ?, status = ?, reviewed_by_type = ?, reviewed_by_id = ?, reviewed_at = ?, updated_at = ?, file_references = ?, task_relationships = ?, audit_log = ?, designated_by_type = ?, designated_by_id = ?, designated_at = ?
       WHERE deliverable_id = ?
     `).run(
       updates.content ?? existing.content,
@@ -536,23 +586,31 @@ export function updateDeliverable(
       updates.reviewed_by_type ?? existing.reviewed_by_type,
       updates.reviewed_by_id ?? existing.reviewed_by_id,
       updates.reviewed_by_id ? now : existing.reviewed_at ?? null,
+      now,
       JSON.stringify(updates.file_references ?? JSON.parse(existing.file_references)),
       JSON.stringify(updates.task_relationships ?? JSON.parse(existing.task_relationships)),
       JSON.stringify(updates.audit_log ?? JSON.parse(existing.audit_log)),
+      updates.designated_by_type ?? existing.designated_by_type ?? null,
+      updates.designated_by_id ?? existing.designated_by_id ?? null,
+      updates.designated_at ?? existing.designated_at ?? null,
       deliverableId
     );
   } else {
-    if (updates.file_references || updates.task_relationships || updates.audit_log) {
-      throw new Error('Deliverable extension fields require migration 004');
+    // Legacy database without extended columns - update only basic columns
+    if (updates.file_references || updates.task_relationships || updates.audit_log || updates.designated_by_type || updates.designated_by_id || updates.designated_at) {
+      throw new Error('Deliverable extension fields require migration 004/014');
     }
-    db.runPreparedStatement('updateDeliverable', [
+    // Direct SQL update for legacy databases - only update basic columns that exist
+    db.db.prepare(`
+      UPDATE deliverables SET content = ?, status = ?, reviewed_by_type = ?, reviewed_by_id = ?, reviewed_at = ?, updated_at = datetime('now') WHERE deliverable_id = ?
+    `).run(
       updates.content ?? existing.content,
       updates.status ?? existing.status,
       updates.reviewed_by_type ?? existing.reviewed_by_type,
       updates.reviewed_by_id ?? existing.reviewed_by_id,
-      updates.reviewed_by_id ? now : existing.reviewed_at ?? null,
+      existing.reviewed_at ? now : existing.reviewed_at ?? null,
       deliverableId
-    ]);
+    );
   }
 
   const result = db.query('SELECT * FROM deliverables WHERE deliverable_id = ?', [deliverableId]);

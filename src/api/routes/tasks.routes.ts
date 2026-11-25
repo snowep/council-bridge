@@ -21,8 +21,35 @@ function assertDivisionDestination(
   assignedType: 'division' | 'staff',
   assignedId: string
 ): void {
-  if (ctx.owner_type === 'founder') return;
+  // Founder: validate destination exists and is active, but can assign across divisions
+  if (ctx.owner_type === 'founder') {
+    if (assignedType === 'division') {
+      const division = db.query(
+        `SELECT 1 FROM divisions WHERE division_id = ? LIMIT 1`,
+        [assignedId]
+      );
+      if (division.length === 0) {
+        throw new ValidationError(
+          'Destination division does not exist',
+          { assigned_to_id: assignedId }
+        );
+      }
+    } else {
+      const staff = db.query(
+        `SELECT 1 FROM staff_agents WHERE staff_id = ? AND status = 'active' LIMIT 1`,
+        [assignedId]
+      );
+      if (staff.length === 0) {
+        throw new ValidationError(
+          'Destination staff member does not exist or is not active',
+          { assigned_to_id: assignedId }
+        );
+      }
+    }
+    return;
+  }
 
+  // Division Head: can only assign within own division
   if (ctx.owner_type !== 'division') {
     throw new ValidationError(
       'Only Founder or the owning Division Head can assign tasks',
@@ -42,11 +69,11 @@ function assertDivisionDestination(
 
   const membership = db.query(
     `SELECT 1
-     FROM division_members
-     WHERE staff_id = ?
-       AND division_id = ?
-       AND (SELECT status FROM staff_agents WHERE staff_id = ?) = 'active'
-     LIMIT 1`,
+       FROM division_members
+       WHERE staff_id = ?
+         AND division_id = ?
+         AND (SELECT status FROM staff_agents WHERE staff_id = ?) = 'active'
+       LIMIT 1`,
     [assignedId, ctx.owner_id, assignedId]
   );
 
@@ -94,7 +121,11 @@ router.get('/', asyncHandler(async (req: Request, res: Response) => {
 
   // 4. Apply pagination
   const paginated = filteredTasks.slice(offset, offset + limit);
-  res.json({ tasks: paginated, limit, offset });
+
+  // Set X-Total-Count header for pagination
+  res.set('X-Total-Count', String(filteredTasks.length));
+
+  res.json({ tasks: paginated, total_count: filteredTasks.length, limit, offset });
 }));
 
 // GET /api/tasks/:id - Get task details

@@ -878,18 +878,26 @@ export function createDeliverableDraft(
   // Verify task exists and user has access
   const task = getDelegationTaskById(db, null, input.task_id);
 
-  // Only task assignee or founder can create draft
+  // Authorization: task assignee (staff or division), division owner for their tasks, or founder can create draft
   if (identity.owner_type !== 'founder') {
     if (task.assigned_to_type === 'staff' && task.assigned_to_id !== identity.owner_id) {
       throw new Error('Only the assigned staff agent or Founder can create deliverable draft');
     }
     if (task.assigned_to_type === 'division') {
-      const membership = db.query(
-        'SELECT 1 FROM division_members WHERE staff_id = ? AND division_id = ?',
-        [identity.owner_id, task.assigned_to_id]
-      );
-      if (membership.length === 0) {
-        throw new Error('Authorization denied');
+      if (identity.owner_type === 'division') {
+        // Division owner can create for their division-assigned tasks
+        if (identity.owner_id !== task.assigned_to_id) {
+          throw new Error('Authorization denied: Division can only create deliverables for their own tasks');
+        }
+      } else {
+        // Staff need to be a member of the assigned division
+        const membership = db.query(
+          'SELECT 1 FROM division_members WHERE staff_id = ? AND division_id = ?',
+          [identity.owner_id, task.assigned_to_id]
+        );
+        if (membership.length === 0) {
+          throw new Error('Authorization denied: Staff must be a member of the assigned division');
+        }
       }
     }
   }
@@ -913,6 +921,7 @@ export function createDeliverableDraft(
     null, // reviewed_by_id
     null, // reviewed_at
     now,  // created_at
+    now,  // updated_at
     1,    // version
     input.quality_score ?? null,
     null, // reviewer_type
@@ -922,7 +931,11 @@ export function createDeliverableDraft(
     null, // approved_by_id
     null, // founder_signature
     null, // founder_signed_at
-    null  // revision_notes
+    null, // revision_notes
+    '[]', // file_references
+    '[]', // task_relationships
+    '[]', // audit_log
+    null  // execution_id
   ]);
 
   return {
@@ -952,18 +965,26 @@ export function submitDeliverable(
   // Verify task exists and user has access
   const task = getDelegationTaskById(db, null, deliverable.task_id);
 
-  // Only task assignee or founder can submit
+  // Authorization: task assignee (staff or division), division owner for their tasks, or founder can submit
   if (identity.owner_type !== 'founder') {
     if (task.assigned_to_type === 'staff' && task.assigned_to_id !== identity.owner_id) {
       throw new Error('Only the assigned staff agent or Founder can submit deliverable');
     }
     if (task.assigned_to_type === 'division') {
-      const membership = db.query(
-        'SELECT 1 FROM division_members WHERE staff_id = ? AND division_id = ?',
-        [identity.owner_id, task.assigned_to_id]
-      );
-      if (membership.length === 0) {
-        throw new Error('Authorization denied');
+      if (identity.owner_type === 'division') {
+        // Division owner can submit for their division-assigned tasks
+        if (identity.owner_id !== task.assigned_to_id) {
+          throw new Error('Authorization denied: Division can only submit deliverables for their own tasks');
+        }
+      } else {
+        // Staff need to be a member of the assigned division
+        const membership = db.query(
+          'SELECT 1 FROM division_members WHERE staff_id = ? AND division_id = ?',
+          [identity.owner_id, task.assigned_to_id]
+        );
+        if (membership.length === 0) {
+          throw new Error('Authorization denied: Staff must be a member of the assigned division');
+        }
       }
     }
   }
@@ -975,7 +996,23 @@ export function submitDeliverable(
 
   const now = new Date().toISOString();
 
-  // Update existing deliverable from draft to submitted
+  // Preserve and update audit_log
+  let existingAuditLog: any[] = [];
+  try {
+    existingAuditLog = JSON.parse(deliverable.audit_log || '[]');
+  } catch {
+    existingAuditLog = [];
+  }
+  const newAuditEntry = {
+    action: 'submission',
+    submitted_by_type: identity.owner_type,
+    submitted_by_id: identity.owner_id,
+    quality_score: input.quality_score ?? deliverable.quality_score ?? null,
+    submitted_at: now
+  };
+  const updatedAuditLog = [...existingAuditLog, newAuditEntry];
+
+  // Update existing deliverable from draft to submitted (all 20 parameters)
   db.runPreparedStatement('updateDeliverable', [
     deliverable.content,
     'submitted',
@@ -992,6 +1029,10 @@ export function submitDeliverable(
     null, // founder_signature
     null, // founder_signed_at
     null, // revision_notes
+    deliverable.file_references ?? '[]',
+    deliverable.task_relationships ?? '[]',
+    JSON.stringify(updatedAuditLog),
+    null, // execution_id
     input.deliverable_id
   ]);
 
@@ -1096,6 +1137,24 @@ export function assignReviewer(
   }
 
   const now = new Date().toISOString();
+
+  // Preserve and update audit_log
+  let existingAuditLog: any[] = [];
+  try {
+    existingAuditLog = JSON.parse(deliverable[0].audit_log || '[]');
+  } catch {
+    existingAuditLog = [];
+  }
+  const newAuditEntry = {
+    action: 'reviewer_assigned',
+    reviewer_type: input.reviewer_type,
+    reviewer_id: input.reviewer_id,
+    assigned_by_type: identity.owner_type,
+    assigned_by_id: identity.owner_id,
+    assigned_at: now
+  };
+  const updatedAuditLog = [...existingAuditLog, newAuditEntry];
+
   db.runPreparedStatement('updateDeliverable', [
     deliverable[0].content,
     deliverable[0].status,
@@ -1112,6 +1171,10 @@ export function assignReviewer(
     deliverable[0].founder_signature,
     deliverable[0].founder_signed_at,
     deliverable[0].revision_notes,
+    deliverable[0].file_references,
+    deliverable[0].task_relationships,
+    JSON.stringify(updatedAuditLog),
+    null, // execution_id
     input.deliverable_id
   ]);
 
@@ -1152,16 +1215,14 @@ export function requestRevision(
       throw new Error('Authorization denied: Only the designated Council reviewer can request revision');
     }
   } else if (deliverable[0].reviewer_type === 'division_head') {
-    // Division Head reviewer: must be a staff member who is the division head
-    if (identity.owner_type !== 'staff') {
-      throw new Error('Authorization denied: Division Head reviewer must be a staff member');
+    // Division Head reviewer: must be a staff member or division head who is the division head
+    if (identity.owner_type !== 'staff' && identity.owner_type !== 'division' && identity.owner_type !== 'founder') {
+      throw new Error('Authorization denied: Division Head reviewer must be a staff member or division head');
     }
-    if (deliverable[0].reviewer_id === identity.owner_id) {
-      if (!isDivisionHead(identity, taskDivision, db)) {
-        throw new Error('Authorization denied: Not the Division Head for this task\'s division');
-      }
+    // Staff or division must be the division head to request revision
+    if (!isDivisionHead(identity, taskDivision, db)) {
+      throw new Error('Authorization denied: Only the Division Head reviewer can request revision');
     }
-    // If not the assigned reviewer but is division head, allow (HITL-style flexibility)
   } else if (deliverable[0].reviewer_type === 'founder') {
     // Founder reviewer: must be a founder
     if (!(identity.owner_type === 'founder' && identity.owner_id === 'founder')) {
@@ -1197,6 +1258,10 @@ export function requestRevision(
     deliverable[0].founder_signature,
     deliverable[0].founder_signed_at,
     input.revision_notes,
+    '[]', // file_references
+    '[]', // task_relationships
+    deliverable[0].audit_log, // preserve existing audit_log
+    null, // execution_id
     input.deliverable_id
   ]);
 
@@ -1263,7 +1328,7 @@ export function resubmitDeliverable(
   const now = new Date().toISOString();
   const newVersion = deliverable[0].version + 1;
 
-  // Archive previous version
+  // Archive previous version (the revision_requested version)
   db.runPreparedStatement('insertDeliverableVersion', [
     uniqueId('ver'),
     input.deliverable_id,
@@ -1274,8 +1339,24 @@ export function resubmitDeliverable(
     deliverable[0].submitted_by_type,
     deliverable[0].submitted_by_id,
     deliverable[0].revision_notes,
-    deliverable[0].created_at
+    now  // created_at - use current timestamp
   ]);
+
+  // Preserve existing audit_log and append resubmission entry
+  let existingAuditLog: any[] = [];
+  try {
+    existingAuditLog = JSON.parse(deliverable[0].audit_log || '[]');
+  } catch {
+    existingAuditLog = [];
+  }
+  const newAuditEntry = {
+    action: 'resubmission',
+    resubmitted_by_type: identity.owner_type,
+    resubmitted_by_id: identity.owner_id,
+    revision_notes: deliverable[0].revision_notes,
+    resubmitted_at: now
+  };
+  const updatedAuditLog = [...existingAuditLog, newAuditEntry];
 
   // Update deliverable with new version
   db.runPreparedStatement('updateDeliverable', [
@@ -1294,6 +1375,10 @@ export function resubmitDeliverable(
     null, // founder_signature
     null, // founder_signed_at
     null, // revision_notes
+    deliverable[0].file_references,
+    deliverable[0].task_relationships,
+    JSON.stringify(updatedAuditLog),
+    null, // execution_id
     input.deliverable_id
   ]);
 
@@ -1374,7 +1459,8 @@ export function approveDeliverable(
       throw new Error('Authorization denied: Only the designated Council reviewer can approve');
     }
   } else if (deliverable[0].reviewer_type === 'division_head') {
-    if (identity.owner_type !== 'staff' && identity.owner_type !== 'division') {
+    // Allow both staff and division owner_type for division_head reviewer
+    if (identity.owner_type !== 'staff' && identity.owner_type !== 'founder' && identity.owner_type !== 'division') {
       throw new Error('Authorization denied: Division Head reviewer must be a staff member or division head');
     }
     if (!isDivisionHead(identity, taskDivision, db)) {
@@ -1425,9 +1511,46 @@ export function approveDeliverable(
     deliverable[0].created_at
   ]);
 
-  // Map identity owner_type to approved_by_type
-  const approvedByType = identity.owner_type === 'founder' ? 'founder' :
-                         identity.owner_type === 'division' ? 'division_head' : 'division_head';
+  // Preserve and update audit_log
+  let existingAuditLog: any[] = [];
+  try {
+    existingAuditLog = JSON.parse(deliverable[0].audit_log || '[]');
+  } catch {
+    existingAuditLog = [];
+  }
+  const autonomyLevel = db.query('SELECT autonomy_level FROM task_autonomy_levels WHERE task_type = ?', [taskRecord.title])[0]?.autonomy_level ?? null;
+  const newAuditEntry = {
+    action: 'approval',
+    approved_by_type: identity.owner_type,
+    approved_by_id: identity.owner_id,
+    quality_score: input.quality_score,
+    autonomy_level: autonomyLevel,
+    founder_signature_provided: hitlResult.requiresFounderSig,
+    approved_at: now
+  };
+  const updatedAuditLog = [...existingAuditLog, newAuditEntry];
+
+  // Map identity owner_type to approved_by_type and get the approver's ID
+  let approvedByType: 'founder' | 'council' | 'division_head';
+  let approvedById: string;
+  if (identity.owner_type === 'founder') {
+    approvedByType = 'founder';
+    approvedById = identity.owner_id;
+  } else if (identity.owner_type === 'division') {
+    // Division owner approving - use division head's staff_id as the approver
+    approvedByType = 'division_head';
+    const divisionHead = db.query('SELECT head_staff_id FROM divisions WHERE division_id = ?', [identity.owner_id])[0];
+    approvedById = divisionHead?.head_staff_id ?? identity.owner_id;
+  } else if (identity.owner_type === 'staff') {
+    // Staff member approving
+    approvedByType = 'division_head'; // Staff division heads are recorded as division_head type
+    approvedById = identity.owner_id;
+  } else if (identity.owner_type === 'seat') {
+    approvedByType = 'council';
+    approvedById = identity.owner_id;
+  } else {
+    throw new Error('Invalid identity type for approval');
+  }
 
   // Update deliverable to accepted
   db.runPreparedStatement('updateDeliverable', [
@@ -1442,10 +1565,14 @@ export function approveDeliverable(
     deliverable[0].reviewer_id,
     now,  // approved_at
     approvedByType,
-    identity.owner_id,
+    approvedById,
     hitlResult.requiresFounderSig ? input.founder_signature : null,
     hitlResult.requiresFounderSig ? now : null,
     null, // revision_notes
+    deliverable[0].file_references,
+    deliverable[0].task_relationships,
+    JSON.stringify(updatedAuditLog),
+    null, // execution_id
     input.deliverable_id
   ]);
 
@@ -1519,15 +1646,13 @@ export function rejectDeliverable(
       throw new Error('Authorization denied: Only the designated Council reviewer can reject');
     }
   } else if (deliverable[0].reviewer_type === 'division_head') {
-    if (identity.owner_type !== 'staff') {
-      throw new Error('Authorization denied: Division Head reviewer must be a staff member');
+    // Allow both staff and division owner_type for division_head reviewer
+    if (identity.owner_type !== 'staff' && identity.owner_type !== 'founder' && identity.owner_type !== 'division') {
+      throw new Error('Authorization denied: Division Head reviewer must be a staff member or division head');
     }
-    if (deliverable[0].reviewer_id === identity.owner_id) {
-      if (!isDivisionHead(identity, taskDivision, db)) {
-        throw new Error('Authorization denied: Not the Division Head for this task\'s division');
-      }
+    if (!isDivisionHead(identity, taskDivision, db)) {
+      throw new Error('Authorization denied: Not the Division Head for this task\'s division');
     }
-    // If not the assigned reviewer but is division head, allow (HITL-style flexibility)
   } else if (deliverable[0].reviewer_type === 'founder') {
     if (identity.owner_type !== 'founder') {
       throw new Error('Authorization denied: Founder reviewer must be a founder');
@@ -1536,7 +1661,7 @@ export function rejectDeliverable(
 
   const now = new Date().toISOString();
 
-  // Archive current version
+  // Archive current version with proper created_at timestamp
   db.runPreparedStatement('insertDeliverableVersion', [
     uniqueId('ver'),
     input.deliverable_id,
@@ -1547,28 +1672,75 @@ export function rejectDeliverable(
     deliverable[0].submitted_by_type,
     deliverable[0].submitted_by_id,
     deliverable[0].revision_notes,
-    deliverable[0].created_at
+    now  // created_at - use current timestamp
   ]);
 
-  // Update deliverable to rejected
+  // Preserve existing audit_log and append rejection entry
+  let existingAuditLog: any[] = [];
+  try {
+    existingAuditLog = JSON.parse(deliverable[0].audit_log || '[]');
+  } catch {
+    existingAuditLog = [];
+  }
+  const newAuditEntry = {
+    action: 'rejection',
+    rejected_by_type: identity.owner_type,
+    rejected_by_id: identity.owner_id,
+    rejection_reason: input.rejection_reason,
+    rejected_at: now
+  };
+  const updatedAuditLog = [...existingAuditLog, newAuditEntry];
+
+  // Map identity owner_type to approved_by_type and get the approver's ID
+  let rejectedByType: 'founder' | 'council' | 'division_head';
+  let rejectedById: string;
+  if (identity.owner_type === 'founder') {
+    rejectedByType = 'founder';
+    rejectedById = identity.owner_id;
+  } else if (identity.owner_type === 'division') {
+    // Division owner rejecting - use division head's staff_id as the approver
+    rejectedByType = 'division_head';
+    const divisionHead = db.query('SELECT head_staff_id FROM divisions WHERE division_id = ?', [identity.owner_id])[0];
+    rejectedById = divisionHead?.head_staff_id ?? identity.owner_id;
+  } else if (identity.owner_type === 'staff') {
+    // Staff member rejecting
+    rejectedByType = 'division_head'; // Staff division heads are recorded as division_head type
+    rejectedById = identity.owner_id;
+  } else if (identity.owner_type === 'seat') {
+    rejectedByType = 'council';
+    rejectedById = identity.owner_id;
+  } else {
+    throw new Error('Invalid identity type for rejection');
+  }
+
+  // Update deliverable to rejected (all 20 parameters for updateDeliverable)
   db.runPreparedStatement('updateDeliverable', [
     deliverable[0].content,
     'rejected',
-    deliverable[0].reviewer_type,
-    deliverable[0].reviewer_id,
+    deliverable[0].reviewed_by_type,
+    deliverable[0].reviewed_by_id,
     deliverable[0].reviewed_at,
     deliverable[0].version,
     deliverable[0].quality_score,
     deliverable[0].reviewer_type,
     deliverable[0].reviewer_id,
     now,  // approved_at (reuse for rejection timestamp)
-    identity.owner_type,
-    identity.owner_id,
-    null,
-    null,
+    rejectedByType,
+    rejectedById,
+    null, // founder_signature
+    null, // founder_signed_at
     input.rejection_reason,
+    deliverable[0].file_references,
+    deliverable[0].task_relationships,
+    JSON.stringify(updatedAuditLog),
+    null, // execution_id
     input.deliverable_id
   ]);
+
+  // Update task status to cancelled since deliverable was rejected
+  db.db.prepare('UPDATE tasks SET status = ?, updated_at = ? WHERE task_id = ?').run(
+    'cancelled', now, taskRecord.task_id
+  );
 
   // Create audit memory entry
   const memoryId = uniqueId('mem');

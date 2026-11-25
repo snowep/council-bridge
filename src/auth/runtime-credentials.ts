@@ -302,3 +302,28 @@ export function hasActiveCredential(
 
   return (row as { count: number }).count > 0;
 }
+
+/**
+ * Validate a credential by ID (not token)
+ * Checks if the credential exists, is active, not expired, and not revoked
+ * Used for credential binding validation during runtime switch
+ */
+export function validateRuntimeCredentialById(
+  db: DatabaseInstance,
+  credentialId: string
+): boolean {
+  if (!credentialId) return false;
+
+  const now = Date.now();
+  const credential = db.query(
+    `SELECT credential_id, status, expires_at, revoked_at FROM runtime_credentials WHERE credential_id = ?`,
+    [credentialId]
+  )[0] as RuntimeCredentialRecord | undefined;
+
+  if (!credential) return false;
+  if (credential.status === 'revoked') return false;
+  if (credential.expires_at <= now) return false;
+  if (credential.revoked_at !== null && credential.revoked_at <= now) return false;
+
+  return true;
+}

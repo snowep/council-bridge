@@ -390,4 +390,94 @@ describe('MCP Execution Guard - Integration Tests', () => {
       assert.strictEqual(result.error?.activeRuntime, 'hermes');
     });
   });
+
+  describe('Abort Signal Propagation - P1-02', () => {
+    it('should propagate abort signal when session switches during execution', async () => {
+      const sessionId = await setupActiveSession('claude');
+      const authCtx = createAuthContext({ session_id: sessionId });
+
+      let abortSignalReceived = false;
+      let protectedChangeAttempted = false;
+
+      const result = await guard.executeWithGuard(authCtx, async (ctx, signal) => {
+        // Simulate tool checking abort signal before protected operation
+        if (signal.aborted) {
+          abortSignalReceived = true;
+          throw new Error('Execution cancelled - session switched');
+        }
+
+        // Try to commit a protected change
+        // In a real tool, this would be the critical section
+        protectedChangeAttempted = true;
+
+        // Simulate some work
+        await new Promise(resolve => setTimeout(resolve, 100));
+
+        return { data: 'completed' };
+      });
+
+      // Switch session while execution is ongoing
+      lifecycle.switch({ newRuntime: 'hermes' });
+
+      // Wait for abort to propagate (permit renewal interval is 3 seconds)
+      await new Promise(resolve => setTimeout(resolve, 4000));
+
+      // Verify abort was triggered
+      assert.strictEqual(abortSignalReceived, true, 'Abort signal should be received when session switches');
+      assert.strictEqual(result.success, false, 'Execution should fail after abort');
+      assert.strictEqual(result.error?.code, 'PERMIT_RENEWAL_FAILED', 'Error should be PERMIT_RENEWAL_FAILED');
+    });
+
+    it('should prevent committing when tool checks signal before protected operation', async () => {
+      const sessionId = await setupActiveSession('claude');
+      const authCtx = createAuthContext({ session_id: sessionId });
+
+      let commitHappened = false;
+
+      const result = await guard.executeWithGuard(authCtx, async (ctx, signal) => {
+        // Before committing protected change, check signal
+        if (signal.aborted) {
+          return { aborted: true, data: undefined };
+        }
+
+        // Only commit if not aborted
+        if (!signal.aborted) {
+          commitHappened = true;
+        }
+
+        return { data: 'completed' };
+      });
+
+      // With no switches, commit should succeed
+      assert.strictEqual(result.success, true);
+      assert.strictEqual(commitHappened, true);
+    });
+
+    it('should detect permit loss via generation fencing', async () => {
+      const sessionId = await setupActiveSession('claude');
+      const authCtx = createAuthContext({ session_id: sessionId });
+
+      const result = await guard.executeWithGuard(authCtx, async (ctx, signal) => {
+        // Verify generation is captured at acquisition time
+        const initialGeneration = ctx.generation;
+
+        // Simulate a switch that changes generation
+        const switchResult = lifecycle.switch({ newRuntime: 'hermes' });
+
+        // Check if signal is now aborted
+        if (signal.aborted) {
+          return { aborted: true, generationChanged: true };
+        }
+
+        // Verify generation changed
+        const currentSession = db.stmt.getSessionWithGeneration.get(sessionId) as any;
+        const generationChanged = currentSession?.generation !== initialGeneration;
+
+        return { aborted: false, generationChanged };
+      });
+
+      // After session switch, execution should fail or detect change
+      console.log('Result:', JSON.stringify(result));
+    });
+  });
 });

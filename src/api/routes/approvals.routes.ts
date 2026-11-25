@@ -32,7 +32,33 @@ router.get('/', asyncHandler(async (req: Request, res: Response) => {
     requested_by_id: effectiveRequestedById,
   });
 
-  res.json({ data: approvals, limit, offset });
+  // Calculate total count by querying without limit/offset
+  const whereClauses: string[] = [];
+  const params: any[] = [];
+
+  if (status) {
+    whereClauses.push('status = ?');
+    params.push(status);
+  }
+  if (requested_by_type) {
+    whereClauses.push('requested_by_type = ?');
+    params.push(effectiveRequestedByType);
+  }
+  if (requested_by_id) {
+    whereClauses.push('requested_by_id = ?');
+    params.push(effectiveRequestedById);
+  }
+
+  const where = whereClauses.length > 0 ? 'WHERE ' + whereClauses.join(' AND ') : '';
+  const totalCount = db.query(
+    `SELECT COUNT(*) as cnt FROM approval_requests ${where}`,
+    params
+  )[0].cnt;
+
+  // Set X-Total-Count header for pagination
+  res.set('X-Total-Count', String(totalCount));
+
+  res.json({ approvals, total_count: totalCount, limit, offset });
 }));
 
 export default router;

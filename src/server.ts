@@ -14,7 +14,8 @@ import { createDatabase, DatabaseInstance } from './database.js';
 import {
   startSessionCleanupInterval,
   stopSessionCleanupInterval,
-  getSessionStats
+  getSessionStats,
+  setDbSessionStore
 } from './auth/session.js';
 
 import {
@@ -533,21 +534,9 @@ app.all('/mcp', mcpRuntimeAuthMiddleware, async (req, res) => {
   // Attach ownership info for tools to use if needed
   (req as any).runtimeOwnership = ownershipResult;
 
-  // Acquire execution permit for TOCTOU protection
+  // Use executeWithGuard for full TOCTOU protection including abort on permit loss
   const executionGuard = createRuntimeExecutionGuard(db);
-  const permitResult = await executionGuard.acquireExecutionPermit(authContext);
-
-  if (!permitResult.success || !permitResult.context) {
-    res.status(403).json({
-      error: permitResult.error?.code || 'DATABASE_ERROR',
-      message: permitResult.error?.message || 'Failed to acquire execution permit'
-    });
-    return;
-  }
-
-  const executionContext = permitResult.context;
-
-  try {
+  const result = await executionGuard.executeWithGuard(authContext, async (ctx) => {
     const requestTransport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined
     });
@@ -557,16 +546,18 @@ app.all('/mcp', mcpRuntimeAuthMiddleware, async (req, res) => {
     registerMcpTools(requestMcpServer, db, () => authContext);
 
     await requestTransport.handleRequest(req, res, req.body);
-  } finally {
-    if (executionContext.heartbeatInterval) {
-      clearInterval(executionContext.heartbeatInterval);
-    }
+  });
 
-    if (executionContext.permitRenewalInterval) {
-      clearInterval(executionContext.permitRenewalInterval);
+  // If execution failed due to permit loss, abort, or other issues, send error response
+  if (!result.success) {
+    // Only send response if headers haven't been sent (MCP SDK may have sent response already)
+    if (!res.headersSent) {
+      res.status(403).json({
+        error: result.error?.code || 'DATABASE_ERROR',
+        message: result.error?.message || 'Execution failed',
+        activeRuntime: result.error?.activeRuntime
+      });
     }
-
-    await executionGuard.releaseExecutionPermit(executionContext.executionId);
   }
 });
 
@@ -578,6 +569,7 @@ const PORT = parseInt(process.env.PORT || '3334', 10);
 
 initDb().then(async () => {
   setDbInstance(db);
+  setDbSessionStore(db);
 
   // Register Founder as the canonical communication identity
   try {

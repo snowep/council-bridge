@@ -135,8 +135,12 @@ router.get('/', asyncHandler(async (req: Request, res: Response) => {
 
   const paginated = filtered.slice(offset, offset + limit);
 
+  // Set X-Total-Count header for pagination
+  res.set('X-Total-Count', String(filtered.length));
+
   res.json({
     deliverables: paginated,
+    total_count: filtered.length,
     limit,
     offset,
   });

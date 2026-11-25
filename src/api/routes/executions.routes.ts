@@ -16,6 +16,7 @@ import {
   listTaskAutonomyLevels,
   getTaskAutonomyLevel,
   createTaskAutonomyLevel,
+  isDivisionMember,
 } from '../../council/operations.js';
 import { getDatabase } from '../../database.js';
 import { authMiddleware, getAuthContext, requireAuth, requireFounder } from '../middleware/authentication.js';
@@ -42,17 +43,68 @@ router.get('/', asyncHandler(async (req: Request, res: Response) => {
   const effectiveRequestedByType = ctx.owner_type === 'founder' ? (requested_by_type as any) : ctx.owner_type;
   const effectiveRequestedById = ctx.owner_type === 'founder' ? (requested_by_id as string | undefined) : ctx.owner_id;
 
-  const executions = listExecutionRequests(db, ctx, {
-    status: status as any,
-    autonomy_level: autonomy_level as any,
-    requested_by_type: effectiveRequestedByType,
-    requested_by_id: effectiveRequestedById,
-    task_id: task_id as string | undefined,
-    limit,
-    offset,
+  // Build the base query with filters (same as listExecutionRequests)
+  const whereClauses: string[] = [];
+  const params: any[] = [];
+
+  if (status) {
+    whereClauses.push('status = ?');
+    params.push(status);
+  }
+  if (autonomy_level !== undefined) {
+    whereClauses.push('autonomy_level = ?');
+    params.push(autonomy_level);
+  }
+
+  const filterWhere = whereClauses.length > 0 ? 'WHERE ' + whereClauses.join(' AND ') : '';
+
+  // Get all executions matching filters (before authorization)
+  const allRows = db.query(
+    `SELECT * FROM execution_requests ${filterWhere} ORDER BY created_at DESC`,
+    params
+  ) as Record<string, any>[];
+
+  // Apply authorization filter
+  const identity = ctx.owner_type === 'founder' ? null : ctx;
+  const visible = allRows.filter(row => {
+    // Filter by task_id if provided
+    if (task_id && row.task_id !== task_id) return false;
+    // Authorization check
+    if (identity) {
+      const reqType = row.requested_by_type;
+      const reqId = row.requested_by_id;
+      if (reqType === 'staff') {
+        if (!(identity.owner_type === 'staff' && reqId === identity.owner_id)) return false;
+      } else if (reqType === 'division') {
+        if (!(identity.owner_type === 'division' && isDivisionMember(identity, reqId, db))) return false;
+      } else if (reqType === 'founder') {
+        return false; // Non-founder can't see founder-requested executions
+      }
+    }
+    return true;
   });
 
-  res.json({ executions, limit, offset });
+  const total = visible.length;
+  const paginated = visible.slice(offset, offset + limit);
+
+  // Format response
+  const executions = paginated.map(row => ({
+    execution_id: row.execution_id,
+    task_id: row.task_id,
+    requested_by_type: row.requested_by_type,
+    requested_by_id: row.requested_by_id,
+    autonomy_level: row.autonomy_level,
+    action_description: row.action_description,
+    action_payload: row.action_payload,
+    status: row.status,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  }));
+
+  // Set X-Total-Count header for pagination
+  res.set('X-Total-Count', String(total));
+
+  res.json({ executions, total_count: total, limit, offset });
 }));
 
 // GET /api/executions/autonomy-levels - List task autonomy levels

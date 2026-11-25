@@ -112,7 +112,8 @@ describe('Runtime Execution Guard - Unit Tests', () => {
       const sessionId = await setupActiveSession('claude');
       // Switch to Hermes - this deletes the old session and creates new one
       // When switching without explicit sessionId, a new one is generated
-      lifecycle.switch({ newRuntime: 'hermes' });
+      const switchResult = lifecycle.switch({ newRuntime: 'hermes', sessionId });
+      assert.strictEqual(switchResult.success, true);
 
       // Now try to acquire permit with old claude session ID
       // The old session was deleted during switch, so it's not found
@@ -354,7 +355,7 @@ describe('Runtime Execution Guard - Unit Tests', () => {
       await guard.releaseExecutionPermit(permit.context!.executionId);
 
       // Now a switch can occur
-      const switchResult = lifecycle.switch({ newRuntime: 'hermes' });
+      const switchResult = lifecycle.switch({ newRuntime: 'hermes', sessionId });
       assert.strictEqual(switchResult.success, true);
     });
 
@@ -368,7 +369,7 @@ describe('Runtime Execution Guard - Unit Tests', () => {
       await guard.releaseExecutionPermit(permit.context!.executionId);
 
       // Switch should now succeed
-      const switchResult = lifecycle.switch({ newRuntime: 'hermes' });
+      const switchResult = lifecycle.switch({ newRuntime: 'hermes', sessionId });
       assert.strictEqual(switchResult.success, true);
     });
   });

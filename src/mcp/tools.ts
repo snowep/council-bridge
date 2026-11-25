@@ -196,7 +196,15 @@ function mcpError(message: string, code: string = 'MCP_ERROR'): CallToolResult {
   };
 }
 
-// Tool handler wrapper for service-layer operations
+// Type alias for service functions that can receive abort signals
+type ServiceFnWithSignal<TArgs extends Record<string, any>, TResult> = (
+  db: DatabaseInstance,
+  ctx: OperationContext,
+  args: TArgs,
+  signal: AbortSignal
+) => TResult | Promise<TResult>;
+
+// Tool handler wrapper for service-layer operations (without abort signal for backward compatibility)
 function createToolHandler<TArgs extends Record<string, any>, TResult>(
   db: DatabaseInstance,
   getAuthContext: (req: any) => OperationContext | null | undefined,
@@ -213,6 +221,40 @@ function createToolHandler<TArgs extends Record<string, any>, TResult>(
       requireAuthenticated(ctx);
 
       const result = await serviceFn(db, ctx, args);
+      return {
+        content: [{ type: 'text', text: JSON.stringify(result) }],
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      const code = message.includes('Authorization') || message.includes('denied') ? 'AUTH_DENIED' : 'MCP_ERROR';
+      return mcpError(message, code);
+    }
+  };
+}
+
+// Tool handler wrapper that includes abort signal for TOCTOU protection (P1-02)
+// Tools must check signal.aborted before committing protected changes
+function createToolHandlerWithSignal<TArgs extends Record<string, any>, TResult>(
+  db: DatabaseInstance,
+  getAuthContext: (req: any) => OperationContext | null | undefined,
+  serviceFn: ServiceFnWithSignal<TArgs, TResult>
+) {
+  return async (args: TArgs, extra: RequestHandlerExtra<any, any>): Promise<CallToolResult> => {
+    try {
+      const req = extra.requestInfo?.headers ? { headers: extra.requestInfo.headers } : extra;
+      const ctx = getAuthContext(req);
+      if (!ctx) {
+        return mcpError('Authentication required', 'AUTH_REQUIRED');
+      }
+      // Validate authentication
+      requireAuthenticated(ctx);
+
+      // Check abort signal before executing protected operations
+      if (extra.signal?.aborted) {
+        return mcpError('Execution cancelled due to session change or expiry', 'PERMIT_RENEWAL_FAILED');
+      }
+
+      const result = await serviceFn(db, ctx, args, extra.signal!);
       return {
         content: [{ type: 'text', text: JSON.stringify(result) }],
       };
@@ -417,8 +459,8 @@ export function registerMcpTools(
     'execute_execution_request',
     'Execute an approved/queued execution request (requester or Founder)',
     ExecuteExecutionRequestSchema.shape,
-    createToolHandler(db, getAuthContext, async (db, ctx, args) => {
-      return executeExecutionRequest(db, ctx, args.execution_id, args.result_payload);
+    createToolHandlerWithSignal(db, getAuthContext, async (db, ctx, args, signal) => {
+      return executeExecutionRequest(db, ctx, args.execution_id, args.result_payload, signal);
     })
   );
 
@@ -426,8 +468,8 @@ export function registerMcpTools(
     'cancel_execution_request',
     'Cancel an execution request (requester or Founder)',
     CancelExecutionRequestSchema.shape,
-    createToolHandler(db, getAuthContext, async (db, ctx, args) => {
-      return cancelExecutionRequest(db, ctx, args.execution_id, args.error_message);
+    createToolHandlerWithSignal(db, getAuthContext, async (db, ctx, args, signal) => {
+      return cancelExecutionRequest(db, ctx, args.execution_id, args.error_message, signal);
     })
   );
 

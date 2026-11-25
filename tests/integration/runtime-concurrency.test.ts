@@ -263,7 +263,7 @@ describe('Runtime Concurrency Integration Tests', () => {
     // This demonstrates that you cannot switch away from another session
     const switchResult = lifecycle.switch({ newRuntime: 'hermes', sessionId: 'other-session' });
     assert.strictEqual(switchResult.success, false, 'Should not allow switch with different session ID');
-    assert.ok(switchResult.error?.includes('ownership mismatch'), 'Error should indicate ownership mismatch');
+    assert.ok(switchResult.error?.includes('not the active'), 'Error should indicate ownership mismatch');
 
     // Verify Claude is still active (no switch occurred)
     const state2 = lifecycle.getState();

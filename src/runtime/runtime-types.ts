@@ -63,6 +63,7 @@ export interface SwitchRuntimeOptions {
   sessionId?: string;
   clientIp?: string;
   userAgent?: string;
+  credentialId?: string;  // P2-03: bind target session to credential
 }
 
 export interface HeartbeatOptions {

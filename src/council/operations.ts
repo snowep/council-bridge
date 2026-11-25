@@ -94,8 +94,8 @@ function getTaskForActor(
   if (ctx.owner_type === 'division') {
     const division = db.query('SELECT division_id FROM divisions WHERE division_id = ?', [ctx.owner_id]);
     if (division.length === 0) throw new Error('Authorization denied');
-    if ((task.assigned_to_type === 'division' && task.assigned_to_id === ctx.owner_id) ||
-        (task.created_by_type === 'division_head' && task.created_by_id === ctx.owner_id)) return task;
+    // Authorization is against CURRENT assignee only - historical creator access removed for security
+    if (task.assigned_to_type === 'division' && task.assigned_to_id === ctx.owner_id) return task;
     if (task.assigned_to_type === 'staff') {
       const membership = db.query(
         'SELECT 1 FROM division_members WHERE staff_id = ? AND division_id = ?',
@@ -296,10 +296,10 @@ export function buildPrivacyFilter(
         SELECT DISTINCT meeting_id FROM primary_ideas WHERE seat_id = ?
       ))
       OR (m.category = 'task_history' AND m.task_id IN (
-        SELECT task_id FROM tasks WHERE (assigned_to_type = 'seat' AND assigned_to_id = ?) OR (created_by_type = 'seat' AND created_by_id = ?)
+        SELECT task_id FROM tasks WHERE assigned_to_type = 'seat' AND assigned_to_id = ?
       ))
     )`;
-    values.push(ctx.owner_id, ctx.owner_id, ctx.owner_id, ctx.owner_id);
+    values.push(ctx.owner_id, ctx.owner_id, ctx.owner_id);
   } else if (ctx.owner_type === 'division') {
     sql = `(
       m.category IN ('council_shared', 'decision_resolution', 'lesson_learned', 'business_context', 'idea_proposal', 'research_evidence', 'unresolved_question')
@@ -313,10 +313,10 @@ export function buildPrivacyFilter(
           AND division_id = ?
       ))
       OR (m.category = 'task_history' AND m.task_id IN (
-        SELECT task_id FROM tasks WHERE (assigned_to_type = 'division' AND assigned_to_id = ?) OR (created_by_type = 'division_head' AND created_by_id = ?)
+        SELECT task_id FROM tasks WHERE assigned_to_type = 'division' AND assigned_to_id = ?
       ))
     )`;
-    values.push(ctx.owner_id, ctx.owner_id, ctx.owner_id, ctx.owner_id, ctx.owner_id);
+    values.push(ctx.owner_id, ctx.owner_id, ctx.owner_id, ctx.owner_id);
   } else if (ctx.owner_type === 'staff') {
     sql = `(
       m.category IN ('council_shared', 'decision_resolution', 'lesson_learned', 'business_context', 'idea_proposal', 'research_evidence', 'unresolved_question')
@@ -736,7 +736,8 @@ export function executeExecutionRequest(
   db: DatabaseInstance,
   ctx: OperationContext,
   executionId: string,
-  resultPayload: Record<string, any> = {}
+  resultPayload: Record<string, any> = {},
+  signal?: AbortSignal
 ): ExecutionRequest {
   const identity = requireAuthenticated(ctx);
   const existing = getExecutionForActor(db, identity, executionId);
@@ -754,6 +755,12 @@ export function executeExecutionRequest(
 
   const now = new Date().toISOString();
   const executionResult = { success: true, ...resultPayload };
+
+  // P1-02: Check abort signal before performing protected changes
+  if (signal?.aborted) {
+    throw new Error('Execution cancelled due to session change or expiry');
+  }
+
   db.runPreparedStatement('beginTransaction', []);
   try {
     db.runPreparedStatement('updateExecutionRequest', [
@@ -765,6 +772,13 @@ export function executeExecutionRequest(
       now, null, executionId,
     ]);
     writeExecutionHistory(db, existing, existing.status, 'running', { actor: identity, startedAt: now });
+
+    // P1-02: Check abort signal again before committing protected changes
+    if (signal?.aborted) {
+      db.runPreparedStatement('rollbackTransaction', []);
+      throw new Error('Execution cancelled due to session change or expiry');
+    }
+
     db.runPreparedStatement('updateExecutionRequest', [
       existing.task_id, existing.requested_by_type, existing.requested_by_id,
       existing.autonomy_level, existing.action_description, JSON.stringify(existing.action_payload),
@@ -788,7 +802,8 @@ export function cancelExecutionRequest(
   db: DatabaseInstance,
   ctx: OperationContext,
   executionId: string,
-  errorMessage: string = 'Cancelled by user'
+  errorMessage: string = 'Cancelled by user',
+  signal?: AbortSignal
 ): ExecutionRequest {
   const identity = requireAuthenticated(ctx);
   const existing = getExecutionForActor(db, identity, executionId);
@@ -803,6 +818,12 @@ export function cancelExecutionRequest(
   }
 
   const now = new Date().toISOString();
+
+  // P1-02: Check abort signal before performing protected changes
+  if (signal?.aborted) {
+    throw new Error('Execution cancelled due to session change or expiry');
+  }
+
   db.runPreparedStatement('beginTransaction', []);
   try {
     db.runPreparedStatement('updateExecutionRequest', [

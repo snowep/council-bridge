@@ -666,6 +666,37 @@ describe('Runtime Switching Regression Tests', () => {
     }
   });
 
+  it('stale recovery should advance generation for execution fencing', async () => {
+    // Connect Claude
+    const claude = manager.connect({ runtime: 'claude', clientIp: '127.0.0.1' });
+    assert.strictEqual(claude.success, true);
+
+    const sessionId = claude.state!.sessionId!;
+
+    // Get initial generation
+    const initialSession = db.stmt.getRuntimeSessionBySession.get(sessionId) as any;
+    const initialGeneration = initialSession.generation;
+    assert.ok(initialGeneration >= 1, 'Initial generation should be at least 1');
+
+    // Expire the lease by running direct SQL
+    db.db.prepare('UPDATE runtime_sessions SET lease_expires_at = ? WHERE session_id = ?')
+      .run(String(Date.now() - 10000), sessionId);
+
+    // Run stale recovery
+    const recoveryResult = manager.recoverStaleSessions();
+    assert.strictEqual(recoveryResult.recovered, 1, 'Should recover 1 session');
+
+    // Verify generation advanced
+    const recoveredSession = db.stmt.getRuntimeSessionBySession.get(sessionId) as any;
+    assert.strictEqual(recoveredSession.connection_status, 'disconnected', 'Session should be disconnected');
+    assert.strictEqual(recoveredSession.generation, initialGeneration + 1, 'Generation should advance by 1');
+    assert.ok(recoveredSession.last_error?.includes('stale lease'), 'Should have stale lease error message');
+
+    // Cleanup - need to connect a fresh session
+    const newConnect = manager.connect({ runtime: 'claude', clientIp: '127.0.0.1' });
+    assert.strictEqual(newConnect.success, true);
+  });
+
   it('should prevent switching while an execution remains incomplete', async () => {
     // Connect Claude
     const claude = manager.connect({ runtime: 'claude', clientIp: '127.0.0.1' });
@@ -731,6 +762,135 @@ describe('Runtime Switching Regression Tests', () => {
     // Cleanup - need to complete the execution first
     db.db.prepare('UPDATE execution_records SET completed = 1 WHERE session_id = ?').run(hermesSession);
     manager.disconnect({ sessionId: hermesSession });
+  });
+
+  it('should reject switch when target credential is revoked', async () => {
+    const { provisionRuntimeCredential, insertRuntimeCredential, revokeRuntimeCredential } = await import('../../src/auth/runtime-credentials.js');
+
+    // Connect Claude
+    const claude = manager.connect({ runtime: 'claude', clientIp: '127.0.0.1' });
+    assert.strictEqual(claude.success, true);
+    const claudeSessionId = claude.state!.sessionId!;
+
+    // Provision and insert a VALID Hermes credential
+    const hermesCred = provisionRuntimeCredential('hermes');
+    insertRuntimeCredential(db, {
+      credentialId: hermesCred.credentialId,
+      runtimeId: 'hermes',
+      tokenHash: hermesCred.tokenHash,
+      createdAt: hermesCred.createdAt,
+      expiresAt: hermesCred.expiresAt
+    });
+
+    // Switch to Hermes with the VALID credential (using switch, not connect)
+    const switchToHermes = manager.switch({
+      newRuntime: 'hermes',
+      sessionId: claudeSessionId,
+      clientIp: '127.0.0.1',
+      credentialId: hermesCred.credentialId
+    });
+    assert.strictEqual(switchToHermes.success, true);
+
+    // Now revoke the credential
+    revokeRuntimeCredential(db, hermesCred.credentialId);
+
+    // Switch back to Claude
+    const switchToClaude = manager.switch({
+      newRuntime: 'claude',
+      sessionId: switchToHermes.state!.sessionId!,
+      clientIp: '127.0.0.1'
+    });
+    assert.strictEqual(switchToClaude.success, true);
+
+    // Try to switch back to Hermes - should fail because credential is revoked
+    const switchResult = manager.switch({
+      newRuntime: 'hermes',
+      sessionId: switchToClaude.state!.sessionId!,
+      clientIp: '127.0.0.1'
+    });
+
+    // Should fail - target credential is revoked
+    assert.strictEqual(switchResult.success, false);
+    assert.ok(switchResult.error?.includes('revoked') || switchResult.error?.includes('no longer valid'), `Got error: ${switchResult.error}`);
+
+    // Cleanup
+    manager.disconnect({ sessionId: switchToClaude.state!.sessionId! });
+  });
+
+  it('should reject switch when target credential is expired', async () => {
+    const { provisionRuntimeCredential, insertRuntimeCredential } = await import('../../src/auth/runtime-credentials.js');
+
+    // Connect Claude
+    const claude = manager.connect({ runtime: 'claude', clientIp: '127.0.0.1' });
+    assert.strictEqual(claude.success, true);
+    const claudeSessionId = claude.state!.sessionId!;
+
+    // Provision and insert a VALID Hermes credential
+    const hermesCred = provisionRuntimeCredential('hermes');
+    insertRuntimeCredential(db, {
+      credentialId: hermesCred.credentialId,
+      runtimeId: 'hermes',
+      tokenHash: hermesCred.tokenHash,
+      createdAt: hermesCred.createdAt,
+      expiresAt: hermesCred.expiresAt
+    });
+
+    // Switch to Hermes with the VALID credential
+    const switchToHermes = manager.switch({
+      newRuntime: 'hermes',
+      sessionId: claudeSessionId,
+      clientIp: '127.0.0.1',
+      credentialId: hermesCred.credentialId
+    });
+    assert.strictEqual(switchToHermes.success, true);
+
+    // Now manually expire the credential by updating the database
+    const now = Date.now();
+    db.db.prepare('UPDATE runtime_credentials SET expires_at = ? WHERE credential_id = ?').run(now - 1, hermesCred.credentialId);
+
+    // Switch back to Claude
+    const switchToClaude = manager.switch({
+      newRuntime: 'claude',
+      sessionId: switchToHermes.state!.sessionId!,
+      clientIp: '127.0.0.1'
+    });
+    assert.strictEqual(switchToClaude.success, true);
+
+    // Try to switch back to Hermes - should fail because credential is expired
+    const switchResult = manager.switch({
+      newRuntime: 'hermes',
+      sessionId: switchToClaude.state!.sessionId!,
+      clientIp: '127.0.0.1'
+    });
+
+    // Should fail - target credential is expired
+    assert.strictEqual(switchResult.success, false);
+    assert.ok(switchResult.error?.includes('expired') || switchResult.error?.includes('no longer valid'), `Got error: ${switchResult.error}`);
+
+    // Cleanup
+    manager.disconnect({ sessionId: switchToClaude.state!.sessionId! });
+  });
+
+  it('should allow switch when target has no credential_id (new runtime)', async () => {
+    // Connect Claude
+    const claude = manager.connect({ runtime: 'claude', clientIp: '127.0.0.1' });
+    assert.strictEqual(claude.success, true);
+
+    // Switch to Hermes which has never been connected (no credential_id)
+    const switchResult = manager.switch({
+      newRuntime: 'hermes',
+      sessionId: claude.state!.sessionId!,
+      clientIp: '127.0.0.1'
+    });
+
+    // Should succeed - no credential to validate
+    assert.strictEqual(switchResult.success, true);
+    assert.strictEqual(switchResult.state?.activeRuntime, 'hermes');
+
+    // Cleanup
+    if (switchResult.state?.sessionId) {
+      manager.disconnect({ sessionId: switchResult.state.sessionId });
+    }
   });
 });
 

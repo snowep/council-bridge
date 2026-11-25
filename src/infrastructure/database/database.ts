@@ -185,6 +185,7 @@ export interface DatabaseInstance {
     insertDivisionMember: PreparedStatement;
     getDivisionMembers: PreparedStatement;
     getStaffDivisions: PreparedStatement;
+    listStaffByDivisionMembership: PreparedStatement;
 
     // Phase 6: Task & Deliverable Management
     insertTask: PreparedStatement;
@@ -269,6 +270,13 @@ export interface DatabaseInstance {
     cleanupExpiredExecutionRecords: PreparedStatement;
     renewExecutionPermit: PreparedStatement;
     getSessionWithGeneration: PreparedStatement;
+
+    // Phase 10: Identity Credentials for staff/division/seat authentication
+    insertIdentityCredential: PreparedStatement;
+    getIdentityCredentialByHash: PreparedStatement;
+    getIdentityCredentialByIdentity: PreparedStatement;
+    updateIdentityCredentialStatus: PreparedStatement;
+    updateIdentityCredentialLastUsed: PreparedStatement;
   };
   query: (sql: string, params?: any[]) => QueryResult;
   runPreparedStatement: (name: string, params?: any[]) => any;
@@ -277,12 +285,13 @@ export interface DatabaseInstance {
 }
 
 // Phase 4 schema version. Bumped when createDatabase() adds tables.
-// Current version: 20.1.0 - runtime_control table + generation column + idle heartbeat support (Loop 2-4)
+// Current version: 21.0.0 - identity_credentials table (SEC-04: Identity credential validation)
+// Previous: 20.1.0 - runtime_control table + generation column + idle heartbeat support (Loop 2-4)
 // Previous: 19.0.0 - runtime_credentials table for independent runtime auth (Loop 1)
 // Previous: 18.0.0 - execution_records table for MCP execution guard
 // Previous: 17.0.0 for runtime_sessions table (Phase 10)
 // Previous: 16.0.0 for Task 5: task_audit table
-export const SCHEMA_VERSION = '20.1.0';
+export const SCHEMA_VERSION = '21.0.0';
 
 function createDatabase(dbPath?: string): DatabaseInstance {
   const isProduction = process.env.NODE_ENV === 'production';
@@ -891,6 +900,7 @@ function createDatabase(dbPath?: string): DatabaseInstance {
       reviewed_by_id    TEXT,
       reviewed_at       TEXT,
       created_at        TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at        TEXT,                              -- Last update timestamp
       version           INTEGER NOT NULL DEFAULT 1,
       quality_score     INTEGER CHECK (quality_score BETWEEN 0 AND 100),
       reviewer_type     TEXT CHECK (reviewer_type IN ('founder', 'council', 'division_head')),
@@ -901,6 +911,10 @@ function createDatabase(dbPath?: string): DatabaseInstance {
       founder_signature TEXT,
       founder_signed_at TEXT,
       revision_notes    TEXT,
+      file_references     TEXT DEFAULT '[]',               -- JSON array of file paths
+      task_relationships TEXT DEFAULT '[]',               -- JSON array of related task IDs
+      audit_log           TEXT DEFAULT '[]',               -- JSON array of audit entries
+      execution_id        TEXT,                            -- FK to execution_requests when applicable
       FOREIGN KEY (task_id) REFERENCES tasks(task_id) ON DELETE CASCADE
     );
 
@@ -1079,7 +1093,53 @@ function createDatabase(dbPath?: string): DatabaseInstance {
     CREATE INDEX IF NOT EXISTS idx_runtime_credentials_runtime ON runtime_credentials(runtime_id, status) WHERE status = 'active';
     CREATE INDEX IF NOT EXISTS idx_runtime_credentials_expires ON runtime_credentials(expires_at);
     CREATE INDEX IF NOT EXISTS idx_runtime_credentials_revoked ON runtime_credentials(revoked_at) WHERE revoked_at IS NOT NULL;
+
+    -- Ensure identity_credentials table exists (SEC-04: Identity credential validation)
+    -- For staff, division, and seat session authentication
+    CREATE TABLE IF NOT EXISTS identity_credentials (
+      credential_id TEXT NOT NULL PRIMARY KEY,
+      identity_type TEXT NOT NULL CHECK (identity_type IN ('staff', 'division', 'seat')),
+      identity_id TEXT NOT NULL,
+      token_hash TEXT NOT NULL UNIQUE,
+      runtime_id TEXT NOT NULL CHECK (runtime_id IN ('claude', 'hermes')),
+      status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'revoked', 'expired')),
+      created_at INTEGER NOT NULL,
+      expires_at INTEGER NOT NULL,
+      last_used_at INTEGER,
+      revoked_at INTEGER
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_identity_credentials_identity
+      ON identity_credentials(identity_type, identity_id);
+    CREATE INDEX IF NOT EXISTS idx_identity_credentials_runtime
+      ON identity_credentials(runtime_id, status) WHERE status = 'active';
+    CREATE INDEX IF NOT EXISTS idx_identity_credentials_expires
+      ON identity_credentials(expires_at);
+    CREATE INDEX IF NOT EXISTS idx_identity_credentials_revoked
+      ON identity_credentials(revoked_at) WHERE revoked_at IS NOT NULL;
+
   `);
+
+  // Ensure api_sessions table exists (P2-10: Database-backed session storage)
+  // Provides shared session state across multiple application instances
+  db.prepare(`
+    CREATE TABLE IF NOT EXISTS api_sessions (
+      session_id TEXT PRIMARY KEY,
+      owner_type TEXT NOT NULL CHECK (owner_type IN ('founder', 'staff', 'division', 'seat')),
+      owner_id TEXT NOT NULL,
+      client_ip TEXT,
+      user_agent TEXT,
+      expires_at INTEGER NOT NULL,
+      issued_at INTEGER NOT NULL,
+      invalidated INTEGER DEFAULT 0,
+      last_used_at INTEGER DEFAULT 0,
+      permissions TEXT DEFAULT '[]'
+    )
+  `).run();
+
+  db.prepare(`CREATE INDEX IF NOT EXISTS idx_api_sessions_owner ON api_sessions(owner_type, owner_id)`).run();
+  db.prepare(`CREATE INDEX IF NOT EXISTS idx_api_sessions_expires ON api_sessions(expires_at) WHERE invalidated = 0`).run();
+  db.prepare(`CREATE INDEX IF NOT EXISTS idx_api_sessions_invalidated ON api_sessions(invalidated) WHERE invalidated = 0`).run();
 
   // Ensure runtime_sessions table exists (Migration 017/020)
   // With generation column for Loop 3 execution fencing
@@ -1504,6 +1564,12 @@ function createDatabase(dbPath?: string): DatabaseInstance {
     `) as PreparedStatement,
     getDivisionMembers: db.prepare('SELECT * FROM division_members WHERE division_id = ?') as PreparedStatement,
     getStaffDivisions: db.prepare('SELECT * FROM division_members WHERE staff_id = ?') as PreparedStatement,
+    listStaffByDivisionMembership: db.prepare(`
+      SELECT sa.* FROM staff_agents sa
+      INNER JOIN division_members dm ON sa.staff_id = dm.staff_id
+      WHERE dm.division_id = ?
+      ORDER BY sa.created_at DESC
+    `) as PreparedStatement,
 
     insertTask: db.prepare(`
       INSERT INTO tasks (task_id, title, description, assigned_to_type, assigned_to_id, created_by_type, created_by_id, status, priority, budget_allocated, due_at, completed_at, created_at, updated_at, dependencies, deliverable_id)
@@ -1514,12 +1580,14 @@ function createDatabase(dbPath?: string): DatabaseInstance {
     updateTask: db.prepare('UPDATE tasks SET title = ?, description = ?, assigned_to_type = ?, assigned_to_id = ?, created_by_type = ?, created_by_id = ?, status = ?, priority = ?, budget_allocated = ?, due_at = ?, completed_at = ?, updated_at = datetime(\'now\') WHERE task_id = ?') as PreparedStatement,
 
     insertDeliverable: db.prepare(`
-      INSERT INTO deliverables (deliverable_id, task_id, submitted_by_type, submitted_by_id, content, status, reviewed_by_type, reviewed_by_id, reviewed_at, created_at, version, quality_score, reviewer_type, reviewer_id, approved_at, approved_by_type, approved_by_id, founder_signature, founder_signed_at, revision_notes)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO deliverables (deliverable_id, task_id, submitted_by_type, submitted_by_id, content, status, reviewed_by_type, reviewed_by_id, reviewed_at, created_at, updated_at, version, quality_score, reviewer_type, reviewer_id, approved_at, approved_by_type, approved_by_id, founder_signature, founder_signed_at, revision_notes, file_references, task_relationships, audit_log, execution_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `) as PreparedStatement,
     getDeliverableById: db.prepare('SELECT * FROM deliverables WHERE deliverable_id = ?') as PreparedStatement,
     listDeliverablesByTask: db.prepare('SELECT * FROM deliverables WHERE task_id = ? ORDER BY created_at DESC') as PreparedStatement,
-    updateDeliverable: db.prepare('UPDATE deliverables SET content = ?, status = ?, reviewed_by_type = ?, reviewed_by_id = ?, reviewed_at = ?, version = ?, quality_score = ?, reviewer_type = ?, reviewer_id = ?, approved_at = ?, approved_by_type = ?, approved_by_id = ?, founder_signature = ?, founder_signed_at = ?, revision_notes = ? WHERE deliverable_id = ?') as PreparedStatement,
+    updateDeliverable: db.prepare('UPDATE deliverables SET content = ?, status = ?, reviewed_by_type = ?, reviewed_by_id = ?, reviewed_at = ?, version = ?, quality_score = ?, reviewer_type = ?, reviewer_id = ?, approved_at = ?, approved_by_type = ?, approved_by_id = ?, founder_signature = ?, founder_signed_at = ?, revision_notes = ?, file_references = ?, task_relationships = ?, audit_log = ?, execution_id = ?, updated_at = datetime(\'now\') WHERE deliverable_id = ?') as PreparedStatement,
+    // Fallback for legacy databases without extended columns (for migration scenarios)
+    updateDeliverableLegacy: db.prepare('UPDATE deliverables SET content = ?, status = ?, reviewed_by_type = ?, reviewed_by_id = ?, reviewed_at = ?, updated_at = datetime(\'now\') WHERE deliverable_id = ?') as PreparedStatement,
 
     // Phase 9 Batch 4: Deliverable Workflow
     insertDeliverableVersion: db.prepare(`
@@ -1619,18 +1687,17 @@ function createDatabase(dbPath?: string): DatabaseInstance {
 
     getRuntimeSessionBySession: db.prepare('SELECT * FROM runtime_sessions WHERE session_id = ?') as PreparedStatement,
 
+    // Returns all connected sessions - app layer validates lease and returns appropriate error
+    // This allows distinguishing between "no active session" vs "session with invalid lease"
     getActiveRuntimeSession: db.prepare(`
       SELECT * FROM runtime_sessions
       WHERE connection_status = 'connected'
-        AND lease_expires_at IS NOT NULL
-        AND CAST(lease_expires_at AS INTEGER) >
-            CAST(strftime('%s', 'now') || '000' AS INTEGER)
     `) as PreparedStatement,
 
+    // Returns all connected sessions - app layer validates lease and returns appropriate error
     getConnectedRuntimeSession: db.prepare(`
       SELECT * FROM runtime_sessions
       WHERE connection_status IN ('connecting', 'connected', 'switching')
-      AND (lease_expires_at IS NULL OR CAST(lease_expires_at AS INTEGER) > CAST(strftime('%s', 'now') || '000' AS INTEGER))
       ORDER BY updated_at DESC
       LIMIT 1
     `) as PreparedStatement,
@@ -1652,12 +1719,13 @@ function createDatabase(dbPath?: string): DatabaseInstance {
     `) as PreparedStatement,
 
     // Clear expired connected sessions (used before bootstrap to prevent UNIQUE constraint failure)
+    // Also clears sessions with null or missing lease (P2-02: invalid sessions cannot be active)
     clearExpiredConnectedSessions: db.prepare(`
       UPDATE runtime_sessions
       SET connection_status = 'disconnected', last_error = ?, updated_at = datetime('now')
       WHERE connection_status = 'connected'
-      AND lease_expires_at IS NOT NULL
-      AND CAST(lease_expires_at AS INTEGER) <= CAST(strftime('%s', 'now') || '000' AS INTEGER)
+      AND (lease_expires_at IS NULL OR lease_expires_at = ''
+           OR CAST(lease_expires_at AS INTEGER) <= CAST(strftime('%s', 'now') || '000' AS INTEGER))
     `) as PreparedStatement,
 
     getRuntimeSessionsExpiring: db.prepare(`
@@ -1760,6 +1828,30 @@ function createDatabase(dbPath?: string): DatabaseInstance {
 
     updateCredentialLastUsed: db.prepare(`
       UPDATE runtime_credentials SET last_used_at = ? WHERE credential_id = ?
+    `) as PreparedStatement,
+
+    // Phase 10: Identity Credentials (SEC-04: Identity credential validation)
+    insertIdentityCredential: db.prepare(`
+      INSERT INTO identity_credentials
+        (credential_id, identity_type, identity_id, token_hash, runtime_id, status, created_at, expires_at, last_used_at, revoked_at)
+      VALUES (?, ?, ?, ?, ?, 'active', ?, ?, NULL, NULL)
+    `) as PreparedStatement,
+
+    getIdentityCredentialByHash: db.prepare(`
+      SELECT credential_id, identity_type, identity_id, token_hash, runtime_id, status, expires_at, revoked_at, last_used_at FROM identity_credentials WHERE token_hash = ?
+    `) as PreparedStatement,
+
+    // Get credential by identity type and ID
+    getIdentityCredentialByIdentity: db.prepare(`
+      SELECT * FROM identity_credentials WHERE identity_type = ? AND identity_id = ?
+    `) as PreparedStatement,
+
+    updateIdentityCredentialStatus: db.prepare(`
+      UPDATE identity_credentials SET status = ?, revoked_at = ? WHERE credential_id = ?
+    `) as PreparedStatement,
+
+    updateIdentityCredentialLastUsed: db.prepare(`
+      UPDATE identity_credentials SET last_used_at = ? WHERE credential_id = ?
     `) as PreparedStatement,
   };
 

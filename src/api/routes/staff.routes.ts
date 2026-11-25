@@ -2,7 +2,7 @@
 // Implements: GET /api/staff, GET /api/staff/:id, POST /api/staff, GET /api/staff/divisions/members
 
 import { Router, Request, Response } from 'express';
-import { listStaffAgents, getStaffAgentById, getDivisionMembers, getAllDivisionMembers, registerStaffAgent } from '../../council/divisions.js';
+import { listStaffAgents, getStaffAgentById, getDivisionMembers, getAllDivisionMembers, registerStaffAgent, listStaffByDivisionMembership } from '../../council/divisions.js';
 import { authMiddleware, requireAuth } from '../middleware/authentication.js';
 import { asyncHandler, NotFoundError, AuthorizationError, ValidationError } from '../middleware/error-handler.js';
 import { ListStaffSchema, RegisterStaffSchema } from '../schemas/index.js';
@@ -43,38 +43,72 @@ router.get('/', asyncHandler(async (req: Request, res: Response) => {
   const { limit, offset, division_id, status } = ListStaffSchema.parse(req.query);
 
   let effectiveDivisionId = division_id as string | undefined;
+  let useMembershipQuery = true; // Use division_members table for finding staff by division
 
   if (ctx.owner_type === 'division') {
     // Division Head can only see their own division's staff
     effectiveDivisionId = ctx.owner_id;
   } else if (ctx.owner_type === 'founder') {
     // Founder can see all staff (division_id filter if provided)
-    effectiveDivisionId = undefined;
+    // For founder, if division_id is provided, use membership query
+    // If not provided, list all
+    useMembershipQuery = !!division_id;
   } else if (ctx.owner_type === 'staff') {
-    // Staff with division membership can see their division's staff
-    const divisions = db.query('SELECT division_id FROM division_members WHERE staff_id = ?', [ctx.owner_id]);
-    if (divisions.length > 0) {
-      effectiveDivisionId = divisions[0].division_id;
+    // Staff can see all staff from their divisions
+    const myDivisions = db.query('SELECT division_id FROM division_members WHERE staff_id = ?', [ctx.owner_id]);
+    const myDivisionIds = myDivisions.map((d: any) => d.division_id);
+
+    if (myDivisionIds.length === 0) {
+      // Staff not in any division - empty result
+      res.set('X-Total-Count', '0');
+      res.json({ staff: [], total_count: 0, limit, offset });
+      return;
+    }
+
+    // If a specific division_id is requested, filter to that division
+    if (effectiveDivisionId) {
+      if (!myDivisionIds.includes(effectiveDivisionId)) {
+        // Staff not a member of the requested division
+        res.set('X-Total-Count', '0');
+        res.json({ staff: [], total_count: 0, limit, offset });
+        return;
+      }
+      useMembershipQuery = true;
     } else {
-      effectiveDivisionId = undefined; // Will be filtered to empty result
+      // Staff can see staff from all their divisions
+      // Query each division and combine results
+      const allStaff = new Map<string, any>();
+      for (const divId of myDivisionIds) {
+        const staffInDiv = listStaffByDivisionMembership(db, divId, status as any);
+        for (const s of staffInDiv) {
+          if (!allStaff.has(s.staff_id)) {
+            allStaff.set(s.staff_id, s);
+          }
+        }
+      }
+      const staff = Array.from(allStaff.values());
+      res.set('X-Total-Count', String(staff.length));
+      res.json({ staff, total_count: staff.length, limit, offset });
+      return;
     }
   }
 
-  const staff = listStaffAgents(db, {
-    division_id: effectiveDivisionId,
-    status: status as any,
-  });
-
-  // For staff, filter to only see records from their own division
-  if (ctx.owner_type === 'staff') {
-    const myDivisions = db.query('SELECT division_id FROM division_members WHERE staff_id = ?', [ctx.owner_id]);
-    const myDivisionIds = myDivisions.map((d: any) => d.division_id);
-    const filtered = staff.filter(s => myDivisionIds.includes(s.division_id));
-    res.json({ staff: filtered, limit, offset });
-    return;
+  // Query staff based on division membership
+  let staff: any[];
+  if (effectiveDivisionId) {
+    staff = listStaffByDivisionMembership(db, effectiveDivisionId, status as any);
+  } else {
+    // Founder with no division filter - list all staff
+    staff = listStaffAgents(db);
   }
 
-  res.json({ staff, limit, offset });
+  // Apply pagination
+  const paginated = staff.slice(offset, offset + limit);
+
+  // Set X-Total-Count header for pagination
+  res.set('X-Total-Count', String(staff.length));
+
+  res.json({ staff: paginated, total_count: staff.length, limit, offset });
 }));
 
 // GET /api/staff/:id - Get staff agent details

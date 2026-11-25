@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS execution_records (
     started_at INTEGER NOT NULL,           -- Unix timestamp (milliseconds) when execution started
     expires_at INTEGER NOT NULL,           -- Unix timestamp (milliseconds) when permit expires
     completed INTEGER NOT NULL DEFAULT 0,  -- 0 = active, 1 = completed
+    generation INTEGER NOT NULL DEFAULT 1, -- Added for Loop 3 execution fencing
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now')),
     FOREIGN KEY (runtime_id) REFERENCES runtime_sessions(runtime) ON DELETE CASCADE,

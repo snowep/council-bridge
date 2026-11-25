@@ -1,35 +1,24 @@
 // M3-004: File-based Nonce Store Tests
 // Tests for atomic nonce operations, cross-process safety, and error handling
 
-import { describe, it, before, after, beforeEach } from 'node:test';
+import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert';
-import * as fs from 'node:fs';
-import * as path from 'node:path';
-import { createDatabase, setDatabaseInstance, DatabaseInstance } from '../../src/database.js';
 import {
   generateFounderKeyPair,
-  loadFounderKeyPair,
   checkAndConsumeNonceFile,
-  checkAndConsumeNonce,
-  clearFileNonceStore
+  clearFileNonceStore,
+  resetNonceLockStore
 } from '../../src/auth/founder.js';
-
-const TEST_DIR = path.join(import.meta.dirname, '..', '..', 'test-dbs-guard', 'M3-004-nonces');
 
 describe('M3-004: File-Based Nonce Store Tests', () => {
   let keyPair: { public_key: string; private_key_pem: string; created_at: string; key_id: string };
-  let db: DatabaseInstance;
 
   beforeEach(() => {
+    // Reset lock database to prevent cross-test lock contention
+    resetNonceLockStore();
     // Generate fresh key pair for each test
     keyPair = generateFounderKeyPair();
     clearFileNonceStore();
-  });
-
-  after(() => {
-    try {
-      if (db) db.close();
-    } catch {}
   });
 
   it('should store and consume nonce in file store', () => {

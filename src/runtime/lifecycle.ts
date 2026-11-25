@@ -5,6 +5,7 @@
 import { DatabaseInstance } from '../database.js';
 import { randomUUID } from 'node:crypto';
 import { RuntimeSessionRow, IdleHeartbeatController } from './runtime-types.js';
+import { validateRuntimeCredentialById } from '../auth/runtime-credentials.js';
 
 // Local alias for consistency with runtime_types exports
 export type RuntimeType = 'claude' | 'hermes';
@@ -42,6 +43,7 @@ export interface SwitchRuntimeOptions {
   sessionId?: string;
   clientIp?: string;
   userAgent?: string;
+  credentialId?: string;  // P2-03: bind target session to credential
 }
 
 export interface HeartbeatOptions {
@@ -162,13 +164,37 @@ export class RuntimeLifecycleManager {
 
       // If same runtime already active with same session, be idempotent
       if (existing && existing.session_id === newSessionId) {
+        // Validate lease is present and valid - reject null/invalid lease sessions (P2-02)
+        const existingLeaseMs = parseUnixMs(existing.lease_expires_at);
+        const isExpiredLease = existingLeaseMs !== null && existingLeaseMs <= Date.now();
+        const hasInvalidLease = !existingLeaseMs || isExpiredLease;
+
+        // If lease is null, missing, empty, or expired - cannot be considered active connected
+        if (existing.connection_status === 'connected' && hasInvalidLease) {
+          // Session appears connected but has invalid lease - reactivate with fresh timestamps
+          this.db.db.prepare(`
+            UPDATE runtime_sessions
+            SET connection_status = 'connected',
+                connected_at = ?,
+                last_heartbeat_at = ?,
+                lease_expires_at = ?,
+                credential_id = COALESCE(?, credential_id),
+                last_error = NULL,
+                updated_at = datetime('now')
+            WHERE session_id = ?
+          `).run(now, now, leaseExpires, credentialId || null, newSessionId);
+          this.db.runPreparedStatement('commitTransaction', []);
+          const newState = this.getState();
+          return { success: true, state: newState };
+        }
         if (existing.connection_status === 'connected') {
-          // Already connected - idempotent success
+          // Already connected with valid lease - idempotent success
           this.db.runPreparedStatement('commitTransaction', []);
           const state = this.getState();
           return { success: true, state };
         }
         // Session exists but not connected - reactivate it with fresh timestamps
+        // Also handles the case where session has null/expired lease but is marked disconnected
         this.db.db.prepare(`
           UPDATE runtime_sessions
           SET connection_status = 'connected',
@@ -176,6 +202,7 @@ export class RuntimeLifecycleManager {
               last_heartbeat_at = ?,
               lease_expires_at = ?,
               credential_id = COALESCE(?, credential_id),
+              last_error = NULL,
               updated_at = datetime('now')
           WHERE session_id = ?
         `).run(now, now, leaseExpires, credentialId || null, newSessionId);
@@ -357,19 +384,12 @@ export class RuntimeLifecycleManager {
   }
 
   switch(options: SwitchRuntimeOptions): { success: boolean; state?: RuntimeConnectionState; error?: string } {
-    const { newRuntime, sessionId: sourceSessionId, clientIp, userAgent } = options;
+    const { newRuntime, sessionId: providedSessionId, clientIp, userAgent, credentialId } = options;
 
     if (newRuntime !== 'claude' && newRuntime !== 'hermes') {
       return {
         success: false,
         error: 'Invalid runtime identifier',
-      };
-    }
-
-    if (!sourceSessionId) {
-      return {
-        success: false,
-        error: 'Source session ID is required',
       };
     }
 
@@ -381,6 +401,18 @@ export class RuntimeLifecycleManager {
       this.db.runPreparedStatement('beginTransaction', []);
 
       const currentActive = this.db.stmt.getActiveRuntimeSession.get() as RuntimeSessionRow | undefined;
+
+      // If sessionId not provided, use current active session's ID (self-initiated switch)
+      const sourceSessionId = providedSessionId ?? currentActive?.session_id;
+
+      if (!sourceSessionId) {
+        this.db.runPreparedStatement('rollbackTransaction', []);
+
+        return {
+          success: false,
+          error: 'Source session ID is required',
+        };
+      }
 
       if (
         !currentActive ||
@@ -459,6 +491,19 @@ export class RuntimeLifecycleManager {
             error: 'Target runtime has an unfinished execution record',
           };
         }
+
+        // P2-03: Validate target credential before committing switch
+        // If target had a credential_id, it must still be valid (active, unexpired, not revoked)
+        if (targetExisting.credential_id) {
+          const validCredential = validateRuntimeCredentialById(this.db, targetExisting.credential_id);
+          if (!validCredential) {
+            this.db.runPreparedStatement('rollbackTransaction', []);
+            return {
+              success: false,
+              error: `Target credential '${targetExisting.credential_id}' is no longer valid (revoked, expired, or not found). Cannot switch runtime.`,
+            };
+          }
+        }
       }
 
       const targetSessionId =
@@ -469,7 +514,19 @@ export class RuntimeLifecycleManager {
         : 1;
 
       const targetCredentialId =
-        targetExisting?.credential_id ?? null;
+        credentialId ?? targetExisting?.credential_id ?? null;
+
+      // If a new credentialId is provided, validate it before committing switch
+      if (credentialId) {
+        const validCredential = validateRuntimeCredentialById(this.db, credentialId);
+        if (!validCredential) {
+          this.db.runPreparedStatement('rollbackTransaction', []);
+          return {
+            success: false,
+            error: `Provided credential '${credentialId}' is not valid (revoked, expired, or not found). Cannot switch runtime.`,
+          };
+        }
+      }
 
       // Retain the source session record and invalidate its generation.
       this.db.db.prepare(`
@@ -575,20 +632,37 @@ export class RuntimeLifecycleManager {
       // Begin transaction for atomic recovery
       this.db.runPreparedStatement('beginTransaction', []);
 
+      // First, disconnect sessions with null or invalid lease that appear connected
+      // This handles the P2-02 case: a missing/null lease cannot create an apparently successful but unusable session
+      const nullLeaseStmt = this.db.db.prepare(`
+        UPDATE runtime_sessions
+        SET connection_status = 'disconnected',
+            generation = COALESCE(generation, 0) + 1,
+            last_error = ?,
+            updated_at = datetime('now')
+        WHERE connection_status = 'connected'
+        AND (lease_expires_at IS NULL OR lease_expires_at = '')
+      `);
+      const nullLeaseResult = nullLeaseStmt.run('Session recovered: null or missing lease (invalid session state)');
+      recovered += (nullLeaseResult as any).changes || 0;
+
       // Atomic update: only disconnect if still expired (race-safe)
       // This prevents recovering a session that was just renewed by heartbeat
       const stmt = this.db.db.prepare(`
         UPDATE runtime_sessions
-        SET connection_status = 'disconnected', last_error = ?, updated_at = datetime('now')
+        SET connection_status = 'disconnected',
+            generation = COALESCE(generation, 0) + 1,
+            last_error = ?,
+            updated_at = datetime('now')
         WHERE connection_status = 'connected'
         AND lease_expires_at IS NOT NULL
+        AND lease_expires_at != ''
         AND CAST(lease_expires_at AS INTEGER) <= ?
       `);
 
       const result = stmt.run(`Session recovered due to stale lease (${now})`, String(now));
       // better-sqlite3 returns changes on the statement object after run()
-      const changedRows = (result as any).changes;
-      recovered = changedRows || 0;
+      recovered += (result as any).changes || 0;
 
       this.db.runPreparedStatement('commitTransaction', []);
     } catch (error) {

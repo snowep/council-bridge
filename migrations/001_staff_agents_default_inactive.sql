@@ -1,18 +1,15 @@
--- Migration 001: staff_agents status default → 'inactive'
--- Purpose: Change staff_agents.status default from 'active' to 'inactive'
--- This ensures new staff agents are non-operational until explicit Founder activation
--- Prerequisites: None (table empty in Phase 4)
--- Postconditions: New inserts default to 'inactive'; existing data preserved
+-- Migration 001: Change staff_agents status default from 'active' to 'inactive'
+-- Purpose: New staff agents should default to inactive status for security
+-- Prerequisites: Phase 4 schema with status DEFAULT 'active'
+-- Postconditions: status column default changed to 'inactive'; existing data preserved
+-- Type: Table rebuild (SQLite doesn't support ALTER COLUMN DEFAULT)
 -- Rollback: Restore from backup or re-run Phase 4 CREATE TABLE
-
--- SQLite does not support ALTER COLUMN DEFAULT directly
--- Use table rebuild strategy that preserves data and foreign keys
 
 PRAGMA foreign_keys = OFF;
 
 BEGIN IMMEDIATE TRANSACTION;
 
--- 1. Create new table with target schema
+-- 1. Create new table with target schema (status default 'inactive')
 CREATE TABLE staff_agents_new (
   staff_id          TEXT PRIMARY KEY,
   name              TEXT NOT NULL,
@@ -27,7 +24,7 @@ CREATE TABLE staff_agents_new (
   FOREIGN KEY (division_id) REFERENCES divisions(division_id) ON DELETE CASCADE
 );
 
--- 2. Copy all existing data
+-- 2. Copy existing data (preserving explicit status values)
 INSERT INTO staff_agents_new (staff_id, name, role, division_id, runtime_instances, permissions, status, created_at, updated_at)
 SELECT staff_id, name, role, division_id, runtime_instances, permissions, status, created_at, updated_at
 FROM staff_agents;
@@ -39,17 +36,15 @@ DROP TABLE staff_agents;
 ALTER TABLE staff_agents_new RENAME TO staff_agents;
 
 -- 5. Recreate indexes
-CREATE INDEX idx_staff_agents_division ON staff_agents(division_id);
-CREATE INDEX idx_staff_agents_status ON staff_agents(status);
+CREATE INDEX IF NOT EXISTS idx_staff_agents_division ON staff_agents(division_id);
+CREATE INDEX IF NOT EXISTS idx_staff_agents_status ON staff_agents(status);
 
 COMMIT;
 
 PRAGMA foreign_keys = ON;
 
 -- Verification:
--- SELECT * FROM staff_agents;  -- should show same row count
--- INSERT INTO staff_agents (staff_id, name, role, division_id) VALUES ('test', 'Test', 'role', 'div-dev');
--- SELECT status FROM staff_agents WHERE staff_id = 'test';  -- should be 'inactive'
--- MODIFIED
--- MODIFIED
--- MODIFIED
+-- PRAGMA table_info(staff_agents);
+-- Should show status column with DEFAULT 'inactive'
+-- INSERT INTO staff_agents (staff_id, name, role, division_id) VALUES ('test-1', 'Test', 'role', 'div-1');
+-- SELECT status FROM staff_agents WHERE staff_id = 'test-1'; -- should return 'inactive'

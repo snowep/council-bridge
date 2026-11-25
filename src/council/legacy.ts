@@ -1155,18 +1155,19 @@ function createCouncilService(dbInstance: DatabaseInstance): CouncilService {
 
     getMemoryEntriesByCategory(ctx, category) {
       if (!ctx || !ctx.owner_type || !ctx.owner_id || !ctx.runtime) throw new Error('Authentication required');
-      return mem.listMemoryEntries(db, { owner_type: ctx.owner_type, owner_id: ctx.owner_id }, { category, archived: false })
-        .filter(memory => ops.checkMemoryAccess(ctx, memory, db));
+      const result = mem.listMemoryEntries(db, { owner_type: ctx.owner_type, owner_id: ctx.owner_id }, { category, archived: false });
+      return result.entries.filter(memory => ops.checkMemoryAccess(ctx, memory, db));
     },
 
     searchMemory(ctx, input) {
       if (!ctx || !ctx.owner_type || !ctx.owner_id || !ctx.runtime) throw new Error('Authentication required');
-      const rows = mem.listMemoryEntries(db, { owner_type: ctx.owner_type, owner_id: ctx.owner_id }, {
+      const result = mem.listMemoryEntries(db, { owner_type: ctx.owner_type, owner_id: ctx.owner_id }, {
         category: input.category,
         archived: input.include_archived ? undefined : false,
         limit: Math.min(input.limit ?? 50, 1000),
         offset: input.offset ?? 0,
       });
+      const rows = result.entries;
       const query = input.query?.toLocaleLowerCase();
       return rows.filter(memory => {
         if (!ops.checkMemoryAccess(ctx, memory, db)) return false;
@@ -1332,7 +1333,8 @@ function createCouncilService(dbInstance: DatabaseInstance): CouncilService {
       if (!ops.isFounder(ctx)) throw new Error('Only Founder can register staff agents');
       if (!div.getDivisionById(db, input.division_id)) throw new Error(`Division '${input.division_id}' not found`);
       if (div.getStaffAgentById(db, input.staff_id)) throw new Error(`Staff agent '${input.staff_id}' already exists`);
-      if (div.listStaffAgents(db, { division_id: input.division_id }).length >= 7) {
+      // Check membership-based count for the division limit
+      if (div.getDivisionMembers(db, input.division_id).length >= 7) {
         throw new Error(`Division '${input.division_id}' max specialists reached`);
       }
       return div.registerStaffAgent(db, input);
@@ -1347,7 +1349,8 @@ function createCouncilService(dbInstance: DatabaseInstance): CouncilService {
     },
 
     listStaffAgentsByDivision(divisionId) {
-      return div.listStaffAgents(db, { division_id: divisionId });
+      // Use membership-based query for consistency
+      return div.listStaffByDivisionMembership(db, divisionId);
     },
 
     updateStaffStatus(ctx, input) {

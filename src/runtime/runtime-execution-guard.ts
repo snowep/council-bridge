@@ -106,7 +106,8 @@ export function createRuntimeExecutionGuard(db: DatabaseInstance) {
                   null,                     // client_ip
                   null,                     // user_agent
                   null,                     // last_error
-                  '1',                      // generation (initial value)
+                  1,                        // generation (initial value)
+                  null,                     // credential_id (bootstrap session)
                   sessionNow,               // created_at
                   sessionNow                // updated_at
                 );
