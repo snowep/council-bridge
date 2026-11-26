@@ -1127,6 +1127,7 @@ function createDatabase(dbPath?: string): DatabaseInstance {
       session_id TEXT PRIMARY KEY,
       owner_type TEXT NOT NULL CHECK (owner_type IN ('founder', 'staff', 'division', 'seat')),
       owner_id TEXT NOT NULL,
+      runtime TEXT NOT NULL DEFAULT 'claude' CHECK (runtime IN ('claude', 'hermes')),
       client_ip TEXT,
       user_agent TEXT,
       expires_at INTEGER NOT NULL,
@@ -1136,6 +1137,13 @@ function createDatabase(dbPath?: string): DatabaseInstance {
       permissions TEXT DEFAULT '[]'
     )
   `).run();
+
+  // Add runtime column if missing (schema migration for existing databases)
+  try {
+    db.prepare(`ALTER TABLE api_sessions ADD COLUMN runtime TEXT DEFAULT 'claude'`).run();
+  } catch {
+    // Column already exists or other error - ignore
+  }
 
   db.prepare(`CREATE INDEX IF NOT EXISTS idx_api_sessions_owner ON api_sessions(owner_type, owner_id)`).run();
   db.prepare(`CREATE INDEX IF NOT EXISTS idx_api_sessions_expires ON api_sessions(expires_at) WHERE invalidated = 0`).run();
@@ -1268,6 +1276,95 @@ function createDatabase(dbPath?: string): DatabaseInstance {
 
   // Index for generation-based execution fencing queries
   db.prepare(`CREATE INDEX IF NOT EXISTS idx_execution_records_generation ON execution_records(generation)`).run();
+
+  // Ensure runtime_session_history table exists (Migration 021)
+  // Preserves session data when rotating credentials
+  db.prepare(`
+    CREATE TABLE IF NOT EXISTS runtime_session_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      original_session_id TEXT NOT NULL,
+      runtime TEXT NOT NULL,
+      credential_id TEXT,
+      connection_status TEXT NOT NULL,
+      connected_at TEXT,
+      last_heartbeat_at TEXT,
+      lease_expires_at TEXT,
+      client_ip TEXT,
+      user_agent TEXT,
+      last_error TEXT,
+      generation INTEGER DEFAULT 0,
+      disconnected_at TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `).run();
+
+  db.prepare(`CREATE INDEX IF NOT EXISTS idx_runtime_session_history_session_id ON runtime_session_history(original_session_id)`).run();
+  db.prepare(`CREATE INDEX IF NOT EXISTS idx_runtime_session_history_runtime ON runtime_session_history(runtime)`).run();
+  db.prepare(`CREATE INDEX IF NOT EXISTS idx_runtime_session_history_credential_id ON runtime_session_history(credential_id)`).run();
+  db.prepare(`CREATE INDEX IF NOT EXISTS idx_runtime_session_history_disconnected ON runtime_session_history(disconnected_at)`).run();
+
+  // Ensure execution_records_history table exists (Migration 021)
+  // Preserves execution records when rotating sessions
+  // Note: FKs are not enforced with CASCADE due to SQLite limitations with history tables
+  db.prepare(`
+    CREATE TABLE IF NOT EXISTS execution_records_history (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      runtime_id TEXT NOT NULL,
+      started_at INTEGER NOT NULL,
+      expires_at INTEGER NOT NULL,
+      completed INTEGER NOT NULL DEFAULT 0,
+      generation INTEGER NOT NULL DEFAULT 1,
+      original_session_id TEXT NOT NULL,
+      archived_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `).run();
+
+  db.prepare(`CREATE INDEX IF NOT EXISTS idx_execution_records_history_original_session ON execution_records_history(original_session_id, completed) WHERE completed = 0`).run();
+  db.prepare(`CREATE INDEX IF NOT EXISTS idx_execution_records_history_runtime ON execution_records_history(runtime_id, completed) WHERE completed = 0`).run();
+  db.prepare(`CREATE INDEX IF NOT EXISTS idx_execution_records_history_archived ON execution_records_history(archived_at)`).run();
+
+  // Create all_runtime_sessions view for backward compatibility
+  db.prepare(`
+    CREATE VIEW IF NOT EXISTS all_runtime_sessions AS
+    SELECT
+      runtime,
+      session_id,
+      connection_status,
+      connected_at,
+      last_heartbeat_at,
+      lease_expires_at,
+      client_ip,
+      user_agent,
+      last_error,
+      generation,
+      credential_id,
+      created_at,
+      updated_at,
+      'active' as session_origin
+    FROM runtime_sessions
+    WHERE connection_status IN ('connecting', 'connected', 'switching')
+    UNION ALL
+    SELECT
+      runtime,
+      original_session_id as session_id,
+      connection_status,
+      connected_at,
+      last_heartbeat_at,
+      lease_expires_at,
+      client_ip,
+      user_agent,
+      last_error,
+      generation,
+      credential_id,
+      created_at,
+      updated_at,
+      'historical' as session_origin
+    FROM runtime_session_history
+  `).run();
 
   const stmt = {
     insertAgent: db.prepare(`
