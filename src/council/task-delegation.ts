@@ -962,6 +962,11 @@ export function submitDeliverable(
   }
   const deliverable = draft[0] as any;
 
+  // P2-03: Enforce state transitions - draft → submitted only
+  if (deliverable.status !== 'draft') {
+    throw new Error(`Cannot submit deliverable: invalid state transition from '${deliverable.status}' to 'submitted'. Deliverable must be in 'draft' state.`);
+  }
+
   // Verify task exists and user has access
   const task = getDelegationTaskById(db, null, deliverable.task_id);
 

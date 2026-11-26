@@ -899,6 +899,9 @@ function createDatabase(dbPath?: string): DatabaseInstance {
       reviewed_by_type  TEXT,                              -- 'founder' | 'council' | 'division_head'
       reviewed_by_id    TEXT,
       reviewed_at       TEXT,
+      rejected_at       TEXT,                              -- Rejection timestamp (separate from approved_at)
+      rejected_by_type  TEXT,                              -- 'founder' | 'council' | 'division_head'
+      rejected_by_id    TEXT,
       created_at        TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at        TEXT,                              -- Last update timestamp
       version           INTEGER NOT NULL DEFAULT 1,
@@ -917,6 +920,12 @@ function createDatabase(dbPath?: string): DatabaseInstance {
       execution_id        TEXT,                            -- FK to execution_requests when applicable
       FOREIGN KEY (task_id) REFERENCES tasks(task_id) ON DELETE CASCADE
     );
+
+    -- Add rejection columns if missing (migration for existing databases)
+    CREATE INDEX IF NOT EXISTS idx_deliverables_rejected_at ON deliverables(rejected_at) WHERE status = 'rejected';
+
+    -- Add rejection columns if missing (migration for existing databases)
+    CREATE INDEX IF NOT EXISTS idx_deliverables_rejected_by ON deliverables(rejected_by_type, rejected_by_id);
 
     CREATE INDEX IF NOT EXISTS idx_deliverables_task ON deliverables(task_id);
     CREATE INDEX IF NOT EXISTS idx_deliverables_status ON deliverables(status);
