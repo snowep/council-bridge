@@ -223,31 +223,16 @@ export function insertIdentityCredential(
 }
 
 /**
- * Revoke a credential by ID
- */
-export function revokeIdentityCredential(
-  db: DatabaseInstance,
-  credentialId: string
-): boolean {
-  const now = Date.now();
-  try {
-    db.db.exec('BEGIN IMMEDIATE');
-    const result = db.db.prepare(`
-      UPDATE identity_credentials
-      SET revoked_at = ?, status = 'revoked'
-      WHERE credential_id = ?
-    `).run(now, credentialId);
-    db.db.exec('COMMIT');
-    return (result as any).changes > 0;
-  } catch {
-    db.db.exec('ROLLBACK');
-    return false;
-  }
-}
-
-/**
- * Rotate a credential - revoke old and create new
- * Requires the runtime ID to be passed in (derived from the original credential)
+ * Rotate an identity credential - revoke old and create new atomically
+ * Returns new credential details or null if failed
+ *
+ * SECURITY PROPERTIES:
+ * - Verifies old credential exists and is active before rotation
+ * - Checks identity type and ID match
+ * - Checks runtime matches the credential's runtime
+ * - All operations in single transaction
+ * - Returns null on any failure - old credential remains unchanged
+ * - No plaintext credentials logged before successful commit
  */
 export function rotateIdentityCredential(
   db: DatabaseInstance,
@@ -263,33 +248,122 @@ export function rotateIdentityCredential(
   expiresAt: number;
   runtimeId: RuntimeId;
 } | null {
-  // Revoke old credential
-  revokeIdentityCredential(db, oldCredentialId);
+  const now = Date.now();
+  const maxRetries = 10;
 
-  // Generate new with the same runtime
-  const newCred = generateIdentityCredential(identityType, identityId, runtimeId);
-  const tokenHash = hashIdentityCredential(newCred.secret);
+  // Verify old credential exists and check its properties
+  const oldCred = db.query(
+    `SELECT credential_id, status, revoked_at, expires_at, identity_type, identity_id, runtime_id
+     FROM identity_credentials
+     WHERE credential_id = ?`,
+    [oldCredentialId]
+  )[0] as IdentityCredential | undefined;
 
-  // Insert new
-  if (insertIdentityCredential(db, {
-    credentialId: newCred.credentialId,
-    identityType: identityType,
-    identityId: identityId,
-    tokenHash,
-    runtimeId: newCred.runtimeId,
-    createdAt: newCred.createdAt,
-    expiresAt: newCred.expiresAt
-  })) {
-    return {
-      credentialId: newCred.credentialId,
-      secret: newCred.secret,
-      tokenHash,
-      createdAt: newCred.createdAt,
-      expiresAt: newCred.expiresAt,
-      runtimeId: newCred.runtimeId
-    };
+  if (!oldCred) {
+    return null; // Unknown credential
   }
 
-  // If insert failed (duplicate), try again with a new ID
-  return rotateIdentityCredential(db, oldCredentialId, identityType, identityId, runtimeId);
+  if (oldCred.status === 'revoked') {
+    return null; // Already revoked
+  }
+
+  if (oldCred.expires_at <= now) {
+    return null; // Expired
+  }
+
+  if (oldCred.revoked_at !== null && oldCred.revoked_at <= now) {
+    return null; // Marked for revocation
+  }
+
+  // Verify identity type matches
+  if (oldCred.identity_type !== identityType) {
+    return null; // Wrong identity type
+  }
+
+  // Verify identity ID matches
+  if (oldCred.identity_id !== identityId) {
+    return null; // Wrong identity ID
+  }
+
+  // Verify the credential's runtime matches
+  if (oldCred.runtime_id !== runtimeId) {
+    return null; // Wrong runtime
+  }
+
+  // Attempt rotation with bounded retry loop
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      db.db.exec('BEGIN IMMEDIATE');
+
+      // Generate new credential (inside transaction to ensure uniqueness)
+      const newCred = generateIdentityCredential(identityType, identityId, runtimeId);
+      const tokenHash = hashIdentityCredential(newCred.secret);
+
+      // Insert new credential
+      const insertResult = db.db.prepare(`
+        INSERT INTO identity_credentials
+        (credential_id, identity_type, identity_id, token_hash, runtime_id, status, created_at, expires_at, last_used_at, revoked_at)
+        VALUES (?, ?, ?, ?, ?, 'active', ?, ?, NULL, NULL)
+      `).run(
+        newCred.credentialId,
+        identityType,
+        identityId,
+        tokenHash,
+        runtimeId,
+        newCred.createdAt,
+        newCred.expiresAt
+      );
+
+      if ((insertResult as any).changes !== 1) {
+        // Unique constraint violation - retry with new ID
+        db.db.exec('ROLLBACK');
+        continue;
+      }
+
+      // Revoke old credential (only if still active)
+      const revokeResult = db.db.prepare(`
+        UPDATE identity_credentials
+        SET revoked_at = ?, status = 'revoked'
+        WHERE credential_id = ? AND status = 'active'
+      `).run(now, oldCredentialId);
+
+      if ((revokeResult as any).changes !== 1) {
+        // Old credential was modified or already revoked by another process
+        // Rollback and try again (the old credential might still be valid)
+        db.db.exec('ROLLBACK');
+        continue;
+      }
+
+      // Success - commit transaction
+      db.db.exec('COMMIT');
+
+      // Only return the new credential after successful commit
+      return {
+        credentialId: newCred.credentialId,
+        secret: newCred.secret,
+        tokenHash,
+        createdAt: newCred.createdAt,
+        expiresAt: newCred.expiresAt,
+        runtimeId: newCred.runtimeId
+      };
+
+    } catch (error) {
+      try {
+        db.db.exec('ROLLBACK');
+      } catch {
+        // Ignore rollback errors
+      }
+
+      // Check for unique constraint violation and retry
+      if (error instanceof Error && error.message.toLowerCase().includes('unique')) {
+        continue;
+      }
+
+      // Other error - stop retrying
+      return null;
+    }
+  }
+
+  // Failed after max retries
+  return null;
 }

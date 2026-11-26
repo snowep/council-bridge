@@ -244,15 +244,26 @@ export function revokeRuntimeCredential(
     `).run(now, credentialId);
     db.db.exec('COMMIT');
     return (result as any).changes > 0;
-  } catch {
-    db.db.exec('ROLLBACK');
-    return false;
+  } catch (error) {
+    try {
+      db.db.exec('ROLLBACK');
+    } catch {
+      // Ignore rollback errors
+    }
+    throw error;
   }
 }
 
 /**
- * Rotate a credential - revoke old and create new
+ * Rotate a credential - revoke old and create new atomically
  * Returns new credential details or null if failed
+ *
+ * SECURITY PROPERTIES:
+ * - Verifies old credential exists and is active before rotation
+ * - Checks runtime matches the credential's runtime
+ * - All operations in single transaction
+ * - Returns null on any failure - old credential remains unchanged
+ * - No plaintext credentials logged before successful commit
  */
 export function rotateRuntimeCredential(
   db: DatabaseInstance,
@@ -265,25 +276,111 @@ export function rotateRuntimeCredential(
   createdAt: number;
   expiresAt: number;
 } | null {
-  // Revoke old credential
-  revokeRuntimeCredential(db, oldCredentialId);
+  const now = Date.now();
+  const maxRetries = 10;
 
-  // Generate new
-  const newCred = provisionRuntimeCredential(runtimeId);
+  // Verify old credential exists and belongs to the correct runtime
+  const oldCred = db.query(
+    `SELECT credential_id, status, revoked_at, expires_at, runtime_id
+     FROM runtime_credentials
+     WHERE credential_id = ?`,
+    [oldCredentialId]
+  )[0] as RuntimeCredentialRecord | undefined;
 
-  // Insert new
-  if (insertRuntimeCredential(db, {
-    credentialId: newCred.credentialId,
-    runtimeId: runtimeId,  // Use the parameter, not from newCred (which doesn't include it)
-    tokenHash: newCred.tokenHash,
-    createdAt: newCred.createdAt,
-    expiresAt: newCred.expiresAt
-  })) {
-    return newCred;
+  if (!oldCred) {
+    return null; // Unknown credential
   }
 
-  // If insert failed (duplicate), try again with a new ID
-  return rotateRuntimeCredential(db, oldCredentialId, runtimeId);
+  if (oldCred.status === 'revoked') {
+    return null; // Already revoked
+  }
+
+  if (oldCred.expires_at <= now) {
+    return null; // Expired
+  }
+
+  if (oldCred.revoked_at !== null && oldCred.revoked_at <= now) {
+    return null; // Marked for revocation
+  }
+
+  // Verify the credential's runtime matches
+  if (oldCred.runtime_id !== runtimeId) {
+    return null; // Wrong runtime
+  }
+
+  // Attempt rotation with bounded retry loop
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      db.db.exec('BEGIN IMMEDIATE');
+
+      // Generate new credential (inside transaction to ensure uniqueness)
+      const newCred = provisionRuntimeCredential(runtimeId);
+      const tokenHash = hashCredential(newCred.secret);
+
+      // Insert new credential
+      const insertResult = db.db.prepare(`
+        INSERT INTO runtime_credentials
+        (credential_id, runtime_id, token_hash, status, created_at, expires_at, last_used_at, revoked_at)
+        VALUES (?, ?, ?, 'active', ?, ?, NULL, NULL)
+      `).run(
+        newCred.credentialId,
+        runtimeId,
+        tokenHash,
+        newCred.createdAt,
+        newCred.expiresAt
+      );
+
+      if ((insertResult as any).changes !== 1) {
+        // Unique constraint violation - retry with new ID
+        db.db.exec('ROLLBACK');
+        continue;
+      }
+
+      // Revoke old credential (only if still active)
+      const revokeResult = db.db.prepare(`
+        UPDATE runtime_credentials
+        SET revoked_at = ?, status = 'revoked'
+        WHERE credential_id = ? AND status = 'active'
+      `).run(now, oldCredentialId);
+
+      if ((revokeResult as any).changes !== 1) {
+        // Old credential was modified or already revoked by another process
+        // Rollback and try again (the old credential might still be valid)
+        db.db.exec('ROLLBACK');
+        continue;
+      }
+
+      // Success - commit transaction
+      db.db.exec('COMMIT');
+
+      // Only return the new credential after successful commit
+      return {
+        credentialId: newCred.credentialId,
+        secret: newCred.secret,
+        tokenHash,
+        createdAt: newCred.createdAt,
+        expiresAt: newCred.expiresAt
+      };
+
+    } catch (error) {
+      try {
+        db.db.exec('ROLLBACK');
+      } catch {
+        // Ignore rollback errors
+      }
+
+      // Check for unique constraint violation and retry
+      if (error instanceof Error && error.message.toLowerCase().includes('unique')) {
+        continue;
+      }
+
+      // Other error - stop retrying
+      return null;
+    }
+  }
+
+  // Failed after max retries
+  return null;
 }
 
 /**
