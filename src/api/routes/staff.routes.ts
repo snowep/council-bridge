@@ -43,18 +43,24 @@ router.get('/', asyncHandler(async (req: Request, res: Response) => {
   const { limit, offset, division_id, status } = ListStaffSchema.parse(req.query);
 
   let effectiveDivisionId = division_id as string | undefined;
-  let useMembershipQuery = true; // Use division_members table for finding staff by division
+  let staff: any[] = [];
 
   if (ctx.owner_type === 'division') {
     // Division Head can only see their own division's staff
     effectiveDivisionId = ctx.owner_id;
+    staff = listStaffByDivisionMembership(db, effectiveDivisionId, status as any);
+
   } else if (ctx.owner_type === 'founder') {
     // Founder can see all staff (division_id filter if provided)
-    // For founder, if division_id is provided, use membership query
-    // If not provided, list all
-    useMembershipQuery = !!division_id;
+    if (effectiveDivisionId) {
+      staff = listStaffByDivisionMembership(db, effectiveDivisionId, status as any);
+    } else {
+      // Founder with no division filter - list all staff
+      staff = listStaffAgents(db, { status: status as any });
+    }
+
   } else if (ctx.owner_type === 'staff') {
-    // Staff can see all staff from their divisions
+    // Staff can see all staff from their divisions (deduplicated)
     const myDivisions = db.query('SELECT division_id FROM division_members WHERE staff_id = ?', [ctx.owner_id]);
     const myDivisionIds = myDivisions.map((d: any) => d.division_id);
 
@@ -73,10 +79,9 @@ router.get('/', asyncHandler(async (req: Request, res: Response) => {
         res.json({ staff: [], total_count: 0, limit, offset });
         return;
       }
-      useMembershipQuery = true;
+      staff = listStaffByDivisionMembership(db, effectiveDivisionId, status as any);
     } else {
-      // Staff can see staff from all their divisions
-      // Query each division and combine results
+      // Staff can see staff from all their divisions (deduplicated)
       const allStaff = new Map<string, any>();
       for (const divId of myDivisionIds) {
         const staffInDiv = listStaffByDivisionMembership(db, divId, status as any);
@@ -86,29 +91,21 @@ router.get('/', asyncHandler(async (req: Request, res: Response) => {
           }
         }
       }
-      const staff = Array.from(allStaff.values());
-      res.set('X-Total-Count', String(staff.length));
-      res.json({ staff, total_count: staff.length, limit, offset });
-      return;
+      staff = Array.from(allStaff.values());
     }
-  }
-
-  // Query staff based on division membership
-  let staff: any[];
-  if (effectiveDivisionId) {
-    staff = listStaffByDivisionMembership(db, effectiveDivisionId, status as any);
   } else {
-    // Founder with no division filter - list all staff
-    staff = listStaffAgents(db);
+    // seat or other - not authorized to list staff
+    throw new AuthorizationError('Not authorized to list staff');
   }
 
-  // Apply pagination
+  // Apply pagination AFTER deduplication/authorization
+  const totalCount = staff.length;
   const paginated = staff.slice(offset, offset + limit);
 
   // Set X-Total-Count header for pagination
-  res.set('X-Total-Count', String(staff.length));
+  res.set('X-Total-Count', String(totalCount));
 
-  res.json({ staff: paginated, total_count: staff.length, limit, offset });
+  res.json({ staff: paginated, total_count: totalCount, limit, offset });
 }));
 
 // GET /api/staff/:id - Get staff agent details
