@@ -376,87 +376,6 @@ function taskBelongsToOwner(db: DatabaseInstance, taskId: string, ownerType: str
   return t.assigned_to_type === ownerType && t.assigned_to_id === ownerId;
 }
 
-// Count total activity items for the X-Total-Count header
-// This counts items from all sources (task audits, memories, messages) visible to the caller
-function countActivityItems(db: DatabaseInstance, ctx: { owner_type: string; owner_id: string }): number {
-  const isFounder = ctx.owner_type === 'founder';
-  let count = 0;
-
-  // Count task audits
-  if (isFounder) {
-    count += db.query('SELECT COUNT(*) as cnt FROM task_audit')[0].cnt;
-  } else {
-    count += db.query(`
-      SELECT COUNT(*) as cnt
-      FROM task_audit ta
-      JOIN tasks t ON ta.task_id = t.task_id
-      WHERE (t.assigned_to_type = ? AND t.assigned_to_id = ?) OR (t.created_by_type = ? AND t.created_by_id = ?)
-    `, [ctx.owner_type, ctx.owner_id, ctx.owner_type, ctx.owner_id])[0].cnt;
-  }
-
-  // Count memories - use approximate count based on access patterns
-  // For exact count, would need complex query matching listActivity's WHERE clauses
-  // Using approximate: count of visible memory entries based on context
-  if (isFounder) {
-    count += db.query('SELECT COUNT(*) as cnt FROM memory_entries WHERE archived_at IS NULL')[0].cnt;
-  } else if (ctx.owner_type === 'division') {
-    count += db.query(`
-      SELECT COUNT(*) as cnt
-      FROM memory_entries m
-      WHERE m.archived_at IS NULL
-        AND (
-          m.category IN ('council_shared', 'decision_resolution', 'lesson_learned', 'business_context', 'idea_proposal', 'research_evidence', 'unresolved_question')
-          OR (m.owner_type = 'division' AND m.owner_id = ? AND m.category IN ('division_shared', 'division_private'))
-          OR (m.category = 'division_shared' AND m.division_id = ?)
-          OR (m.category = 'cross_division' AND EXISTS (
-            SELECT 1 FROM cross_division_shares
-            WHERE memory_id = m.memory_id
-              AND status = 'approved'
-              AND revoked_at IS NULL
-              AND division_id = ?
-          ))
-          OR (m.category = 'task_history' AND m.task_id IN (
-            SELECT task_id FROM tasks WHERE assigned_to_type = 'division' AND assigned_to_id = ?
-          ))
-          OR (m.owner_type = ? AND m.owner_id = ?)
-        )
-    `, [ctx.owner_id, ctx.owner_id, ctx.owner_id, ctx.owner_type, ctx.owner_id])[0].cnt;
-  } else if (ctx.owner_type === 'staff') {
-    count += db.query(`
-      SELECT COUNT(*) as cnt
-      FROM memory_entries m
-      WHERE m.archived_at IS NULL
-        AND (
-          m.category IN ('council_shared', 'decision_resolution', 'lesson_learned', 'business_context', 'idea_proposal', 'research_evidence', 'unresolved_question')
-          OR (m.owner_type = 'staff' AND m.owner_id = ? AND m.category = 'staff_private')
-          OR (m.category = 'division_shared' AND m.division_id IN (SELECT division_id FROM division_members WHERE staff_id = ?))
-          OR (m.category = 'cross_division' AND EXISTS (
-            SELECT 1 FROM cross_division_shares
-            WHERE memory_id = m.memory_id
-              AND status = 'approved'
-              AND revoked_at IS NULL
-              AND division_id IN (SELECT division_id FROM division_members WHERE staff_id = ?)
-          ))
-          OR (m.category = 'task_history' AND m.task_id IN (
-            SELECT task_id FROM tasks WHERE assigned_to_type = 'staff' AND assigned_to_id = ?
-          ))
-          OR (m.owner_type = ? AND m.owner_id = ?)
-        )
-    `, [ctx.owner_id, ctx.owner_id, ctx.owner_id, ctx.owner_type, ctx.owner_id])[0].cnt;
-  } else {
-    count += 0;
-  }
-
-  // Count messages
-  if (isFounder) {
-    count += db.query('SELECT COUNT(*) as cnt FROM messages')[0].cnt;
-  } else {
-    count += db.query('SELECT COUNT(*) as cnt FROM messages WHERE sender_id = ? OR recipient_id = ?', [ctx.owner_id, ctx.owner_id])[0].cnt;
-  }
-
-  return count;
-}
-
 export function listActivity(
   db: DatabaseInstance,
   ctx: { owner_type: string; owner_id: string },
@@ -464,10 +383,9 @@ export function listActivity(
 ): PaginatedResult<ActivityItem> {
   const items: ActivityItem[] = [];
   const isFounder = ctx.owner_type === 'founder';
-  const batchSize = Math.ceil(options.limit / 3);
 
-  // 1. Task audit entries (recent task changes) - FILTERED BY AUTHORIZATION
-  // Founder sees all, others only see their tasks
+  // 1. Task audit entries (recent task changes) - FILTERED BY CURRENT ASSIGNMENT
+  // Founder sees all, others only see tasks currently assigned to them (or their division's staff)
   let taskAudit: any[];
   if (isFounder) {
     taskAudit = db.query(`
@@ -475,14 +393,40 @@ export function listActivity(
       FROM task_audit
       ORDER BY created_at DESC
     `, []);
-  } else {
+  } else if (ctx.owner_type === 'division') {
+    // Division: see tasks assigned to their division OR to staff in their division
     taskAudit = db.query(`
       SELECT ta.audit_id, ta.task_id, ta.mutation_type, ta.details, ta.actor_type, ta.actor_id, ta.runtime, ta.created_at
       FROM task_audit ta
       JOIN tasks t ON ta.task_id = t.task_id
-      WHERE (t.assigned_to_type = ? AND t.assigned_to_id = ?) OR (t.created_by_type = ? AND t.created_by_id = ?)
+      WHERE t.assigned_to_type = ? AND t.assigned_to_id = ?
+    `, [ctx.owner_type, ctx.owner_id]);
+
+    // Also include task audit for staff in their division
+    const divisionStaffTasks = db.query(`
+      SELECT ta.audit_id, ta.task_id, ta.mutation_type, ta.details, ta.actor_type, ta.actor_id, ta.runtime, ta.created_at
+      FROM task_audit ta
+      JOIN tasks t ON ta.task_id = t.task_id
+      JOIN division_members dm ON t.assigned_to_id = dm.staff_id
+      WHERE t.assigned_to_type = 'staff' AND dm.division_id = ?
+    `, [ctx.owner_id]);
+
+    // Combine and deduplicate
+    const seenTasks = new Set<string>();
+    taskAudit = [...taskAudit, ...divisionStaffTasks].filter(audit => {
+      if (seenTasks.has(audit.task_id)) return false;
+      seenTasks.add(audit.task_id);
+      return true;
+    });
+  } else {
+    // Staff: see tasks assigned to them only
+    taskAudit = db.query(`
+      SELECT ta.audit_id, ta.task_id, ta.mutation_type, ta.details, ta.actor_type, ta.actor_id, ta.runtime, ta.created_at
+      FROM task_audit ta
+      JOIN tasks t ON ta.task_id = t.task_id
+      WHERE t.assigned_to_type = ? AND t.assigned_to_id = ?
       ORDER BY ta.created_at DESC
-    `, [ctx.owner_type, ctx.owner_id, ctx.owner_type, ctx.owner_id]);
+    `, [ctx.owner_type, ctx.owner_id]);
   }
 
   for (const audit of taskAudit) {
@@ -536,10 +480,14 @@ export function listActivity(
             OR (m.category = 'task_history' AND m.task_id IN (
               SELECT task_id FROM tasks WHERE assigned_to_type = 'division' AND assigned_to_id = ?
             ))
-            OR (m.owner_type = ? AND m.owner_id = ?)
+            OR (m.category = 'task_history' AND m.task_id IN (
+              SELECT task_id FROM tasks WHERE assigned_to_type = 'staff' AND assigned_to_id IN (
+                SELECT staff_id FROM division_members WHERE division_id = ?
+              )
+            ))
           )
         ORDER BY m.updated_at DESC
-      `, [ctx.owner_id, ctx.owner_id, ctx.owner_id, ctx.owner_type, ctx.owner_id]);
+      `, [ctx.owner_id, ctx.owner_id, ctx.owner_id, ctx.owner_id, ctx.owner_id]);
     } else if (ctx.owner_type === 'staff') {
       // Staff: member of their divisions via division_members
       var memories = db.query(`
@@ -560,10 +508,9 @@ export function listActivity(
             OR (m.category = 'task_history' AND m.task_id IN (
               SELECT task_id FROM tasks WHERE assigned_to_type = 'staff' AND assigned_to_id = ?
             ))
-            OR (m.owner_type = ? AND m.owner_id = ?)
           )
         ORDER BY m.updated_at DESC
-      `, [ctx.owner_id, ctx.owner_id, ctx.owner_id, ctx.owner_type, ctx.owner_id]);
+      `, [ctx.owner_id, ctx.owner_id, ctx.owner_id, ctx.owner_id]);
     } else {
       throw new Error('Unsupported owner type for activity query');
     }
@@ -633,8 +580,10 @@ export function listActivity(
   // Sort all by time descending
   items.sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
 
-  // Count total for X-Total-Count header (before pagination)
-  const totalCount = countActivityItems(db, ctx);
+  // Count total for X-Total-Count header
+  // IMPORTANT: We count the actual items built, not a separate SQL query,
+  // because listActivity has deduplication logic that countActivityItems doesn't
+  const totalCount = items.length;
 
   // Apply pagination and return result with total count
   return {
