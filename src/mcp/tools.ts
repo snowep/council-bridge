@@ -2,6 +2,13 @@
 // Authoritative tool registration with Zod v4 schemas, authenticated actor context, service-layer authorization
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+
+// Type augmentation for AbortSignal.any (Node.js 20+ runtime feature)
+declare global {
+  interface AbortSignal {
+    any(signals: AbortSignal[]): AbortSignal;
+  }
+}
 import { z } from 'zod/v4';
 import { DatabaseInstance } from '../database.js';
 import { OperationContext } from '../council/operations.js';
@@ -252,15 +259,15 @@ function createToolHandlerWithSignal<TArgs extends Record<string, any>, TResult>
 
       // Combine guard signal (from execution guard) with MCP request signal
       // Guard signal takes precedence for permit-renewal failures
-      // Using AbortSignal.any to monitor both signals
-      const activeSignal = guardSignal ?? extra.signal;
+      // Use AbortSignal.any to monitor both signals - either can trigger cancellation
+      const combinedSignal = guardSignal && extra.signal ? AbortSignal.any([guardSignal, extra.signal]) : (guardSignal ?? extra.signal);
 
       // Check abort signal before executing protected operations
-      if (activeSignal?.aborted) {
+      if (combinedSignal?.aborted) {
         return mcpError('Execution cancelled due to session change or expiry', 'PERMIT_RENEWAL_FAILED');
       }
 
-      const result = await serviceFn(db, ctx, args, activeSignal!);
+      const result = await serviceFn(db, ctx, args, combinedSignal!);
       return {
         content: [{ type: 'text', text: JSON.stringify(result) }],
       };
