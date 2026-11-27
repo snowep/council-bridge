@@ -19,6 +19,7 @@ export interface AuthContext {
   permissions: string[];
   expires_at: number;
   issued_at: number;
+  generation?: number;  // P1-06: Optional generation for stale session detection
   founder_signed?: boolean;
   client_ip?: string;
 }

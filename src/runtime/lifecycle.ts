@@ -171,7 +171,23 @@ export class RuntimeLifecycleManager {
 
         // If lease is null, missing, empty, or expired - cannot be considered active connected
         if (existing.connection_status === 'connected' && hasInvalidLease) {
-          // Session appears connected but has invalid lease - reactivate with fresh timestamps
+          // P1-06: Check for unfinished executions before recovering stale session
+          // Cannot safely recover if there are active executions that need protection
+          const pendingExecutions = this.db.query(
+            `SELECT id FROM execution_records WHERE session_id = ? AND completed = 0 LIMIT 1`,
+            [existing.session_id]
+          );
+
+          if (pendingExecutions.length > 0) {
+            this.db.runPreparedStatement('rollbackTransaction', []);
+            return {
+              success: false,
+              error: 'Cannot reactivate expired session with active execution records',
+            };
+          }
+
+          // P1-06: Reactivate with generation increment to fence stale sessions
+          // Old execution permits become invalid - must check generation on renewal
           this.db.db.prepare(`
             UPDATE runtime_sessions
             SET connection_status = 'connected',
@@ -180,6 +196,7 @@ export class RuntimeLifecycleManager {
                 lease_expires_at = ?,
                 credential_id = COALESCE(?, credential_id),
                 last_error = NULL,
+                generation = COALESCE(generation, 0) + 1,
                 updated_at = datetime('now')
             WHERE session_id = ?
           `).run(now, now, leaseExpires, credentialId || null, newSessionId);
@@ -254,13 +271,20 @@ export class RuntimeLifecycleManager {
           return { success: true, state: newState };
         } else {
           // Different credential (or no credential provided) - old session is for different credential
-          // Clean up execution records for the old session to avoid FK constraint violation
-          // when upsertRuntimeSession tries to change session_id
-          this.db.db.prepare(`
-            DELETE FROM execution_records WHERE session_id = ?
-          `).run(existing.session_id);
+          // P1-04: Archive execution records to execution_records_history
+          // Records are copied to history table for queryability
+          this.db.stmt.archiveAllSessionExecutionRecords.run(existing.session_id);
 
-          this.db.stmt.updateRuntimeSessionStatus.run('disconnected', null, existing.session_id);
+          // P1-04: Archive the disconnected session to runtime_session_history
+          this.db.stmt.archiveSession.run(String(Date.now()), existing.session_id);
+
+          // Clean up execution records to allow session_id change
+          // FK constraint prevents changing session_id while records reference it
+          this.db.stmt.deleteArchivedExecutionRecords.run(existing.session_id);
+
+          // Delete the old session row - FK CASCADE will clean up if any records remain
+          // Then upsertRuntimeSession will INSERT a new row with the new session_id
+          this.db.stmt.deleteSessionById.run(existing.session_id);
         }
       }
 
@@ -350,7 +374,6 @@ export class RuntimeLifecycleManager {
       const result = this.db.db.prepare(`
         UPDATE runtime_sessions
         SET connection_status = 'disconnected',
-            generation = COALESCE(generation, 0) + 1,
             last_error = NULL,
             updated_at = ?
         WHERE session_id = ?

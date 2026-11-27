@@ -175,7 +175,17 @@ export function createRuntimeExecutionGuard(db: DatabaseInstance) {
         }
       }
 
-      // 7. Check if there's already an active execution for this session (prevent concurrent executions)
+      // 7. Get session generation for fencing (used to capture in execution record)
+      const sessionGeneration = sessionRow?.generation ?? 1;
+
+      // P1-06: Verify generation matches to detect stale session reactivation
+      // If the session was reactivated (generation incremented), old permits are invalid
+      if (authContext.generation !== undefined && authContext.generation !== sessionGeneration) {
+        db.runPreparedStatement('rollbackTransaction', []);
+        return { success: false, error: { code: 'GENERATION_MISMATCH', message: 'Execution generation does not match current session generation (session was reactivated)' } };
+      }
+
+      // 8. Check if there's already an active execution for this session (prevent concurrent executions)
       const existingExecution = db.stmt.getExecutionRecordBySession.get(requestSessionId) as
         | { id: string; completed: number; expires_at: number }
         | undefined;
@@ -187,9 +197,6 @@ export function createRuntimeExecutionGuard(db: DatabaseInstance) {
 
       // 8. Clean up any expired execution records that might block the unique constraint
       db.stmt.cleanupExpiredExecutionRecords.run(now);
-
-      // Get session generation for fencing (used to capture in execution record)
-      const sessionGeneration = sessionRow?.generation ?? 1;
 
       // 9. Insert execution record bound to exact session (atomic within transaction)
       // Pass session_id twice: once for session_id column, once for generation lookup in subquery
