@@ -195,6 +195,7 @@ export class RuntimeLifecycleManager {
         }
         // Session exists but not connected - reactivate it with fresh timestamps
         // Also handles the case where session has null/expired lease but is marked disconnected
+        // P1-06: Advance generation to fence expired sessions - old execution permits become invalid
         this.db.db.prepare(`
           UPDATE runtime_sessions
           SET connection_status = 'connected',
@@ -203,6 +204,7 @@ export class RuntimeLifecycleManager {
               lease_expires_at = ?,
               credential_id = COALESCE(?, credential_id),
               last_error = NULL,
+              generation = COALESCE(generation, 0) + 1,
               updated_at = datetime('now')
           WHERE session_id = ?
         `).run(now, now, leaseExpires, credentialId || null, newSessionId);
@@ -231,6 +233,7 @@ export class RuntimeLifecycleManager {
 
         if (credentialMatches) {
           // Same credential - reuse existing session_id for continuity
+          // P1-06: Advance generation to fence expired sessions - old execution permits become invalid
           // Update the existing session row with new timestamps and connection status
           this.db.db.prepare(`
             UPDATE runtime_sessions
@@ -240,6 +243,8 @@ export class RuntimeLifecycleManager {
                 lease_expires_at = ?,
                 client_ip = ?,
                 user_agent = ?,
+                generation = COALESCE(generation, 0) + 1,
+                last_error = NULL,
                 updated_at = datetime('now')
             WHERE session_id = ?
           `).run(now, now, leaseExpires, clientIp || null, userAgent || null, existing.session_id);
