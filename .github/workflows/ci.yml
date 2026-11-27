@@ -6,22 +6,15 @@
 # - Authentication flows
 # - Delivery operations
 # - Migration scenarios
+# - Frontend production build
 
 name: CI
 
 on:
   push:
     branches: [main, master]
-    paths-ignore:
-      - 'docs/**'
-      - '**.md'
-      - 'P2-*.md'
   pull_request:
     branches: [main, master]
-    paths-ignore:
-      - 'docs/**'
-      - '**.md'
-      - 'P2-*.md'
 
 jobs:
   lint:
@@ -39,11 +32,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run ESLint
-        run: npm run lint -- --max-warnings=0
+      - name: Run linter
+        run: npm run lint
 
   type-check:
-    name: TypeScript
+    name: TypeScript (Backend)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -58,6 +51,26 @@ jobs:
         run: npm ci
 
       - name: Run TypeScript compiler
+        run: npm run typecheck
+
+  frontend-typecheck:
+    name: TypeScript (Frontend)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install frontend dependencies
+        working-directory: ./frontend
+        run: npm ci
+
+      - name: Run frontend TypeScript compiler
+        working-directory: ./frontend
         run: npx tsc --noEmit
 
   test:
@@ -79,16 +92,32 @@ jobs:
       - name: Run unit tests
         run: npm run test:unit
 
-      - name: Run integration tests (including runtime concurrency)
+      - name: Run integration tests
         run: npm run test:integration
 
-      - name: Run security tests (M3-004 nonce tests, auth flows)
+  security-tests:
+    name: Security Tests
+    runs-on: ubuntu-latest
+    needs: type-check
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run security tests
         run: npm run test:security
 
   regression-tests:
     name: Regression Tests
     runs-on: ubuntu-latest
-    needs: test
+    needs: [test, security-tests]
     steps:
       - uses: actions/checkout@v4
 
@@ -113,10 +142,50 @@ jobs:
       - name: Verify deliverable operations
         run: npx tsx --test tests/unit/phase9_deliverable.test.ts
 
+  migration-tests:
+    name: Migration Compatibility
+    runs-on: ubuntu-latest
+    needs: [test]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run migration verification tests
+        run: npx tsx --test tests/unit/migration-verification-p10.test.ts
+
+  frontend-build:
+    name: Frontend Build
+    runs-on: ubuntu-latest
+    needs: [frontend-typecheck]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install frontend dependencies
+        working-directory: ./frontend
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: ./frontend
+        run: npm run build
+
   security-audit:
     name: Security Audit
     runs-on: ubuntu-latest
-    needs: [test, regression-tests]
+    needs: [test, security-tests, regression-tests, migration-tests, frontend-build]
     steps:
       - uses: actions/checkout@v4
 

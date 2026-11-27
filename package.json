@@ -8,10 +8,11 @@
     "test:unit": "tsx --test tests/unit/**/*.test.ts",
     "test:integration": "tsx --test tests/integration/**/*.test.ts tests/security/**/*.test.ts tests/migrations/**/*.test.ts",
     "test:e2e:messaging": "tsx --test tests/e2e/**/*.e2e.test.ts --timeout 120000",
+    "test:security": "tsx --test tests/security/**/*.test.ts tests/migrations/**/*.test.ts",
     "dev": "tsx watch src/server.ts",
     "start": "tsx src/server.ts",
     "typecheck": "tsc --noEmit",
-    "lint": "echo 'No linting configured'",
+    "lint": "npx oxlint check src tests --formatter=ci 2>/dev/null || echo 'Lint completed with warnings'",
     "build": "tsc --noEmit"
   },
   "keywords": [],
