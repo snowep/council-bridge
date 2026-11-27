@@ -298,6 +298,7 @@ app.post('/api/auth/session', founderSignatureRateLimit, async (req, res) => {
   try {
     const { owner_type, owner_id, runtime } = req.body;
     const clientIp = getClientIp(req);
+    const authHeader = req.headers.authorization;
 
     // Validate request body fields
     if (!owner_type || !owner_id || !runtime) {
@@ -312,10 +313,8 @@ app.post('/api/auth/session', founderSignatureRateLimit, async (req, res) => {
       return res.status(400).json({ error: 'Invalid runtime' });
     }
 
-    // Prevent anonymous Founder session provisioning
-    // A request body with owner_type='founder', owner_id='founder' is NOT authorization
+    // Founder session provisioning - requires founder signature in production
     if (owner_type === 'founder' && owner_id === 'founder') {
-      // Production mode: require cryptographic founder signature
       if (PRODUCTION_MODE) {
         const { founder_signature, founder_timestamp, founder_nonce, founder_key_id } = req.body;
 
@@ -345,41 +344,73 @@ app.post('/api/auth/session', founderSignatureRateLimit, async (req, res) => {
         if (!result.valid) {
           return handleFounderVerificationError(res, result);
         }
-      } else if (LOCAL_MODE) {
-        // Local single-user mode: only loopback requests may use the local Founder bootstrap
-        if (!isLoopbackAddress(clientIp)) {
-          return res.status(403).json({
-            error: 'Development fallback is restricted to loopback connections',
-            code: 'DEV_FALLBACK_LOOPBACK_ONLY',
-            client_ip: clientIp
-          });
-        }
+      } else if (LOCAL_MODE && isLoopbackAddress(clientIp)) {
+        // Local single-user mode: loopback only
       } else {
-        // Non-local development: require authenticated Founder authority or verified Founder signature
-        // Since allow_hardcoded_fallback is disabled by default, founder bootstrap is not available
         return res.status(403).json({
           error: 'Founder session provisioning requires authentication in non-local development mode',
           code: 'FOUNDER_SESSION_REQUIRES_AUTH'
         });
       }
+
+      // For Founder, create session using the authenticated/verified owner_type and owner_id
+      const { generateSessionToken } = await import('./auth/session.js');
+      const token = generateSessionToken({
+        owner_type,
+        owner_id,
+        runtime,
+        client_ip: clientIp,
+        user_agent: req.get('user-agent')
+      });
+
+      return res.json({ session_token: token });
     }
 
-    // Validate requested identity against database
-    const { validateIdentityForSession } = await import('./auth/index.js');
-    const identityValid = await validateIdentityForSession(db, owner_type, owner_id, runtime);
-    if (!identityValid) {
-      const errorCode = PRODUCTION_MODE ? 'INVALID_IDENTITY' : 'INVALID_SESSION';
+    // Staff/Division/Seat session provisioning - REQUIRES credential token
+    // Anonymous requests must be rejected for these identity types
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({
+        error: 'Authentication required for session provisioning',
+        code: 'AUTH_REQUIRED'
+      });
+    }
+
+    const credentialToken = authHeader.substring(7);
+    const { validateIdentityCredential } = await import('./auth/identity-credentials.js');
+
+    const validation = validateIdentityCredential(db, credentialToken, owner_type as 'staff' | 'division' | 'seat');
+    if (!validation.valid) {
+      return res.status(401).json({
+        error: validation.error?.message || 'Invalid credential',
+        code: validation.error?.code || 'CREDENTIAL_INVALID'
+      });
+    }
+
+    // Credential validated successfully - use principal from credential (not request body)
+    const principal = validation.principal!;
+
+    // SECURITY: Reject if request body conflicts with credential's identity
+    if (owner_id !== principal.identityId) {
       return res.status(403).json({
-        error: 'Invalid identity for session provisioning',
-        code: errorCode
+        error: 'Request body owner_id does not match credential identity',
+        code: 'IDENTITY_MISMATCH'
+      });
+    }
+
+    // SECURITY: Use runtime from credential, not request body
+    const effectiveRuntime = principal.runtimeId;
+    if (runtime !== effectiveRuntime) {
+      return res.status(403).json({
+        error: 'Request body runtime does not match credential runtime',
+        code: 'RUNTIME_MISMATCH'
       });
     }
 
     const { generateSessionToken } = await import('./auth/session.js');
     const token = generateSessionToken({
-      owner_type,
-      owner_id,
-      runtime,
+      owner_type: principal.type,
+      owner_id: principal.identityId,
+      runtime: effectiveRuntime,
       client_ip: clientIp,
       user_agent: req.get('user-agent')
     });
@@ -536,14 +567,27 @@ app.all('/mcp', mcpRuntimeAuthMiddleware, async (req, res) => {
 
   // Use executeWithGuard for full TOCTOU protection including abort on permit loss
   const executionGuard = createRuntimeExecutionGuard(db);
-  const result = await executionGuard.executeWithGuard(authContext, async (ctx) => {
+  const result = await executionGuard.executeWithGuard(authContext, async (ctx, signal) => {
     const requestTransport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined
     });
 
     const requestMcpServer = new McpServer({ name: 'council-bridge', version: '1.0.0' }, { capabilities: { tools: {} } });
     await requestMcpServer.connect(requestTransport);
-    registerMcpTools(requestMcpServer, db, () => authContext);
+    // Pass the guard's AbortSignal to tool handlers for TOCTOU protection
+    // This ensures operations are cancelled if the permit becomes stale
+    registerMcpTools(requestMcpServer, db, () => authContext, signal);
+
+    // Check if guard signal was triggered before handling request
+    if (signal.aborted) {
+      if (!res.headersSent) {
+        res.status(403).json({
+          error: 'Execution cancelled due to session change or expiry',
+          code: 'PERMIT_RENEWAL_FAILED'
+        });
+      }
+      return;
+    }
 
     await requestTransport.handleRequest(req, res, req.body);
   });

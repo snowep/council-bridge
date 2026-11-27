@@ -52,6 +52,36 @@ CREATE INDEX IF NOT EXISTS idx_runtime_session_history_credential_id ON runtime_
 -- Index for time-based queries on historical sessions
 CREATE INDEX IF NOT EXISTS idx_runtime_session_history_disconnected ON runtime_session_history(disconnected_at);
 
+-- Step 3: Create history table for execution records
+-- This preserves execution records that reference old session_ids during credential rotation
+-- Note: FKs are not enforced with CASCADE due to SQLite limitations with history tables
+-- Records are archived manually during credential rotation
+CREATE TABLE IF NOT EXISTS execution_records_history (
+    id TEXT PRIMARY KEY,                   -- Same UUID as original execution record
+    session_id TEXT NOT NULL,                -- The session_id at time of archival (preserved for queries)
+    runtime_id TEXT NOT NULL,                -- 'claude' | 'hermes'
+    started_at INTEGER NOT NULL,             -- Unix timestamp (milliseconds) when execution started
+    expires_at INTEGER NOT NULL,             -- Unix timestamp (milliseconds) when permit expires
+    completed INTEGER NOT NULL DEFAULT 0,    -- 0 = active, 1 = completed
+    generation INTEGER NOT NULL DEFAULT 1,   -- Execution generation
+    original_session_id TEXT NOT NULL,       -- The session_id that was archived (same as session_id before migration)
+    archived_at TEXT NOT NULL DEFAULT (datetime('now')),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Index for finding archived executions by original session_id
+CREATE INDEX IF NOT EXISTS idx_execution_records_history_original_session
+    ON execution_records_history(original_session_id, completed) WHERE completed = 0;
+
+-- Index for finding archived executions by runtime
+CREATE INDEX IF NOT EXISTS idx_execution_records_history_runtime
+    ON execution_records_history(runtime_id, completed) WHERE completed = 0;
+
+-- Index for finding archived executions by archive time
+CREATE INDEX IF NOT EXISTS idx_execution_records_history_archived
+    ON execution_records_history(archived_at);
+
 -- Create a view for backward compatibility - shows both active and historical sessions
 CREATE VIEW IF NOT EXISTS all_runtime_sessions AS
 SELECT
