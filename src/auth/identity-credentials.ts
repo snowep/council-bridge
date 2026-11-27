@@ -113,7 +113,7 @@ export function validateIdentityCredential(
 
   // 5. Look up credential by hash and identity type
   const credential = db.query(
-    `SELECT credential_id, identity_type, identity_id, status, expires_at, revoked_at, last_used_at
+    `SELECT credential_id, identity_type, identity_id, status, expires_at, revoked_at, last_used_at, runtime_id
      FROM identity_credentials
      WHERE token_hash = ? AND identity_type = ?`,
     [tokenHash, identityType]
@@ -151,10 +151,18 @@ export function validateIdentityCredential(
     if (!division) {
       return { valid: false, error: { code: 'IDENTITY_NOT_FOUND', message: 'Division identity not found' } };
     }
+    // Divisions don't have a status column - all divisions are considered active by default
+    // The division must simply exist for the credential to be valid
   } else if (identityType === 'seat') {
     const seat = db.query('SELECT * FROM council_seats WHERE seat_id = ?', [credential.identity_id])[0] as any;
     if (!seat) {
       return { valid: false, error: { code: 'IDENTITY_NOT_FOUND', message: 'Seat identity not found' } };
+    }
+    // Seat credentials are only valid for vacant or replaceable seats (not permanent)
+    // A seat with a credential represents access to that seat's authority
+    // Permanent seats are reserved and should not have active credentials
+    if (seat.status === 'permanent') {
+      return { valid: false, error: { code: 'IDENTITY_INACTIVE', message: 'Seat identity is not active' } };
     }
   }
 
@@ -366,4 +374,24 @@ export function rotateIdentityCredential(
 
   // Failed after max retries
   return null;
+}
+
+/**
+ * Revoke an identity credential immediately
+ * Sets status to 'revoked' and records revoked_at timestamp
+ * Used for security incident response and credential lifecycle management
+ */
+export function revokeIdentityCredential(
+  db: DatabaseInstance,
+  credentialId: string
+): boolean {
+  const now = Date.now();
+
+  const result = db.db.prepare(`
+    UPDATE identity_credentials
+    SET revoked_at = ?, status = 'revoked'
+    WHERE credential_id = ? AND status = 'active'
+  `).run(now, credentialId);
+
+  return (result as any).changes === 1;
 }
