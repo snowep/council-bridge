@@ -456,6 +456,26 @@ export class RuntimeLifecycleManager {
       }
 
       if (currentActive.runtime === newRuntime) {
+        // Validate credential if provided - fail-closed for security
+        if (credentialId) {
+          const validCredential = validateRuntimeCredentialById(this.db, credentialId);
+          if (!validCredential.valid) {
+            this.db.runPreparedStatement('rollbackTransaction', []);
+            return {
+              success: false,
+              error: `Provided credential '${credentialId}' is not valid (revoked, expired, or not found). Cannot proceed.`,
+            };
+          }
+          // Cross-runtime binding: credential's runtime must match target runtime
+          if (validCredential.runtime_id !== newRuntime) {
+            this.db.runPreparedStatement('rollbackTransaction', []);
+            return {
+              success: false,
+              error: `Provided credential '${credentialId}' is bound to runtime '${validCredential.runtime_id}' which does not match target runtime '${newRuntime}'. Cannot proceed.`,
+            };
+          }
+        }
+
         this.db.runPreparedStatement('commitTransaction', []);
 
         return {
@@ -522,13 +542,22 @@ export class RuntimeLifecycleManager {
 
         // P2-03: Validate target credential before committing switch
         // If target had a credential_id, it must still be valid (active, unexpired, not revoked)
+        // AND its runtime_id must match the target runtime
         if (targetExisting.credential_id) {
           const validCredential = validateRuntimeCredentialById(this.db, targetExisting.credential_id);
-          if (!validCredential) {
+          if (!validCredential.valid) {
             this.db.runPreparedStatement('rollbackTransaction', []);
             return {
               success: false,
               error: `Target credential '${targetExisting.credential_id}' is no longer valid (revoked, expired, or not found). Cannot switch runtime.`,
+            };
+          }
+          // Cross-runtime binding: credential's runtime must match target runtime
+          if (validCredential.runtime_id !== newRuntime) {
+            this.db.runPreparedStatement('rollbackTransaction', []);
+            return {
+              success: false,
+              error: `Target credential '${targetExisting.credential_id}' is bound to runtime '${validCredential.runtime_id}' which does not match target runtime '${newRuntime}'. Cannot switch runtime.`,
             };
           }
         }
@@ -547,11 +576,19 @@ export class RuntimeLifecycleManager {
       // If a new credentialId is provided, validate it before committing switch
       if (credentialId) {
         const validCredential = validateRuntimeCredentialById(this.db, credentialId);
-        if (!validCredential) {
+        if (!validCredential.valid) {
           this.db.runPreparedStatement('rollbackTransaction', []);
           return {
             success: false,
             error: `Provided credential '${credentialId}' is not valid (revoked, expired, or not found). Cannot switch runtime.`,
+          };
+        }
+        // Cross-runtime binding: credential's runtime must match target runtime
+        if (validCredential.runtime_id !== newRuntime) {
+          this.db.runPreparedStatement('rollbackTransaction', []);
+          return {
+            success: false,
+            error: `Provided credential '${credentialId}' is bound to runtime '${validCredential.runtime_id}' which does not match target runtime '${newRuntime}'. Cannot switch runtime.`,
           };
         }
       }

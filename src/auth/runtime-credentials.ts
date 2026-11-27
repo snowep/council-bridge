@@ -401,26 +401,51 @@ export function hasActiveCredential(
 }
 
 /**
+ * Result of validating a credential by ID
+ */
+export interface CredentialByIdValidationResult {
+  valid: boolean;
+  runtime_id?: RuntimeId;
+  credential_id: string;
+  error?: string;
+}
+
+/**
  * Validate a credential by ID (not token)
  * Checks if the credential exists, is active, not expired, and not revoked
+ * Returns the runtime_id for cross-runtime binding validation
  * Used for credential binding validation during runtime switch
  */
 export function validateRuntimeCredentialById(
   db: DatabaseInstance,
   credentialId: string
-): boolean {
-  if (!credentialId) return false;
+): CredentialByIdValidationResult {
+  if (!credentialId) {
+    return { valid: false, credential_id: '', error: 'Credential ID is required' };
+  }
 
   const now = Date.now();
   const credential = db.query(
-    `SELECT credential_id, status, expires_at, revoked_at FROM runtime_credentials WHERE credential_id = ?`,
+    `SELECT credential_id, runtime_id, status, expires_at, revoked_at FROM runtime_credentials WHERE credential_id = ?`,
     [credentialId]
   )[0] as RuntimeCredentialRecord | undefined;
 
-  if (!credential) return false;
-  if (credential.status === 'revoked') return false;
-  if (credential.expires_at <= now) return false;
-  if (credential.revoked_at !== null && credential.revoked_at <= now) return false;
+  if (!credential) {
+    return { valid: false, credential_id: credentialId, error: 'Credential not found' };
+  }
+  if (credential.status === 'revoked') {
+    return { valid: false, credential_id: credentialId, error: 'Credential has been revoked' };
+  }
+  if (credential.expires_at <= now) {
+    return { valid: false, credential_id: credentialId, error: 'Credential has expired' };
+  }
+  if (credential.revoked_at !== null && credential.revoked_at <= now) {
+    return { valid: false, credential_id: credentialId, error: 'Credential has been revoked' };
+  }
 
-  return true;
+  return {
+    valid: true,
+    runtime_id: credential.runtime_id as RuntimeId,
+    credential_id: credential.credential_id
+  };
 }

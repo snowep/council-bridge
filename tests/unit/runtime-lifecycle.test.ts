@@ -3,8 +3,14 @@
 
 import { describe, it, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { createDatabase } from '../../src/database.js';
+import { createDatabase, DatabaseInstance } from '../../src/database.js';
 import { RuntimeLifecycleManager, resetRuntimeLifecycleManager } from '../../src/runtime/lifecycle.js';
+import {
+  generateRuntimeCredential,
+  hashCredential,
+  insertRuntimeCredential,
+  revokeRuntimeCredential
+} from '../../src/auth/runtime-credentials.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import { randomUUID } from 'node:crypto';
@@ -890,6 +896,348 @@ describe('Runtime Switching Regression Tests', () => {
     // Cleanup
     if (switchResult.state?.sessionId) {
       manager.disconnect({ sessionId: switchResult.state.sessionId });
+    }
+  });
+});
+
+describe('Cross-Runtime Credential Binding - P2-06', () => {
+  let dbWithCreds: DatabaseInstance;
+  let managerWithCreds: RuntimeLifecycleManager;
+
+  beforeEach(() => {
+    // Create separate database for credential binding tests
+    const testDb = createTestDatabase();
+    dbWithCreds = testDb.instance;
+
+    // Run migration 019 equivalent for runtime_credentials table
+    dbWithCreds.db.exec(`
+      CREATE TABLE IF NOT EXISTS runtime_credentials (
+        credential_id TEXT NOT NULL PRIMARY KEY,
+        runtime_id TEXT NOT NULL CHECK (runtime_id IN ('claude', 'hermes')),
+        token_hash TEXT NOT NULL UNIQUE,
+        status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'revoked', 'expired')),
+        created_at INTEGER NOT NULL,
+        expires_at INTEGER NOT NULL,
+        last_used_at INTEGER,
+        revoked_at INTEGER
+      );
+      CREATE INDEX IF NOT EXISTS idx_runtime_credentials_runtime ON runtime_credentials(runtime_id, status) WHERE status = 'active';
+    `);
+
+    // Run schema migration for runtime_sessions table
+    dbWithCreds.db.exec(`
+      CREATE TABLE IF NOT EXISTS runtime_sessions (
+        session_id TEXT NOT NULL PRIMARY KEY,
+        runtime TEXT NOT NULL CHECK (runtime IN ('claude', 'hermes')),
+        connection_status TEXT NOT NULL DEFAULT 'disconnected' CHECK (connection_status IN ('connected', 'disconnected', 'connecting', 'disconnecting', 'switching', 'error')),
+        connected_at INTEGER,
+        last_heartbeat_at INTEGER,
+        lease_expires_at INTEGER,
+        client_ip TEXT,
+        user_agent TEXT,
+        last_error TEXT,
+        generation INTEGER DEFAULT 1,
+        credential_id TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_runtime_sessions_runtime ON runtime_sessions(runtime, connection_status) WHERE connection_status = 'connected';
+    `);
+
+    managerWithCreds = new RuntimeLifecycleManager(dbWithCreds);
+  });
+
+  after(() => {
+    if (dbWithCreds) {
+      try {
+        dbWithCreds.db.pragma('wal_checkpoint(TRUNCATE)');
+      } catch {}
+      dbWithCreds.close();
+    }
+    resetRuntimeLifecycleManager();
+  });
+
+  it('should allow credential validation when switching to same runtime', () => {
+    // Connect Claude first
+    const claudeConnect = managerWithCreds.connect({
+      runtime: 'claude',
+      clientIp: '127.0.0.1'
+    });
+    assert.strictEqual(claudeConnect.success, true, 'Should connect to Claude');
+    const sourceSessionId = claudeConnect.state!.sessionId!;
+
+    // Generate and insert a Claude credential
+    const claudeCred = generateRuntimeCredential('claude');
+    const claudeCredId = `cred-claude-${Date.now()}`;
+    insertRuntimeCredential(dbWithCreds, {
+      credentialId: claudeCredId,
+      runtimeId: 'claude',
+      tokenHash: hashCredential(claudeCred.secret),
+      createdAt: claudeCred.createdAt,
+      expiresAt: claudeCred.expiresAt
+    });
+
+    // Switch to Claude with valid credential - should succeed
+    const switchResult = managerWithCreds.switch({
+      newRuntime: 'claude',
+      sessionId: sourceSessionId,
+      clientIp: '127.0.0.1',
+      credentialId: claudeCredId
+    });
+    assert.strictEqual(switchResult.success, true, 'Should allow switch with same-runtime valid credential');
+    assert.strictEqual(switchResult.state?.activeRuntime, 'claude');
+
+    // Cleanup
+    if (switchResult.state?.sessionId) {
+      managerWithCreds.disconnect({ sessionId: switchResult.state.sessionId });
+    }
+  });
+
+  it('should allow Hermes credential switching to Hermes', () => {
+    // First connect Claude to establish it's not active
+    const claudeConnect = managerWithCreds.connect({ runtime: 'claude', clientIp: '127.0.0.1' });
+    assert.strictEqual(claudeConnect.success, true);
+
+    // Disconnect Claude
+    managerWithCreds.disconnect({ sessionId: claudeConnect.state!.sessionId! });
+
+    // Generate and insert a Hermes credential
+    const hermesCred = generateRuntimeCredential('hermes');
+    const hermesCredId = `cred-hermes-${Date.now()}`;
+    insertRuntimeCredential(dbWithCreds, {
+      credentialId: hermesCredId,
+      runtimeId: 'hermes',
+      tokenHash: hashCredential(hermesCred.secret),
+      createdAt: hermesCred.createdAt,
+      expiresAt: hermesCred.expiresAt
+    });
+
+    // Connect Hermes with the credential (not a switch from another runtime)
+    const hermesConnect = managerWithCreds.connect({
+      runtime: 'hermes',
+      credentialId: hermesCredId,
+      clientIp: '127.0.0.1'
+    });
+    assert.strictEqual(hermesConnect.success, true, 'Should allow connect with valid Hermes credential');
+    assert.strictEqual(hermesConnect.state?.activeRuntime, 'hermes');
+
+    // Cleanup
+    if (hermesConnect.state?.sessionId) {
+      managerWithCreds.disconnect({ sessionId: hermesConnect.state.sessionId });
+    }
+  });
+
+  it('should reject Claude credential attempting Hermes activation', () => {
+    // Generate and insert a Claude credential
+    const claudeCred = generateRuntimeCredential('claude');
+    const claudeCredId = `cred-claude-${Date.now()}`;
+    insertRuntimeCredential(dbWithCreds, {
+      credentialId: claudeCredId,
+      runtimeId: 'claude',
+      tokenHash: hashCredential(claudeCred.secret),
+      createdAt: claudeCred.createdAt,
+      expiresAt: claudeCred.expiresAt
+    });
+
+    // Connect Claude with the credential
+    const connectResult = managerWithCreds.connect({
+      runtime: 'claude',
+      credentialId: claudeCredId,
+      clientIp: '127.0.0.1'
+    });
+    assert.strictEqual(connectResult.success, true);
+
+    // Try to switch to Hermes using Claude credential - should fail
+    const switchResult = managerWithCreds.switch({
+      newRuntime: 'hermes',
+      credentialId: claudeCredId
+    });
+    assert.strictEqual(switchResult.success, false, 'Should reject cross-runtime credential');
+    assert.ok(switchResult.error?.includes('does not match target runtime'), 'Should report runtime mismatch');
+    assert.ok(switchResult.error?.includes('claude'), 'Should mention claude as source runtime');
+
+    // Source runtime should remain unchanged
+    const state = managerWithCreds.getState();
+    assert.strictEqual(state.activeRuntime, 'claude', 'Source runtime should remain unchanged');
+  });
+
+  it('should reject Hermes credential attempting Claude activation', () => {
+    // Generate and insert a Hermes credential
+    const hermesCred = generateRuntimeCredential('hermes');
+    const hermesCredId = `cred-hermes-${Date.now()}`;
+    insertRuntimeCredential(dbWithCreds, {
+      credentialId: hermesCredId,
+      runtimeId: 'hermes',
+      tokenHash: hashCredential(hermesCred.secret),
+      createdAt: hermesCred.createdAt,
+      expiresAt: hermesCred.expiresAt
+    });
+
+    // Connect Hermes with the credential
+    const connectResult = managerWithCreds.connect({
+      runtime: 'hermes',
+      credentialId: hermesCredId,
+      clientIp: '127.0.0.1'
+    });
+    assert.strictEqual(connectResult.success, true);
+
+    // Try to switch to Claude using Hermes credential - should fail
+    const switchResult = managerWithCreds.switch({
+      newRuntime: 'claude',
+      credentialId: hermesCredId
+    });
+    assert.strictEqual(switchResult.success, false, 'Should reject cross-runtime credential');
+    assert.ok(switchResult.error?.includes('does not match target runtime'), 'Should report runtime mismatch');
+    assert.ok(switchResult.error?.includes('hermes'), 'Should mention hermes as source runtime');
+
+    // Source runtime should remain unchanged
+    const state = managerWithCreds.getState();
+    assert.strictEqual(state.activeRuntime, 'hermes', 'Source runtime should remain unchanged');
+  });
+
+  it('should reject switch with revoked credential', () => {
+    // Connect Claude first (without credential)
+    const claudeConnect = managerWithCreds.connect({
+      runtime: 'claude',
+      clientIp: '127.0.0.1'
+    });
+    assert.strictEqual(claudeConnect.success, true, 'Should connect Claude');
+    const sourceSessionId = claudeConnect.state!.sessionId!;
+
+    // Generate and insert a Claude credential
+    const claudeCred = generateRuntimeCredential('claude');
+    const claudeCredId = `cred-claude-${Date.now()}`;
+    insertRuntimeCredential(dbWithCreds, {
+      credentialId: claudeCredId,
+      runtimeId: 'claude',
+      tokenHash: hashCredential(claudeCred.secret),
+      createdAt: claudeCred.createdAt,
+      expiresAt: claudeCred.expiresAt
+    });
+
+    // Revoke the credential
+    revokeRuntimeCredential(dbWithCreds, claudeCredId);
+
+    // Try to switch to claude with revoked credential - should fail
+    const switchResult = managerWithCreds.switch({
+      newRuntime: 'claude',
+      sessionId: sourceSessionId,
+      clientIp: '127.0.0.1',
+      credentialId: claudeCredId
+    });
+    assert.strictEqual(switchResult.success, false, 'Should reject with revoked credential');
+    assert.ok(switchResult.error?.includes('not valid') || switchResult.error?.includes('revoked'), 'Should report credential issue');
+
+    // Cleanup
+    managerWithCreds.disconnect({ sessionId: sourceSessionId });
+  });
+
+  it('should reject switch with expired credential', () => {
+    // Connect Claude first (without credential)
+    const claudeConnect = managerWithCreds.connect({
+      runtime: 'claude',
+      clientIp: '127.0.0.1'
+    });
+    assert.strictEqual(claudeConnect.success, true, 'Should connect Claude');
+    const sourceSessionId = claudeConnect.state!.sessionId!;
+
+    // Generate an expired credential (expires in the past)
+    const claudeCred = generateRuntimeCredential('claude');
+    const claudeCredId = `cred-claude-${Date.now()}`;
+    const expiredAt = Date.now() - 10000; // Expired 10 seconds ago
+
+    insertRuntimeCredential(dbWithCreds, {
+      credentialId: claudeCredId,
+      runtimeId: 'claude',
+      tokenHash: hashCredential(claudeCred.secret),
+      createdAt: claudeCred.createdAt,
+      expiresAt: expiredAt
+    });
+
+    // Try to switch to claude with expired credential - should fail
+    const switchResult = managerWithCreds.switch({
+      newRuntime: 'claude',
+      sessionId: sourceSessionId,
+      clientIp: '127.0.0.1',
+      credentialId: claudeCredId
+    });
+    assert.strictEqual(switchResult.success, false, 'Should reject with expired credential');
+    assert.ok(switchResult.error?.includes('not valid') || switchResult.error?.includes('expired'), 'Should report credential issue');
+
+    // Cleanup
+    managerWithCreds.disconnect({ sessionId: sourceSessionId });
+  });
+
+  it('should reject switch with invalid credential ID', () => {
+    // Connect Claude first (without credential)
+    const claudeConnect = managerWithCreds.connect({
+      runtime: 'claude',
+      clientIp: '127.0.0.1'
+    });
+    assert.strictEqual(claudeConnect.success, true, 'Should connect Claude');
+    const sourceSessionId = claudeConnect.state!.sessionId!;
+
+    // Try to switch to claude with non-existent credential - should fail
+    const switchResult = managerWithCreds.switch({
+      newRuntime: 'claude',
+      sessionId: sourceSessionId,
+      clientIp: '127.0.0.1',
+      credentialId: 'non-existent-credential-id'
+    });
+    assert.strictEqual(switchResult.success, false, 'Should reject with invalid credential ID');
+    assert.ok(switchResult.error?.includes('not valid'), 'Should have error about credential');
+
+    // Source runtime should remain unchanged
+    const state = managerWithCreds.getState();
+    assert.strictEqual(state.activeRuntime, 'claude', 'Claude should still be active');
+
+    // Cleanup
+    managerWithCreds.disconnect({ sessionId: sourceSessionId });
+  });
+
+  it('should not mutate source session after rejected cross-runtime switch', () => {
+    // Generate a Hermes credential
+    const hermesCred = generateRuntimeCredential('hermes');
+    const hermesCredId = `cred-hermes-${Date.now()}`;
+    insertRuntimeCredential(dbWithCreds, {
+      credentialId: hermesCredId,
+      runtimeId: 'hermes',
+      tokenHash: hashCredential(hermesCred.secret),
+      createdAt: hermesCred.createdAt,
+      expiresAt: hermesCred.expiresAt
+    });
+
+    // Connect Claude without a credential first
+    const claudeConnect = managerWithCreds.connect({ runtime: 'claude', clientIp: '127.0.0.1' });
+    assert.strictEqual(claudeConnect.success, true, 'Should connect Claude');
+    const originalSessionId = claudeConnect.state!.sessionId!;
+
+    // Disconnect
+    managerWithCreds.disconnect({ sessionId: originalSessionId });
+
+    // Connect Hermes with hermes credential
+    const hermesConnect = managerWithCreds.connect({
+      runtime: 'hermes',
+      credentialId: hermesCredId
+    });
+    assert.strictEqual(hermesConnect.success, true, 'Should connect Hermes with hermes credential');
+    const hermesSessionId = hermesConnect.state!.sessionId!;
+
+    // Try to switch to Claude using Hermes credential - should fail
+    const switchResult = managerWithCreds.switch({
+      newRuntime: 'claude',
+      credentialId: hermesCredId
+    });
+    assert.strictEqual(switchResult.success, false, 'Should reject cross-runtime switch');
+
+    // Verify Hermes is still active (source unchanged)
+    const state = managerWithCreds.getState();
+    assert.strictEqual(state.activeRuntime, 'hermes', 'Hermes should still be active');
+    assert.strictEqual(state.sessionId, hermesSessionId, 'Session ID should be unchanged');
+
+    // Cleanup
+    if (state.sessionId) {
+      managerWithCreds.disconnect({ sessionId: state.sessionId });
     }
   });
 });
