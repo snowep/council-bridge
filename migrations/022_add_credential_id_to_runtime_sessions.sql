@@ -3,19 +3,22 @@
 -- Migration: 022
 -- Prerequisites: 021_runtime_sessions_history.sql
 
--- Note: As of Migration 017, credential_id is already part of runtime_sessions schema.
--- Migration 021 already has credential_id in runtime_session_history.
--- Migration 022 is a no-op migration for backward compatibility.
-
--- The credential_id column was added as part of Workstream A-R1 (Session Continuity & Credential Binding).
--- For backward compatibility with existing databases, the bootstrap checks if the column exists
--- before attempting to add it via ALTER TABLE in:
---   src/infrastructure/database/database.ts
-
+-- Note: As of Migration 017, credential_id and generation columns
+-- are now part of runtime_sessions schema for new databases.
+--
+-- For existing databases that applied an older version of migration 017 without these columns,
+-- the application bootstrap (src/infrastructure/database/database.ts) adds them via:
+--   ALTER TABLE runtime_sessions ADD COLUMN generation INTEGER DEFAULT 0
+--   ALTER TABLE runtime_sessions ADD COLUMN credential_id TEXT
+--
+-- IMPORTANT: The migration runner does NOT invoke bootstrap code.
+-- For proper schema upgrade of legacy databases, run migrations then start the application
+-- to allow bootstrap to add any missing columns.
+--
 -- This migration file exists as documentation and for audit trail purposes.
--- No SQL operations are needed because:
--- 1. New databases get credential_id from migration 017 (CREATE TABLE IF NOT EXISTS)
--- 2. Existing databases get credential_id from bootstrap ALTER TABLE (with existence check)
+-- No SQL operations are needed here because:
+-- 1. New databases get credential_id and generation from migration 017 (CREATE TABLE IF NOT EXISTS)
+-- 2. Existing databases get these columns from application bootstrap
 
--- Intentional no-op - credential_id is already present
+-- Intentional no-op - column addition handled by application bootstrap when needed
 SELECT 1 WHERE 1 = 1;

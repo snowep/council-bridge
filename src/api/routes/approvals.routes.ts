@@ -58,7 +58,12 @@ router.get('/', asyncHandler(async (req: Request, res: Response) => {
   // Set X-Total-Count header for pagination
   res.set('X-Total-Count', String(totalCount));
 
-  res.json({ approvals, total_count: totalCount, limit, offset });
+  res.json({
+    approvals,
+    total_count: totalCount,
+    limit,
+    offset
+  });
 }));
 
 export default router;

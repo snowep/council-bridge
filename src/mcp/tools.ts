@@ -237,7 +237,8 @@ function createToolHandler<TArgs extends Record<string, any>, TResult>(
 function createToolHandlerWithSignal<TArgs extends Record<string, any>, TResult>(
   db: DatabaseInstance,
   getAuthContext: (req: any) => OperationContext | null | undefined,
-  serviceFn: ServiceFnWithSignal<TArgs, TResult>
+  serviceFn: ServiceFnWithSignal<TArgs, TResult>,
+  guardSignal?: AbortSignal
 ) {
   return async (args: TArgs, extra: RequestHandlerExtra<any, any>): Promise<CallToolResult> => {
     try {
@@ -249,12 +250,17 @@ function createToolHandlerWithSignal<TArgs extends Record<string, any>, TResult>
       // Validate authentication
       requireAuthenticated(ctx);
 
+      // Combine guard signal (from execution guard) with MCP request signal
+      // Guard signal takes precedence for permit-renewal failures
+      // Using AbortSignal.any to monitor both signals
+      const activeSignal = guardSignal ?? extra.signal;
+
       // Check abort signal before executing protected operations
-      if (extra.signal?.aborted) {
+      if (activeSignal?.aborted) {
         return mcpError('Execution cancelled due to session change or expiry', 'PERMIT_RENEWAL_FAILED');
       }
 
-      const result = await serviceFn(db, ctx, args, extra.signal!);
+      const result = await serviceFn(db, ctx, args, activeSignal!);
       return {
         content: [{ type: 'text', text: JSON.stringify(result) }],
       };
@@ -271,11 +277,13 @@ function createToolHandlerWithSignal<TArgs extends Record<string, any>, TResult>
  * @param mcpServer - The MCP server instance
  * @param db - Database instance
  * @param getAuthContext - Function to extract auth context from request
+ * @param guardSignal - Optional AbortSignal from execution guard for TOCTOU protection
  */
 export function registerMcpTools(
   mcpServer: McpServer,
   db: DatabaseInstance,
-  getAuthContext: (req: any) => OperationContext | null | undefined
+  getAuthContext: (req: any) => OperationContext | null | undefined,
+  guardSignal?: AbortSignal
 ): void {
   // Create service instances
   const agentService = createAgentService(db);
@@ -461,7 +469,7 @@ export function registerMcpTools(
     ExecuteExecutionRequestSchema.shape,
     createToolHandlerWithSignal(db, getAuthContext, async (db, ctx, args, signal) => {
       return executeExecutionRequest(db, ctx, args.execution_id, args.result_payload, signal);
-    })
+    }, guardSignal)
   );
 
   mcpServer.tool(
@@ -470,7 +478,7 @@ export function registerMcpTools(
     CancelExecutionRequestSchema.shape,
     createToolHandlerWithSignal(db, getAuthContext, async (db, ctx, args, signal) => {
       return cancelExecutionRequest(db, ctx, args.execution_id, args.error_message, signal);
-    })
+    }, guardSignal)
   );
 
   // ============================================================
