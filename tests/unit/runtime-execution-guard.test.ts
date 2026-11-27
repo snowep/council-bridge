@@ -384,9 +384,12 @@ describe('Runtime Execution Guard - Unit Tests', () => {
       const permit = await guard.acquireExecutionPermit(authContext);
       assert.strictEqual(permit.success, true);
 
-      // Stop the heartbeat before closing
+      // Stop the heartbeat and permit renewal before closing
       if (permit.context?.heartbeatInterval) {
         clearInterval(permit.context.heartbeatInterval);
+      }
+      if (permit.context?.permitRenewalInterval) {
+        clearInterval(permit.context.permitRenewalInterval);
       }
 
       // Close the database - subsequent calls should fail

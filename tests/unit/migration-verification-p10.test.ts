@@ -29,7 +29,15 @@ const MIGRATION_DIR = path.join(process.cwd(), 'migrations');
 // Helper to run migration SQL
 function runMigration(db: Database.Database, migrationPath: string): void {
   const sql = fs.readFileSync(migrationPath, 'utf-8');
-  db.exec(sql);
+  try {
+    db.exec(sql);
+  } catch (error: any) {
+    // Allow duplicate column errors for idempotent migrations
+    // (columns may already exist from table creation or earlier migration)
+    if (!(error.code === 'SQLITE_ERROR' && error.message.includes('duplicate column name'))) {
+      throw error;
+    }
+  }
 }
 
 // Helper to get table info

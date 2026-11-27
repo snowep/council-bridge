@@ -9,6 +9,7 @@ const TEST_DB_PATH = path.join(process.cwd(), 'data', 'council-phase7-test.db');
 
 let testDbInstance: DatabaseInstance;
 let council: CouncilService;
+let testCounter = 0;
 
 function setupTestDb() {
   if (fs.existsSync(TEST_DB_PATH)) {
@@ -28,9 +29,10 @@ function setupTestDb() {
 
 function createTestSetup(council: CouncilService) {
   const founderCtx = { owner_type: 'founder' as const, owner_id: 'founder', runtime: 'claude' as const };
+  const testId = `test-${++testCounter}-${Date.now()}`;
 
   const division = council.createDivision(founderCtx, {
-    name: 'Research Division',
+    name: `Research Division ${testId}`,
     description: 'Test division'
   });
 
@@ -69,8 +71,9 @@ function createTestSetup(council: CouncilService) {
 
 function createLevel3Setup(council: CouncilService) {
   const founderCtx = { owner_type: 'founder' as const, owner_id: 'founder', runtime: 'claude' as const };
+  const testId = `test-${++testCounter}-${Date.now()}`;
 
-  const division = council.createDivision(founderCtx, { name: 'Research', description: 'Test' });
+  const division = council.createDivision(founderCtx, { name: `Research ${testId}`, description: 'Test' });
   const staff = council.registerStaffAgent(founderCtx, {
     staff_id: 'staff-001', name: 'Researcher', role: 'Researcher',
     division_id: division.division_id, runtime_instances: ['claude'], permissions: []

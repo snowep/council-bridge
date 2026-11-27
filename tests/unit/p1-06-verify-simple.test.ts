@@ -27,8 +27,17 @@ describe('P1-06: Credential Rotation Preserves Execution History', () => {
   });
 
   it('should preserve execution history when credential is rotated', async () => {
-    // Step 1: Connect Claude
-    const connectResult = lifecycle.connect({ runtime: 'claude', clientIp: '127.0.0.1' });
+    // Step 1: Create and connect Claude with credential
+    const claudeCred = provisionRuntimeCredential('claude');
+    insertRuntimeCredential(db, {
+      credentialId: claudeCred.credentialId,
+      runtimeId: 'claude',
+      tokenHash: claudeCred.tokenHash,
+      createdAt: claudeCred.createdAt,
+      expiresAt: claudeCred.expiresAt
+    });
+
+    const connectResult = lifecycle.connect({ runtime: 'claude', clientIp: '127.0.0.1', credentialId: claudeCred.credentialId });
     assert.strictEqual(connectResult.success, true, 'Claude should connect');
 
     const sessionState = connectResult.state;
@@ -83,8 +92,17 @@ describe('P1-06: Credential Rotation Preserves Execution History', () => {
   });
 
   it('should preserve completed execution records across credential rotation', async () => {
-    // Connect Claude
-    const connectResult = lifecycle.connect({ runtime: 'claude', clientIp: '127.0.0.1' });
+    // Create and connect Claude with credential
+    const claudeCred = provisionRuntimeCredential('claude');
+    insertRuntimeCredential(db, {
+      credentialId: claudeCred.credentialId,
+      runtimeId: 'claude',
+      tokenHash: claudeCred.tokenHash,
+      createdAt: claudeCred.createdAt,
+      expiresAt: claudeCred.expiresAt
+    });
+
+    const connectResult = lifecycle.connect({ runtime: 'claude', clientIp: '127.0.0.1', credentialId: claudeCred.credentialId });
     assert.strictEqual(connectResult.success, true);
 
     const sessionId = connectResult.state!.sessionId!;

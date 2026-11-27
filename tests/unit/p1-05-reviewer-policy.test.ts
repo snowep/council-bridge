@@ -417,7 +417,7 @@ describe('P1-05: Reviewer Policy - Non-designated Staff Cannot Reject/Request Re
         deliverable_id: draft.deliverable_id,
         rejection_reason: 'Unauthorized rejection'
       });
-    }, /Authorization denied: Only the designated Division Head reviewer or the Division itself can reject/);
+    }, /Authorization denied: Not the Division Head for this task's division/);
   });
 
   // ============================================================================

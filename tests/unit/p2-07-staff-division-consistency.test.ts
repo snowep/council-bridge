@@ -100,6 +100,9 @@ describe('P2-07: Staff Directory Consistency', () => {
       db.db.prepare('UPDATE divisions SET head_staff_id = ? WHERE division_id = ?').run(divisionHeadId, divisionAId);
     }
 
+    // Add division head as a member of division A (required for membership-based queries)
+    db.runPreparedStatement('insertDivisionMember', [divisionAId, divisionHeadId, 'head']);
+
     // Create Division B
     const divisionBId = setupTestDivision(db, 'division-b');
 
