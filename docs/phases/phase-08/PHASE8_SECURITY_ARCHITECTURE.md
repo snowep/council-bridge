@@ -62,7 +62,7 @@ Current implementation uses `mcp` library without explicit security configuratio
 // New auth module: src/auth/
 - generateSessionToken(runtime: 'claude'|'hermes'): string
 - validateSession(token: string, runtime?: 'claude'|'hermes'): AuthContext | null
-- invalidateSession(token: string): boolean
+- invalidateSession(session_id: string): { invalidated: boolean; error?: string }
 - refreshSession(oldToken: string): string | null
 ```
 

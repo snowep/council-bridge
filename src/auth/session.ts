@@ -79,6 +79,12 @@ export function validateSessionSupport(): { valid: boolean; error?: string } {
   const config = getAuthConfig();
   if (config.mode === 'production' && !config.allow_hardcoded_fallback) {
     // Production requires database-backed session storage for multi-instance support
+    if (!dbSessionStore) {
+      return {
+        valid: false,
+        error: 'Production mode requires database-backed session storage (setDbSessionStore must be called)'
+      };
+    }
   }
   return { valid: true };
 }
@@ -295,19 +301,19 @@ export function validateSessionToken(
       return null;
     }
 
-    // Try memory store first (fast)
-    let session = sessionStore.get(session_id);
-
-    // Fall back to database if not in memory and db available
-    if (!session && dbSessionStore) {
-      session = getSessionFromDb(session_id) ?? undefined;
-      if (session) {
-        // Populate memory cache for faster subsequent access
-        sessionStore.set(session_id, session);
-      }
+    // Database mode: Always check database first (authoritative source)
+    // Skip memory cache to prevent stale reads from different instances
+    let session: SessionContext;
+    if (dbSessionStore) {
+      const dbSession = getSessionFromDb(session_id);
+      if (!dbSession) return null;
+      session = dbSession;
+    } else {
+      // Memory-only mode for tests/local development
+      const memSession = sessionStore.get(session_id);
+      if (!memSession) return null;
+      session = memSession;
     }
-
-    if (!session) return null;
 
     // Check expiration from store
     if (Date.now() > session.expires_at) {
@@ -332,38 +338,58 @@ export function validateSessionToken(
   }
 }
 
-export function invalidateSession(session_id: string): boolean {
-  const removed = sessionStore.delete(session_id);
-  // Also invalidate in database if available
+export function invalidateSession(session_id: string): { invalidated: boolean; error?: string } {
+  // In database mode, database is authoritative - fail-closed
   if (dbSessionStore) {
-    const dbInvalidated = invalidateSessionInDb(session_id);
-    // Return true if either memory or DB was invalidated
-    return removed || dbInvalidated;
+    try {
+      const dbInvalidated = invalidateSessionInDb(session_id);
+      // Also remove from memory cache to prevent stale reads
+      sessionStore.delete(session_id);
+      return { invalidated: dbInvalidated };
+    } catch (error) {
+      return { invalidated: false, error: 'Failed to invalidate session in database' };
+    }
   }
-  return removed;
+  // Memory-only mode for tests/local development
+  const removed = sessionStore.delete(session_id);
+  return { invalidated: removed };
 }
 
-export function invalidateAllSessionsForOwner(owner_type: string, owner_id: string): number {
+export function invalidateAllSessionsForOwner(owner_type: string, owner_id: string): { count: number; error?: string } {
+  // In database mode, database is authoritative - fail-closed
+  if (dbSessionStore) {
+    try {
+      let count = 0;
+
+      // First, invalidate from memory cache
+      for (const [id, session] of sessionStore) {
+        if (session.owner_type === owner_type && session.owner_id === owner_id) {
+          sessionStore.delete(id);
+          count++;
+        }
+      }
+
+      // Then invalidate from database
+      const dbResult = dbSessionStore.db.prepare(`
+        UPDATE api_sessions SET invalidated = 1 WHERE owner_type = ? AND owner_id = ? AND invalidated = 0
+      `).run(owner_type, owner_id);
+      count += (dbResult as any).changes;
+
+      return { count };
+    } catch (error) {
+      return { count: 0, error: 'Failed to invalidate sessions in database' };
+    }
+  }
+
+  // Memory-only mode for tests/local development
   let count = 0;
   for (const [id, session] of sessionStore) {
     if (session.owner_type === owner_type && session.owner_id === owner_id) {
       sessionStore.delete(id);
       count++;
-      // Also invalidate in database
-      if (dbSessionStore) {
-        invalidateSessionInDb(id);
-      }
     }
   }
-
-  // Also invalidate from database
-  if (dbSessionStore) {
-    count += dbSessionStore.db.prepare(`
-      UPDATE api_sessions SET invalidated = 1 WHERE owner_type = ? AND owner_id = ? AND invalidated = 0
-    `).run(owner_type, owner_id).changes;
-  }
-
-  return count;
+  return { count };
 }
 
 export function refreshSession(token: string): string | null {
@@ -375,19 +401,35 @@ export function refreshSession(token: string): string | null {
   return generateSessionToken(session);
 }
 
-export function addPermission(session_id: string, permission: string): void {
-  const session = sessionStore.get(session_id);
-  if (session) {
-    if (!session.permissions.includes(permission)) {
-      session.permissions.push(permission);
-      // Persist permission update to database
-      if (dbSessionStore) {
+export function addPermission(session_id: string, permission: string): { success: boolean; error?: string } {
+  // In database mode, get session from database (authoritative source)
+  let session: SessionContext | undefined;
+  if (dbSessionStore) {
+    const dbSession = getSessionFromDb(session_id);
+    if (!dbSession) return { success: false, error: 'Session not found' };
+    session = dbSession;
+  } else {
+    session = sessionStore.get(session_id);
+    if (!session) return { success: false, error: 'Session not found' };
+  }
+
+  if (!session.permissions.includes(permission)) {
+    session.permissions.push(permission);
+    // Always persist permission update to database in db mode
+    if (dbSessionStore) {
+      try {
         dbSessionStore.db.prepare(`
           UPDATE api_sessions SET permissions = ? WHERE session_id = ?
         `).run(JSON.stringify(session.permissions), session_id);
+      } catch {
+        return { success: false, error: 'Failed to persist permission update' };
       }
+    } else {
+      // Memory-only mode for tests/local development
+      sessionStore.set(session_id, session);
     }
   }
+  return { success: true };
 }
 
 export function hasPermission(session: SessionContext, permission: string): boolean {

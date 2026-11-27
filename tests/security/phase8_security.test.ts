@@ -127,7 +127,7 @@ describe('Phase 8: Session Security Hardening', () => {
     assert.ok(session);
 
     const result = invalidateSession(session.session_id);
-    assert.strictEqual(result, true);
+    assert.strictEqual(result.invalidated, true);
 
     const invalidated = validateSessionToken(token);
     assert.strictEqual(invalidated, null);

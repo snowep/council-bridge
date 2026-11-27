@@ -437,9 +437,9 @@ app.delete('/api/auth/session', authMiddleware, async (req, res) => {
     }
 
     const session_id = parts[0];
-    const revoked = invalidateSession(session_id);
+    const result = invalidateSession(session_id);
 
-    res.json({ revoked, session_id });
+    res.json({ revoked: result.invalidated, session_id, error: result.error });
   } catch (error) {
     res.status(400).json({ error: error instanceof Error ? error.message : 'Unknown error' });
   }
