@@ -248,12 +248,6 @@ export interface DatabaseInstance {
     updateRuntimeSessionHeartbeat: PreparedStatement;
     clearExpiredConnectedSessions: PreparedStatement;
 
-    // Phase 10: Runtime Control Table
-    getRuntimeControl: PreparedStatement;
-    getRuntimeControlById: PreparedStatement;
-    updateRuntimeControl: PreparedStatement;
-    updateRuntimeGeneration: PreparedStatement;
-
     // Phase 10: Runtime Credentials
     insertRuntimeCredential: PreparedStatement;
     getRuntimeCredentialByHash: PreparedStatement;
@@ -285,8 +279,9 @@ export interface DatabaseInstance {
 }
 
 // Phase 4 schema version. Bumped when createDatabase() adds tables.
-// Current version: 21.0.0 - identity_credentials table (SEC-04: Identity credential validation)
-// Previous: 20.1.0 - runtime_control table + generation column + idle heartbeat support (Loop 2-4)
+// Current version: 22.0.0 - removal of unused runtime_control table (P2-07)
+// Previous: 21.0.0 - identity_credentials table (SEC-04: Identity credential validation)
+// Previous: 20.1.0 - generation column + idle heartbeat support (Loop 2-4)
 // Previous: 19.0.0 - runtime_credentials table for independent runtime auth (Loop 1)
 // Previous: 18.0.0 - execution_records table for MCP execution guard
 // Previous: 17.0.0 for runtime_sessions table (Phase 10)
@@ -1209,29 +1204,7 @@ function createDatabase(dbPath?: string): DatabaseInstance {
     db.prepare(`ALTER TABLE runtime_sessions ADD COLUMN credential_id TEXT`).run();
   }
 
-  // Ensure runtime_control table exists (Migration 020)
-  // Authoritative single-active-runtime enforcement with generation fencing
-  db.prepare(`
-    CREATE TABLE IF NOT EXISTS runtime_control (
-      id INTEGER PRIMARY KEY CHECK (id = 1),
-      active_runtime TEXT CHECK (active_runtime IN ('claude', 'hermes', NULL)),
-      active_session_id TEXT,
-      generation INTEGER NOT NULL DEFAULT 1,
-      updated_at INTEGER NOT NULL
-    )
-  `).run();
-
-  // Insert initial control row if not exists
-  db.prepare(`
-    INSERT OR IGNORE INTO runtime_control (id, active_runtime, active_session_id, generation, updated_at)
-    VALUES (1, NULL, NULL, 1, CAST(strftime('%s', 'now') || '000' AS INTEGER))
-  `).run();
-
-  // Create indexes for runtime_control
-  db.prepare(`CREATE UNIQUE INDEX IF NOT EXISTS idx_runtime_control_single ON runtime_control(id)`).run();
-  db.prepare(`CREATE INDEX IF NOT EXISTS idx_runtime_control_active_runtime ON runtime_control(active_runtime) WHERE active_runtime IS NOT NULL`).run();
-  db.prepare(`CREATE INDEX IF NOT EXISTS idx_runtime_control_active_session ON runtime_control(active_session_id)`).run();
-
+  // Runtime control table removed (P2-07) - runtime_sessions is authoritative with partial unique index
   // Ensure execution_records table exists (Migration 018)
   // With foreign key to runtime_sessions for TOCTOU protection
   // Phase 10 Loop 3: Ensure generation column exists (added by migration 019)
@@ -1806,22 +1779,6 @@ function createDatabase(dbPath?: string): DatabaseInstance {
       WHERE connection_status IN ('connecting', 'connected', 'switching')
       ORDER BY updated_at DESC
       LIMIT 1
-    `) as PreparedStatement,
-
-    getRuntimeControl: db.prepare('SELECT * FROM runtime_control WHERE id = 1') as PreparedStatement,
-
-    getRuntimeControlById: db.prepare('SELECT * FROM runtime_control WHERE id = ?') as PreparedStatement,
-
-    updateRuntimeControl: db.prepare(`
-      UPDATE runtime_control
-      SET active_runtime = ?, active_session_id = ?, generation = ?, updated_at = ?
-      WHERE id = 1
-    `) as PreparedStatement,
-
-    updateRuntimeGeneration: db.prepare(`
-      UPDATE runtime_sessions
-      SET generation = COALESCE(generation, 1) + 1
-      WHERE session_id = ?
     `) as PreparedStatement,
 
     // Clear expired connected sessions (used before bootstrap to prevent UNIQUE constraint failure)

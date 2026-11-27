@@ -409,55 +409,6 @@ describe('Phase 10 Migration Verification - Migration 019', () => {
   });
 });
 
-describe('Phase 10 Migration Verification - Migration 020', () => {
-  let testDB: TestDB;
-
-  beforeEach(() => {
-    testDB = createTestDB();
-    createPhase4Schema(testDB.db);
-    runPrerequisites(testDB.db);
-    runMigration(testDB.db, path.join(MIGRATION_DIR, '006_phase7_autonomy_execution.sql'));
-    runMigration(testDB.db, path.join(MIGRATION_DIR, '017_add_runtime_sessions_table.sql'));
-    runMigration(testDB.db, path.join(MIGRATION_DIR, '018_add_execution_records.sql'));
-    runMigration(testDB.db, path.join(MIGRATION_DIR, '019_create_runtime_credentials.sql'));
-  });
-
-  afterEach(() => {
-    testDB.close();
-  });
-
-  test('creates runtime_control table', () => {
-    runMigration(testDB.db, path.join(MIGRATION_DIR, '020_create_runtime_control_table.sql'));
-
-    const cols = getTableInfo(testDB.db, 'runtime_control').map((c: any) => c.name);
-    const requiredCols = ['id', 'active_runtime', 'active_session_id', 'generation', 'updated_at'];
-    for (const col of requiredCols) {
-      assert.ok(cols.includes(col), `${col} column should exist`);
-    }
-  });
-
-  test('runtime_control has primary key constraint on id=1', () => {
-    runMigration(testDB.db, path.join(MIGRATION_DIR, '020_create_runtime_control_table.sql'));
-
-    // Should have exactly one row with id=1
-    const count = testDB.db.prepare('SELECT COUNT(*) as c FROM runtime_control').get() as any;
-    assert.equal(count.c, 1, 'should have exactly one row');
-
-    const row = testDB.db.prepare('SELECT * FROM runtime_control WHERE id = 1').get() as any;
-    assert.ok(row, 'row with id=1 exists');
-  });
-
-  test('runtime_control inserts initial row with null active_runtime', () => {
-    runMigration(testDB.db, path.join(MIGRATION_DIR, '020_create_runtime_control_table.sql'));
-
-    const row = testDB.db.prepare('SELECT * FROM runtime_control WHERE id = 1').get() as any;
-    assert.ok(row);
-    // active_runtime should default to null (no active runtime yet)
-    assert.equal(row.active_runtime, null, 'active_runtime should be null by default');
-    assert.equal(row.active_session_id, null, 'active_session_id should be null by default');
-  });
-});
-
 describe('Phase 10 Migration Verification - Migration 021', () => {
   let testDB: TestDB;
 
@@ -469,7 +420,7 @@ describe('Phase 10 Migration Verification - Migration 021', () => {
     runMigration(testDB.db, path.join(MIGRATION_DIR, '017_add_runtime_sessions_table.sql'));
     runMigration(testDB.db, path.join(MIGRATION_DIR, '018_add_execution_records.sql'));
     runMigration(testDB.db, path.join(MIGRATION_DIR, '019_create_runtime_credentials.sql'));
-    runMigration(testDB.db, path.join(MIGRATION_DIR, '020_create_runtime_control_table.sql'));
+    // P2-07: runtime_control removed - no longer running migration 020
   });
 
   afterEach(() => {
@@ -504,6 +455,26 @@ describe('Phase 10 Migration Verification - Migration 021', () => {
     assert.ok(indexes.some((i: any) => i.name === 'idx_runtime_session_history_runtime'), 'runtime index exists');
     assert.ok(indexes.some((i: any) => i.name === 'idx_runtime_session_history_credential_id'), 'credential_id index exists');
   });
+
+  test('creates execution_records_history table', () => {
+    runMigration(testDB.db, path.join(MIGRATION_DIR, '021_runtime_sessions_history.sql'));
+
+    const cols = getTableInfo(testDB.db, 'execution_records_history').map((c: any) => c.name);
+    const requiredCols = ['id', 'session_id', 'runtime_id', 'started_at', 'expires_at', 'completed',
+                          'generation', 'original_session_id', 'archived_at', 'created_at', 'updated_at'];
+    for (const col of requiredCols) {
+      assert.ok(cols.includes(col), `${col} column should exist`);
+    }
+  });
+
+  test('execution_records_history has proper indexes', () => {
+    runMigration(testDB.db, path.join(MIGRATION_DIR, '021_runtime_sessions_history.sql'));
+
+    const indexes = getIndexInfo(testDB.db, 'execution_records_history');
+    assert.ok(indexes.some((i: any) => i.name === 'idx_execution_records_history_original_session'), 'original_session index exists');
+    assert.ok(indexes.some((i: any) => i.name === 'idx_execution_records_history_runtime'), 'runtime index exists');
+    assert.ok(indexes.some((i: any) => i.name === 'idx_execution_records_history_archived'), 'archived index exists');
+  });
 });
 
 describe('Phase 10 Migration Verification - Migration 022', () => {
@@ -517,7 +488,7 @@ describe('Phase 10 Migration Verification - Migration 022', () => {
     runMigration(testDB.db, path.join(MIGRATION_DIR, '017_add_runtime_sessions_table.sql'));
     runMigration(testDB.db, path.join(MIGRATION_DIR, '018_add_execution_records.sql'));
     runMigration(testDB.db, path.join(MIGRATION_DIR, '019_create_runtime_credentials.sql'));
-    runMigration(testDB.db, path.join(MIGRATION_DIR, '020_create_runtime_control_table.sql'));
+    // P2-07: runtime_control removed - no longer running migration 020
     runMigration(testDB.db, path.join(MIGRATION_DIR, '021_runtime_sessions_history.sql'));
   });
 
@@ -556,11 +527,12 @@ describe('Full Phase 10 Migration Sequence', () => {
     runPrerequisites(testDB.db);
 
     // Run Phase 10 migrations in order
+    // P2-07: runtime_control removed - no longer running migration 020
     const phase10Migrations = [
       '017_add_runtime_sessions_table.sql',
       '018_add_execution_records.sql',
       '019_create_runtime_credentials.sql',
-      '020_create_runtime_control_table.sql',
+      // '020_create_runtime_control_table.sql',  // REMOVED - unused table
       '021_runtime_sessions_history.sql',
       '022_add_credential_id_to_runtime_sessions.sql'
     ];
@@ -583,9 +555,8 @@ describe('Full Phase 10 Migration Sequence', () => {
     assert.ok(rcCols.includes('token_hash'), 'token_hash in runtime_credentials');
     assert.ok(rcCols.includes('status'), 'status in runtime_credentials');
 
-    // Verify runtime_control table exists
-    const rcCtrlCols = getTableInfo(testDB.db, 'runtime_control').map((c: any) => c.name);
-    assert.ok(rcCtrlCols.includes('active_runtime'), 'active_runtime in runtime_control');
+    // P2-07: runtime_control table removed - verify it does NOT exist
+    assert.ok(!getTableInfo(testDB.db, 'runtime_control').some((c: any) => c.name === 'id'), 'runtime_control should not exist');
 
     // Verify runtime_session_history table exists
     const rshCols = getTableInfo(testDB.db, 'runtime_session_history').map((c: any) => c.name);
@@ -602,11 +573,12 @@ describe('Full Phase 10 Migration Sequence', () => {
     runMigration(testDB.db, path.join(MIGRATION_DIR, '006_phase7_autonomy_execution.sql'));
 
     // Run Phase 10 migrations
+    // P2-07: runtime_control removed - no longer running migration 020
     const phase10Migrations = [
       '017_add_runtime_sessions_table.sql',
       '018_add_execution_records.sql',
       '019_create_runtime_credentials.sql',
-      '020_create_runtime_control_table.sql',
+      // '020_create_runtime_control_table.sql',  // REMOVED - unused table
       '021_runtime_sessions_history.sql'
     ];
 

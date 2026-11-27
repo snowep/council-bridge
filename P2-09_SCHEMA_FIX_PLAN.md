@@ -22,9 +22,9 @@
 - **Problem**: bootstrap adds credential_id via ALTER TABLE but no migration file does this
 - **Fix**: Add migration 022 for credential_id column
 
-### E. Two Runtime-Control Designs
-- **Problem**: runtime_control table exists in bootstrap and migration 020, but code uses runtime_sessions for active session tracking
-- **Fix**: Make runtime_control the authoritative source; update connect/disconnect/switch/heartbeat
+### E. Two Runtime-Control Designs (RESOLVED)
+- **Problem**: runtime_control table existed but was never used; runtime_sessions was already authoritative
+- **Fix**: Removed unused runtime_control code (P2-07) - runtime_sessions with partial unique index is the authoritative source
 
 ### F. Hard-coded Migration Database Path
 - **Problem**: cli.ts uses hardcoded `'data/council.db'` instead of `DATABASE_PATH` env var

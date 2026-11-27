@@ -39,14 +39,6 @@ export interface RuntimeSession {
   lastError: string | null;
 }
 
-export interface RuntimeControlRow {
-  id: number;
-  active_runtime: RuntimeId | null;
-  active_session_id: string | null;
-  generation: number;
-  updated_at: number;               // Unix milliseconds
-}
-
 export interface ConnectRuntimeOptions {
   runtime: RuntimeId;
   sessionId?: string;
