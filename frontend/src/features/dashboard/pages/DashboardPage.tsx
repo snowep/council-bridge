@@ -43,7 +43,7 @@ import {
 } from '@mui/icons-material';
 import { apiClient, getErrorMessage } from '@shared/api/client';
 import { useNavigate } from 'react-router-dom';
-import type { Division, StaffAgent, ApprovalRequest, ExecutionRequest } from '@shared/types/api';
+import type { Division, StaffAgent, ApprovalRequest, ExecutionRequest, ApprovalResponse, ExecutionListResponse } from '@shared/types/api';
 
 interface ActivityItem {
   id: string;
@@ -102,11 +102,18 @@ export default function DashboardPage() {
     { label: 'New Task', icon: <Add fontSize="small" />, href: '/tasks?create', color: 'info' },
   ];
 
+  // States for paginated items
   const [divisions, setDivisions] = useState<Division[]>([]);
   const [staff, setStaff] = useState<StaffAgent[]>([]);
   const [approvals, setApprovals] = useState<ApprovalRequest[]>([]);
   const [executions, setExecutions] = useState<ExecutionRequest[]>([]);
   const [activity, setActivity] = useState<ActivityItem[]>([]);
+
+  // States for aggregate counts (total items, not just current page)
+  const [totalApprovals, setTotalApprovals] = useState<number>(0);
+  const [totalExecutions, setTotalExecutions] = useState<number>(0);
+  const [totalActivity, setTotalActivity] = useState<number>(0);
+
   const [loading, setLoading] = useState<Record<string, boolean>>({
     divisions: true,
     staff: true,
@@ -162,31 +169,23 @@ export default function DashboardPage() {
           break;
         }
         case 'approvals': {
-          const res = await apiClient.get<{ data: ApprovalRequest[] }>('/api/approvals');
-          const apprList = Array.isArray(res?.data) ? res.data : (Array.isArray(res) ? res : []);
-          setApprovals(apprList);
+          const res = await apiClient.get<ApprovalResponse>('/api/approvals');
+          setApprovals(Array.isArray(res?.approvals) ? res.approvals : []);
+          setTotalApprovals(res?.total_count ?? 0);
           break;
         }
         case 'executions': {
-                  try {
-                    const res = await apiClient.get<{ executions: ExecutionRequest[] }>('/api/executions');
-                    setExecutions(Array.isArray(res?.executions) ? res.executions : []);
-                  } catch (err: any) {
-                    setExecutions([]);
-                    console.error(`Dashboard fetch error (executions):`, err);
-                  }
-                  break;
-                }
-                case 'activity': {
-                  try {
-                    const res = await apiClient.get<{ activity: ActivityItem[] }>('/api/activity');
-                    setActivity(Array.isArray(res?.activity) ? res.activity : []);
-                  } catch (err: any) {
-                    setActivity([]);
-                    console.error(`Dashboard fetch error (activity):`, err);
-                  }
-                  break;
-                }
+          const res = await apiClient.get<ExecutionListResponse>('/api/executions');
+          setExecutions(Array.isArray(res?.executions) ? res.executions : []);
+          setTotalExecutions(res?.total_count ?? 0);
+          break;
+        }
+        case 'activity': {
+          const res = await apiClient.get<{ activity: ActivityItem[]; total_count: number }>('/api/activity');
+          setActivity(Array.isArray(res?.activity) ? res.activity : []);
+          setTotalActivity(res?.total_count ?? 0);
+          break;
+        }
       }
     } catch (err: any) {
       setErrors(prev => ({ ...prev, [section]: getErrorMessage(err, `Failed to fetch ${section}`) }));
@@ -321,9 +320,7 @@ export default function DashboardPage() {
   const activeStaff = staff.filter(s => s.status === 'active').length;
   const totalStaff = staff.length;
   const pendingApprovals = approvals.filter(a => a.status === 'pending').length;
-  const totalApprovals = approvals.length;
   const pendingExecutions = executions.filter(e => e.status === 'approval_required' || e.status === 'queued' || e.status === 'proposed' || e.status === 'permission_check').length;
-  const totalExecutions = executions.length;
 
   type MuiColor = 'primary' | 'secondary' | 'warning' | 'error' | 'info' | 'success';
 
@@ -446,7 +443,9 @@ export default function DashboardPage() {
         {/* Recent Activity */}
         <Card elevation={1}>
           <CardContent>
-            <Typography variant="h6" sx={{ fontWeight: 600, mb: 1 }}>Recent Activity</Typography>
+            <Typography variant="h6" sx={{ fontWeight: 600, mb: 1 }}>
+              Recent Activity{totalActivity > 0 ? ` (${totalActivity} total)` : ''}
+            </Typography>
             <Box sx={{ display: 'grid', gap: 1 }}>
               {loading.activity ? (
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>

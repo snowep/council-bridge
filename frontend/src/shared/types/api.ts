@@ -321,6 +321,13 @@ export interface ExecutionRequest {
   updated_at: string;
 }
 
+export interface ExecutionListResponse {
+  executions: ExecutionRequest[];
+  total_count: number;
+  limit: number;
+  offset: number;
+}
+
 export interface ApprovalRequest {
   approval_request_id: string;
   execution_id: string;
@@ -338,6 +345,13 @@ export interface ApprovalRequest {
   rejection_reason: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface ApprovalResponse {
+  approvals: ApprovalRequest[];
+  total_count: number;
+  limit: number;
+  offset: number;
 }
 
 export interface ExecutionHistory {
@@ -383,6 +397,7 @@ export interface PaginatedResponse<T> {
 
 export interface ActivityResponse {
   activity: ActivityItem[];
+  total_count: number;
   limit: number;
   offset: number;
 }
