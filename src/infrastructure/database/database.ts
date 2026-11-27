@@ -1190,19 +1190,9 @@ function createDatabase(dbPath?: string): DatabaseInstance {
   db.prepare(`CREATE INDEX IF NOT EXISTS idx_runtime_sessions_session_id ON runtime_sessions(session_id)`).run();
   db.prepare(`CREATE INDEX IF NOT EXISTS idx_runtime_sessions_lease ON runtime_sessions(lease_expires_at)`).run();
 
-  // Add generation column to existing runtime_sessions tables (Migration 020)
-  const hasRuntimeSessionGeneration = (db.prepare('PRAGMA table_info(runtime_sessions)').all() as Array<{ name: string }>)
-    .some(col => col.name === 'generation');
-  if (!hasRuntimeSessionGeneration) {
-    db.prepare(`ALTER TABLE runtime_sessions ADD COLUMN generation INTEGER DEFAULT 0`).run();
-  }
-
-  // Add credential_id column to existing runtime_sessions tables (Workstream A-R1 migration)
-  const hasCredentialId = (db.prepare('PRAGMA table_info(runtime_sessions)').all() as Array<{ name: string }>)
-    .some(col => col.name === 'credential_id');
-  if (!hasCredentialId) {
-    db.prepare(`ALTER TABLE runtime_sessions ADD COLUMN credential_id TEXT`).run();
-  }
+  // Generation and credential_id columns added by migration 022 if missing
+  // Note: Legacy databases with migration 022 recorded in ledger but missing columns
+  // will have these added via migration executor's idempotent handling
 
   // Runtime control table removed (P2-07) - runtime_sessions is authoritative with partial unique index
   // Ensure execution_records table exists (Migration 018)

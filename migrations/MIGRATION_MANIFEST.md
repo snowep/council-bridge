@@ -26,7 +26,7 @@
 | 019 | 019_create_runtime_credentials.sql | New Table | runtime_credentials | Phase 10 Loop 1: Runtime Credential Storage Table |
 | 020 | 020_create_runtime_control_table.sql | New Table | runtime_control | Phase 10 Loop 2: Runtime Control Table |
 | 021 | 021_runtime_sessions_history.sql | New Tables + Indexes | runtime_session_history, all_runtime_sessions view | Phase 10 P1-06: Runtime Session History Preservation |
-| 022 | 022_add_credential_id_to_runtime_sessions.sql | ALTER TABLE (additive) | runtime_sessions, runtime_session_history | Add credential_id column for session continuity |
+| 022 | 022_add_credential_id_to_runtime_sessions.sql | ALTER TABLE (additive) | runtime_sessions, runtime_session_history | Add generation & credential_id columns (idempotent) |
 | 023 | 023_identity_credentials.sql | New Table | identity_credentials | SEC-04: Identity credential validation for staff/division/seat authentication |
 
 ---

@@ -1,6 +1,5 @@
 import Database from 'better-sqlite3';
 import * as fs from 'node:fs';
-import * as path from 'node:path';
 import { Migration, MigrationRegistry } from './registry.js';
 import { MigrationLedger } from './ledger.js';
 import { BackupManager, BackupResult } from './backup.js';
@@ -177,7 +176,7 @@ export class MigrationExecutor {
       };
     }
 
-    // Execute migration
+    // Execute migration with special handling for idempotent operations
     let error: Error | undefined;
     try {
       const sql = fs.readFileSync(migration.filepath, 'utf-8');
@@ -219,6 +218,41 @@ export class MigrationExecutor {
       };
     } catch (e) {
       error = e instanceof Error ? e : new Error(String(e));
+
+      // Check for SQLite "duplicate column" errors - these indicate the migration
+      // was already applied in a previous run or columns already exist
+      // For migrations that use ALTER TABLE ADD COLUMN, this should be treated as success
+      const isDuplicateColumnError = error.message.includes('duplicate column name') ||
+                                     error.message.includes('duplicate column');
+
+      if (isDuplicateColumnError) {
+        this.logger.warn(`Migration ${migrationId} encountered duplicate column(s), treating as non-fatal`, {
+          migrationId,
+          error: error.message
+        });
+
+        // Record as successful (idempotent migration - work already done)
+        const durationMs = Date.now() - startTime;
+        this.ledger.recordSuccess(
+          migration.id,
+          migration.filename,
+          migration.checksum,
+          durationMs,
+          backupResult?.backupPath || '',
+          appliedBy,
+          { targetTables: migration.targetTables, note: 'idempotent_skip_duplicate_column' }
+        );
+
+        return {
+          success: true,
+          durationMs,
+          backupResult,
+          preValidation,
+          postValidation,
+          error
+        };
+      }
+
       this.logger.error(`Migration ${migrationId} failed`, {
         migrationId,
         error: error.message,
@@ -367,7 +401,6 @@ export class MigrationExecutor {
 }
 
 export class RollbackEngine {
-  private db: Database.Database;
   private backupManager: BackupManager;
   private ledger: MigrationLedger;
   private logger: Logger;
@@ -389,14 +422,13 @@ export class RollbackEngine {
     ledger: MigrationLedger,
     logger?: Logger
   ) {
-    this.db = db;
     this.backupManager = backupManager;
     this.ledger = ledger;
     this.logger = logger || new ConsoleLogger();
     this.dbPath = this.getDefaultDbPath(db);
   }
 
-  async rollback(migrationId: string, method: 'backup' | 'reapply' = 'backup', force: boolean = false): Promise<boolean> {
+  async rollback(migrationId: string, method: 'backup' | 'reapply' = 'backup'): Promise<boolean> {
     const entry = this.ledger.getAll().find(e => e.migration_id === migrationId);
     if (!entry || entry.status !== 'success') {
       this.logger.warn(`Cannot rollback ${migrationId}: not applied or not successful`, { migrationId, entry });

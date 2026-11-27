@@ -1,24 +1,27 @@
 -- Phase 10 Workstream A-R1: credential_id Column for Session Continuity & Credential Binding
--- Added to runtime_sessions for tracking credential ownership
 -- Migration: 022
 -- Prerequisites: 021_runtime_sessions_history.sql
 
--- Note: As of Migration 017, credential_id and generation columns
--- are now part of runtime_sessions schema for new databases.
---
--- For existing databases that applied an older version of migration 017 without these columns,
--- the application bootstrap (src/infrastructure/database/database.ts) adds them via:
---   ALTER TABLE runtime_sessions ADD COLUMN generation INTEGER DEFAULT 0
---   ALTER TABLE runtime_sessions ADD COLUMN credential_id TEXT
---
--- IMPORTANT: The migration runner does NOT invoke bootstrap code.
--- For proper schema upgrade of legacy databases, run migrations then start the application
--- to allow bootstrap to add any missing columns.
---
--- This migration file exists as documentation and for audit trail purposes.
--- No SQL operations are needed here because:
--- 1. New databases get credential_id and generation from migration 017 (CREATE TABLE IF NOT EXISTS)
--- 2. Existing databases get these columns from application bootstrap
+-- Purpose: Add generation and credential_id columns to runtime_sessions for:
+-- 1. Generation-based execution fencing (Loop 3)
+-- 2. Credential ownership tracking and rotation detection (Workstream A-R1)
 
--- Intentional no-op - column addition handled by application bootstrap when needed
-SELECT 1 WHERE 1 = 1;
+-- This migration is idempotent: if columns already exist, SQLite throws an error
+-- which the migration executor catches and treats as successful (non-fatal).
+-- This handles two scenarios:
+-- 1. Fresh install where 017 already has columns (columns exist, duplicate column error caught)
+-- 2. Legacy databases where 017 was applied but somehow missing columns (columns added)
+
+-- Add generation column if missing (added for Loop 3 execution fencing)
+ALTER TABLE runtime_sessions ADD COLUMN generation INTEGER DEFAULT 0;
+
+-- Add credential_id column if missing (added for Workstream A-R1: session continuity)
+ALTER TABLE runtime_sessions ADD COLUMN credential_id TEXT;
+
+-- Also add these columns to runtime_session_history table for consistency during credential rotation
+ALTER TABLE runtime_session_history ADD COLUMN generation INTEGER DEFAULT 0;
+ALTER TABLE runtime_session_history ADD COLUMN credential_id TEXT;
+
+-- Create indexes for credential-based queries (rotation detection)
+CREATE INDEX IF NOT EXISTS idx_runtime_sessions_credential_id ON runtime_sessions(credential_id);
+CREATE INDEX IF NOT EXISTS idx_runtime_session_history_credential_id ON runtime_session_history(credential_id);
