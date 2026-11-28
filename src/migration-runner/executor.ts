@@ -180,6 +180,38 @@ export class MigrationExecutor {
     let error: Error | undefined;
     try {
       const sql = fs.readFileSync(migration.filepath, 'utf-8');
+
+      // Special handling for migration 022: check if columns already exist
+      // This migration adds columns that may already exist (from migration 017 or legacy)
+      if (migration.id === '022') {
+        const columnsAdded = this.checkAndAddColumnsFor022();
+        if (columnsAdded === 'all_exist') {
+          // All columns already exist - skip execution
+          this.logger.info(`Migration ${migrationId} - columns already exist, skipping execution`, { migrationId });
+          const durationMs = Date.now() - startTime;
+          this.ledger.recordSuccess(
+            migration.id,
+            migration.filename,
+            migration.checksum,
+            durationMs,
+            backupResult?.backupPath || '',
+            appliedBy,
+            { targetTables: migration.targetTables, note: 'columns_already_exist' }
+          );
+          return {
+            success: true,
+            durationMs,
+            backupResult,
+            preValidation,
+            postValidation
+          };
+        }
+        if (columnsAdded === 'partial') {
+          this.logger.warn(`Migration ${migrationId} - some columns existed, partial execution needed`, { migrationId });
+        }
+        // Re-read SQL and execute for columns that need to be added
+      }
+
       // Migration SQL files contain their own transaction handling (BEGIN/COMMIT)
       // Don't wrap in additional transaction
       this.db.exec(sql);
@@ -222,6 +254,7 @@ export class MigrationExecutor {
       // Check for SQLite "duplicate column" errors - these indicate the migration
       // was already applied in a previous run or columns already exist
       // For migrations that use ALTER TABLE ADD COLUMN, this should be treated as success
+      // Note: This is a fallback for migrations 022 when executed via direct SQL
       const isDuplicateColumnError = error.message.includes('duplicate column name') ||
                                      error.message.includes('duplicate column');
 
@@ -280,6 +313,56 @@ export class MigrationExecutor {
         postValidation
       };
     }
+  }
+
+  /**
+   * Check if runtime_sessions has generation and credential_id columns, and runtime_session_history
+   * has generation and credential_id columns. If missing, add them.
+   * Returns 'all_exist', 'partial', or 'none_exist'
+   */
+  private checkAndAddColumnsFor022(): 'all_exist' | 'partial' | 'none_exist' {
+    const runtimeSessionsCols = this.db.prepare('PRAGMA table_info(runtime_sessions)').all() as Array<{ name: string }>;
+    const runtimeSessionHistoryCols = this.db.prepare('PRAGMA table_info(runtime_session_history)').all() as Array<{ name: string }>;
+
+    const rsColNames = runtimeSessionsCols.map(c => c.name);
+    const rshColNames = runtimeSessionHistoryCols.map(c => c.name);
+
+    const rsHasGeneration = rsColNames.includes('generation');
+    const rsHasCredentialId = rsColNames.includes('credential_id');
+    const rshHasGeneration = rshColNames.includes('generation');
+    const rshHasCredentialId = rshColNames.includes('credential_id');
+
+    // Check if all columns already exist in both tables
+    if (rsHasGeneration && rsHasCredentialId && rshHasGeneration && rshHasCredentialId) {
+      return 'all_exist';
+    }
+
+    // Add missing columns to runtime_sessions
+    if (!rsHasGeneration) {
+      this.db.exec('ALTER TABLE runtime_sessions ADD COLUMN generation INTEGER DEFAULT 0');
+    }
+    if (!rsHasCredentialId) {
+      this.db.exec('ALTER TABLE runtime_sessions ADD COLUMN credential_id TEXT');
+    }
+
+    // Add missing columns to runtime_session_history
+    if (!rshHasGeneration) {
+      this.db.exec('ALTER TABLE runtime_session_history ADD COLUMN generation INTEGER DEFAULT 0');
+    }
+    if (!rshHasCredentialId) {
+      this.db.exec('ALTER TABLE runtime_session_history ADD COLUMN credential_id TEXT');
+    }
+
+    // Create indexes if they don't exist
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_runtime_sessions_credential_id ON runtime_sessions(credential_id)');
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_runtime_session_history_credential_id ON runtime_session_history(credential_id)');
+
+    // Determine what state we're in
+    const allColumnsExist = rsHasGeneration && rsHasCredentialId && rshHasGeneration && rshHasCredentialId;
+    const wereAnyAdded = !rsHasGeneration || !rsHasCredentialId || !rshHasGeneration || !rshHasCredentialId;
+
+    return (rsHasGeneration && rsHasCredentialId && rshHasGeneration && rshHasCredentialId) ? 'all_exist' :
+           (wereAnyAdded || !allColumnsExist) ? 'partial' : 'none_exist';
   }
 
   async executeAll(

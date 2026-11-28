@@ -106,7 +106,7 @@ Migration numbers that were intentionally not used:
 
 022: add_credential_id_to_runtime_sessions
     ├─ Depends on: 017, 021 (runtime_sessions table with history)
-    └─ Adds credential_id to both active sessions and history (idempotent check)
+    └─ Schema-aware: Checks column existence before adding (idempotent via PRAGMA table_info)
 
 023: identity_credentials
     ├─ No dependencies (standalone table)
