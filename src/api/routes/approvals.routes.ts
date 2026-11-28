@@ -1,6 +1,7 @@
 // Approvals Routes
 // Fixes 500 error on /api/approvals by allowing non-Founder users to see their own requests
-// Implements: GET /api/approvals
+// P3-01: Adds authorized pending count endpoint for dashboard metrics
+// Implements: GET /api/approvals, GET /api/approvals/pending-count
 
 import { Router, Request, Response } from 'express';
 import { listApprovalRequests } from '../../council/operations.js';
@@ -65,6 +66,36 @@ router.get('/', asyncHandler(async (req: Request, res: Response) => {
     limit,
     offset
   });
+}));
+
+// GET /api/approvals/pending-count - Get authorized pending approval count only
+router.get('/pending-count', asyncHandler(async (req: Request, res: Response) => {
+  const ctx = requireAuth(req);
+
+  // Build WHERE clauses for authorization
+  // Founder: no restrictions
+  // Staff/Division: only their own requests
+  const whereClauses: string[] = [];
+  const params: any[] = [];
+
+  // P3-01: Only count pending approvals, scoped by authorization
+  whereClauses.push('status = ?');
+  params.push('pending');
+
+  if (ctx.owner_type !== 'founder') {
+    whereClauses.push('requested_by_type = ?');
+    params.push(ctx.owner_type);
+    whereClauses.push('requested_by_id = ?');
+    params.push(ctx.owner_id);
+  }
+
+  const where = whereClauses.length > 0 ? 'WHERE ' + whereClauses.join(' AND ') : '';
+  const count = db.query(
+    `SELECT COUNT(*) as cnt FROM approval_requests ${where}`,
+    params
+  )[0].cnt;
+
+  res.json({ pending_count: count });
 }));
 
 export default router;

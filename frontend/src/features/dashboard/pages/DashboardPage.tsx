@@ -113,6 +113,9 @@ export default function DashboardPage() {
   const [totalApprovals, setTotalApprovals] = useState<number>(0);
   const [totalExecutions, setTotalExecutions] = useState<number>(0);
   const [totalActivity, setTotalActivity] = useState<number>(0);
+  // P3-01: Pending counts from server-side aggregates
+  const [pendingApprovalsCount, setPendingApprovalsCount] = useState<number>(0);
+  const [pendingExecutionsCount, setPendingExecutionsCount] = useState<number>(0);
 
   const [loading, setLoading] = useState<Record<string, boolean>>({
     divisions: true,
@@ -120,6 +123,7 @@ export default function DashboardPage() {
     approvals: true,
     executions: true,
     activity: true,
+    pendingCounts: true,
   });
   const [errors, setErrors] = useState<Record<string, string | null>>({
     divisions: null,
@@ -127,6 +131,7 @@ export default function DashboardPage() {
     approvals: null,
     executions: null,
     activity: null,
+    pendingCounts: null,
   });
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
 
@@ -186,6 +191,14 @@ export default function DashboardPage() {
           setTotalActivity(res?.total_count ?? 0);
           break;
         }
+        case 'pendingCounts': {
+          // P3-01: Fetch authorized pending counts from server-side aggregates
+          const res = await apiClient.get<{ pending_approvals: number }>('/api/approvals/pending-count');
+          const execRes = await apiClient.get<{ pending_count: number }>('/api/executions/pending-count');
+          setPendingApprovalsCount(res?.pending_approvals ?? 0);
+          setPendingExecutionsCount(execRes?.pending_count ?? 0);
+          break;
+        }
       }
     } catch (err: any) {
       setErrors(prev => ({ ...prev, [section]: getErrorMessage(err, `Failed to fetch ${section}`) }));
@@ -202,6 +215,7 @@ export default function DashboardPage() {
       fetchSection('approvals'),
       fetchSection('executions'),
       fetchSection('activity'),
+      fetchSection('pendingCounts'),
     ]);
     setLastRefreshed(new Date());
   }, [fetchSection]);
@@ -319,8 +333,6 @@ export default function DashboardPage() {
   const totalDivisions = divisions.length;
   const activeStaff = staff.filter(s => s.status === 'active').length;
   const totalStaff = staff.length;
-  const pendingApprovals = approvals.filter(a => a.status === 'pending').length;
-  const pendingExecutions = executions.filter(e => e.status === 'approval_required' || e.status === 'queued' || e.status === 'proposed' || e.status === 'permission_check').length;
 
   type MuiColor = 'primary' | 'secondary' | 'warning' | 'error' | 'info' | 'success';
 
@@ -362,27 +374,27 @@ export default function DashboardPage() {
     },
     {
       label: 'Pending Approvals',
-      value: pendingApprovals,
+      value: pendingApprovalsCount,
       secondary: `${totalApprovals} total`,
       icon: <Gavel fontSize="large" />,
       color: 'warning',
-      loading: loading.approvals,
-      error: errors.approvals,
+      loading: loading.pendingCounts,
+      error: errors.pendingCounts,
       onClick: () => navigate('/approvals'),
       emptyAction: totalApprovals === 0 && totalStaff > 0 ? { label: 'No pending approvals', onClick: () => {} } : null,
-      retryKey: 'approvals',
+      retryKey: 'pendingCounts',
     },
     {
       label: 'Execution Requests',
-      value: pendingExecutions,
+      value: pendingExecutionsCount,
       secondary: `${totalExecutions} total`,
       icon: <PlayArrow fontSize="large" />,
       color: 'info',
-      loading: loading.executions,
-      error: errors.executions,
+      loading: loading.pendingCounts,
+      error: errors.pendingCounts,
       onClick: () => navigate('/executions'),
       emptyAction: totalExecutions === 0 ? { label: 'View Executions', onClick: () => navigate('/executions') } : null,
-      retryKey: 'executions',
+      retryKey: 'pendingCounts',
     },
   ];
 

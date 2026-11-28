@@ -107,6 +107,39 @@ router.get('/', asyncHandler(async (req: Request, res: Response) => {
   res.json({ executions, total_count: total, limit, offset });
 }));
 
+// GET /api/executions/pending-count - Get authorized pending execution count only
+router.get('/pending-count', asyncHandler(async (req: Request, res: Response) => {
+  const ctx = requireAuth(req);
+
+  // P3-01: Pending execution statuses that need attention
+  // These match the statuses checked in DashboardPage.tsx line 323
+  const pendingStatuses = ['approval_required', 'queued', 'proposed', 'permission_check'];
+
+  // Build the base query with pending status filter
+  const whereClauses: string[] = [];
+  const params: any[] = [];
+
+  // P3-01: Only count pending executions, scoped by authorization
+  whereClauses.push(`status IN (${pendingStatuses.map(() => '?').join(',')})`);
+  params.push(...pendingStatuses);
+
+  if (ctx.owner_type !== 'founder') {
+    // Non-Founders: only count their own requests
+    whereClauses.push('requested_by_type = ?');
+    params.push(ctx.owner_type);
+    whereClauses.push('requested_by_id = ?');
+    params.push(ctx.owner_id);
+  }
+
+  const where = whereClauses.length > 0 ? 'WHERE ' + whereClauses.join(' AND ') : '';
+  const count = db.query(
+    `SELECT COUNT(*) as cnt FROM execution_requests ${where}`,
+    params
+  )[0].cnt;
+
+  res.json({ pending_count: count });
+}));
+
 // GET /api/executions/autonomy-levels - List task autonomy levels
 router.get('/autonomy-levels', asyncHandler(async (req: Request, res: Response) => {
   requireAuth(req);
