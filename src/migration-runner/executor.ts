@@ -176,42 +176,17 @@ export class MigrationExecutor {
       };
     }
 
-    // Execute migration with special handling for idempotent operations
+    // Execute migration - use schema-aware logic for migration 022
     let error: Error | undefined;
     try {
-      const sql = fs.readFileSync(migration.filepath, 'utf-8');
-
-      // Special handling for migration 022: check if columns already exist
-      // This migration adds columns that may already exist (from migration 017 or legacy)
+      // Migration 022 requires special handling - check schema before executing
       if (migration.id === '022') {
-        const columnsAdded = this.checkAndAddColumnsFor022();
-        if (columnsAdded === 'all_exist') {
-          // All columns already exist - skip execution
-          this.logger.info(`Migration ${migrationId} - columns already exist, skipping execution`, { migrationId });
-          const durationMs = Date.now() - startTime;
-          this.ledger.recordSuccess(
-            migration.id,
-            migration.filename,
-            migration.checksum,
-            durationMs,
-            backupResult?.backupPath || '',
-            appliedBy,
-            { targetTables: migration.targetTables, note: 'columns_already_exist' }
-          );
-          return {
-            success: true,
-            durationMs,
-            backupResult,
-            preValidation,
-            postValidation
-          };
-        }
-        if (columnsAdded === 'partial') {
-          this.logger.warn(`Migration ${migrationId} - some columns existed, partial execution needed`, { migrationId });
-        }
-        // Re-read SQL and execute for columns that need to be added
+        const result = await this.executeMigration022();
+        return result;
       }
 
+      // Standard migration execution path
+      const sql = fs.readFileSync(migration.filepath, 'utf-8');
       // Migration SQL files contain their own transaction handling (BEGIN/COMMIT)
       // Don't wrap in additional transaction
       this.db.exec(sql);
@@ -251,41 +226,6 @@ export class MigrationExecutor {
     } catch (e) {
       error = e instanceof Error ? e : new Error(String(e));
 
-      // Check for SQLite "duplicate column" errors - these indicate the migration
-      // was already applied in a previous run or columns already exist
-      // For migrations that use ALTER TABLE ADD COLUMN, this should be treated as success
-      // Note: This is a fallback for migrations 022 when executed via direct SQL
-      const isDuplicateColumnError = error.message.includes('duplicate column name') ||
-                                     error.message.includes('duplicate column');
-
-      if (isDuplicateColumnError) {
-        this.logger.warn(`Migration ${migrationId} encountered duplicate column(s), treating as non-fatal`, {
-          migrationId,
-          error: error.message
-        });
-
-        // Record as successful (idempotent migration - work already done)
-        const durationMs = Date.now() - startTime;
-        this.ledger.recordSuccess(
-          migration.id,
-          migration.filename,
-          migration.checksum,
-          durationMs,
-          backupResult?.backupPath || '',
-          appliedBy,
-          { targetTables: migration.targetTables, note: 'idempotent_skip_duplicate_column' }
-        );
-
-        return {
-          success: true,
-          durationMs,
-          backupResult,
-          preValidation,
-          postValidation,
-          error
-        };
-      }
-
       this.logger.error(`Migration ${migrationId} failed`, {
         migrationId,
         error: error.message,
@@ -316,11 +256,20 @@ export class MigrationExecutor {
   }
 
   /**
-   * Check if runtime_sessions has generation and credential_id columns, and runtime_session_history
-   * has generation and credential_id columns. If missing, add them.
-   * Returns 'all_exist', 'partial', or 'none_exist'
+   * Execute migration 022 with schema-aware column and index verification.
+   * This migration adds 'generation' and 'credential_id' columns to
+   * runtime_sessions and runtime_session_history tables.
+   *
+   * The schema-aware approach inspects the database before making changes,
+   * ensuring no duplicate-column errors and proper index verification.
    */
-  private checkAndAddColumnsFor022(): 'all_exist' | 'partial' | 'none_exist' {
+  private async executeMigration022(): Promise<ExecutionResult> {
+    const migrationId = '022';
+    const startTime = Date.now();
+
+    this.logger.info(`Starting schema-aware migration ${migrationId}`, { migrationId });
+
+    // Check current schema state
     const runtimeSessionsCols = this.db.prepare('PRAGMA table_info(runtime_sessions)').all() as Array<{ name: string }>;
     const runtimeSessionHistoryCols = this.db.prepare('PRAGMA table_info(runtime_session_history)').all() as Array<{ name: string }>;
 
@@ -332,37 +281,114 @@ export class MigrationExecutor {
     const rshHasGeneration = rshColNames.includes('generation');
     const rshHasCredentialId = rshColNames.includes('credential_id');
 
-    // Check if all columns already exist in both tables
-    if (rsHasGeneration && rsHasCredentialId && rshHasGeneration && rshHasCredentialId) {
-      return 'all_exist';
-    }
+    // Check existing indexes
+    const rsIndexes = this.db.prepare(`SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='runtime_sessions'`).all() as Array<{ name: string }>;
+    const rshIndexes = this.db.prepare(`SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='runtime_session_history'`).all() as Array<{ name: string }>;
+    const rsIndexNames = rsIndexes.map(i => i.name);
+    const rshIndexNames = rshIndexes.map(i => i.name);
+
+    const rsHasCredIdx = rsIndexNames.includes('idx_runtime_sessions_credential_id');
+    const rshHasCredIdx = rshIndexNames.includes('idx_runtime_session_history_credential_id');
+
+    // Track if any changes were made
+    let changesMade = false;
+    const operations: string[] = [];
 
     // Add missing columns to runtime_sessions
     if (!rsHasGeneration) {
       this.db.exec('ALTER TABLE runtime_sessions ADD COLUMN generation INTEGER DEFAULT 0');
+      changesMade = true;
+      operations.push('runtime_sessions.generation added');
     }
     if (!rsHasCredentialId) {
       this.db.exec('ALTER TABLE runtime_sessions ADD COLUMN credential_id TEXT');
+      changesMade = true;
+      operations.push('runtime_sessions.credential_id added');
     }
 
     // Add missing columns to runtime_session_history
     if (!rshHasGeneration) {
       this.db.exec('ALTER TABLE runtime_session_history ADD COLUMN generation INTEGER DEFAULT 0');
+      changesMade = true;
+      operations.push('runtime_session_history.generation added');
     }
     if (!rshHasCredentialId) {
       this.db.exec('ALTER TABLE runtime_session_history ADD COLUMN credential_id TEXT');
+      changesMade = true;
+      operations.push('runtime_session_history.credential_id added');
     }
 
-    // Create indexes if they don't exist
-    this.db.exec('CREATE INDEX IF NOT EXISTS idx_runtime_sessions_credential_id ON runtime_sessions(credential_id)');
-    this.db.exec('CREATE INDEX IF NOT EXISTS idx_runtime_session_history_credential_id ON runtime_session_history(credential_id)');
+    // Create missing indexes (always verify/create, even if columns exist)
+    if (!rsHasCredIdx) {
+      this.db.exec('CREATE INDEX IF NOT EXISTS idx_runtime_sessions_credential_id ON runtime_sessions(credential_id)');
+      changesMade = true;
+      operations.push('idx_runtime_sessions_credential_id created');
+    }
+    if (!rshHasCredIdx) {
+      this.db.exec('CREATE INDEX IF NOT EXISTS idx_runtime_session_history_credential_id ON runtime_session_history(credential_id)');
+      changesMade = true;
+      operations.push('idx_runtime_session_history_credential_id created');
+    }
 
-    // Determine what state we're in
-    const allColumnsExist = rsHasGeneration && rsHasCredentialId && rshHasGeneration && rshHasCredentialId;
-    const wereAnyAdded = !rsHasGeneration || !rsHasCredentialId || !rshHasGeneration || !rshHasCredentialId;
+    // Run post-migration validation
+    const postValidation = await this.validator.postMigrationValidation({
+      id: migrationId,
+      filename: '022_add_credential_id_to_runtime_sessions.sql',
+      filepath: '',
+      type: 'alter_additive',
+      dependencies: ['021'],
+      targetTables: ['runtime_sessions', 'runtime_session_history'],
+      description: 'add_credential_id_to_runtime_sessions',
+      checksum: ''
+    });
 
-    return (rsHasGeneration && rsHasCredentialId && rshHasGeneration && rshHasCredentialId) ? 'all_exist' :
-           (wereAnyAdded || !allColumnsExist) ? 'partial' : 'none_exist';
+    if (!postValidation.passed) {
+      const durationMs = Date.now() - startTime;
+      this.logger.error(`Migration ${migrationId} failed post-validation`, {
+        migrationId,
+        errors: postValidation.checks.filter(c => !c.passed).map(c => c.name)
+      });
+      this.ledger.recordFailure(
+        migrationId,
+        '022_add_credential_id_to_runtime_sessions.sql',
+        '',
+        new Error(`Post-migration validation failed`),
+        durationMs,
+        '',
+        'system',
+        { targetTables: ['runtime_sessions', 'runtime_session_history'] }
+      );
+      return {
+        success: false,
+        durationMs,
+        error: new Error(`Post-migration validation failed`),
+        postValidation
+      };
+    }
+
+    // Record success
+    const durationMs = Date.now() - startTime;
+    this.ledger.recordSuccess(
+      migrationId,
+      '022_add_credential_id_to_runtime_sessions.sql',
+      '',
+      durationMs,
+      '',
+      'system',
+      { targetTables: ['runtime_sessions', 'runtime_session_history'], note: changesMade ? operations.join(', ') : 'no_changes_needed' }
+    );
+
+    this.logger.info(`Migration ${migrationId} completed`, {
+      durationMs,
+      changesMade,
+      operations
+    });
+
+    return {
+      success: true,
+      durationMs,
+      postValidation
+    };
   }
 
   async executeAll(

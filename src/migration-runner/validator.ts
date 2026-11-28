@@ -67,8 +67,13 @@ export class Validator {
       checks.push(this.checkIndexesRecreated(migration));
     }
 
-    // Check 6: FTS5 triggers still functional
-    checks.push(this.checkFtsTriggers());
+    // Check 6: FTS5 triggers still functional (skip for migrations that don't touch memory_fts)
+    if (!['017', '018', '019', '020', '021', '022'].includes(migration.id)) {
+      checks.push(this.checkFtsTriggers());
+    } else if (migration.id === '022') {
+      // Migration 022: Verify credential_id columns exist
+      checks.push(...this.verifyMigration022Changes());
+    }
 
     const passed = checks.every(c => c.passed);
     return { passed, checks };
@@ -174,7 +179,6 @@ export class Validator {
 
       if (migration.id === '002') {
         // Verify cross_division_shares granted_by_type CHECK only allows 'founder'
-        const grantedByTypeCol = tableInfo.find(c => c.name === 'granted_by_type');
         // We can't easily check CHECK constraints via PRAGMA, so test insert
         try {
           this.db.prepare(`INSERT INTO cross_division_shares (share_id, memory_id, division_id, granted_by_type, granted_by_id) VALUES ('test-chk', 'mem', 'div', 'division', 'div')`).run();
@@ -373,5 +377,62 @@ export class Validator {
     } catch (e) {
       return { name: 'fts_triggers', passed: false, message: String(e) };
     }
+  }
+
+  private verifyMigration022Changes(): ValidationCheck[] {
+    const checks: ValidationCheck[] = [];
+
+    // Verify runtime_sessions has credential_id and generation columns
+    const rsCols = this.db.prepare('PRAGMA table_info(runtime_sessions)').all() as Array<{ name: string }>;
+    const rsColNames = rsCols.map(c => c.name);
+
+    checks.push({
+      name: 'migration_022_runtime_sessions_generation',
+      passed: rsColNames.includes('generation'),
+      message: rsColNames.includes('generation') ? 'generation column exists' : 'generation column missing'
+    });
+
+    checks.push({
+      name: 'migration_022_runtime_sessions_credential_id',
+      passed: rsColNames.includes('credential_id'),
+      message: rsColNames.includes('credential_id') ? 'credential_id column exists' : 'credential_id column missing'
+    });
+
+    // Verify runtime_session_history has credential_id and generation columns
+    const rshCols = this.db.prepare('PRAGMA table_info(runtime_session_history)').all() as Array<{ name: string }>;
+    const rshColNames = rshCols.map(c => c.name);
+
+    checks.push({
+      name: 'migration_022_runtime_session_history_generation',
+      passed: rshColNames.includes('generation'),
+      message: rshColNames.includes('generation') ? 'generation column exists' : 'generation column missing'
+    });
+
+    checks.push({
+      name: 'migration_022_runtime_session_history_credential_id',
+      passed: rshColNames.includes('credential_id'),
+      message: rshColNames.includes('credential_id') ? 'credential_id column exists' : 'credential_id column missing'
+    });
+
+    // Verify indexes exist
+    const rsIndexes = this.db.prepare(`SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='runtime_sessions'`).all() as Array<{ name: string }>;
+    const rsIdxNames = rsIndexes.map(i => i.name);
+
+    checks.push({
+      name: 'migration_022_idx_runtime_sessions_credential_id',
+      passed: rsIdxNames.includes('idx_runtime_sessions_credential_id'),
+      message: rsIdxNames.includes('idx_runtime_sessions_credential_id') ? 'credential_id index exists' : 'credential_id index missing'
+    });
+
+    const rshIndexes = this.db.prepare(`SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='runtime_session_history'`).all() as Array<{ name: string }>;
+    const rshIdxNames = rshIndexes.map(i => i.name);
+
+    checks.push({
+      name: 'migration_022_idx_runtime_session_history_credential_id',
+      passed: rshIdxNames.includes('idx_runtime_session_history_credential_id'),
+      message: rshIdxNames.includes('idx_runtime_session_history_credential_id') ? 'credential_id index exists' : 'credential_id index missing'
+    });
+
+    return checks;
   }
 }

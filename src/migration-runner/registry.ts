@@ -44,10 +44,17 @@ export class MigrationRegistry {
       .filter(f => f.endsWith('.sql') && /^\d{3}_/.test(f))
       .sort();
 
+    // First pass: collect all migration IDs for filename-based dependency resolution
+    const allIds = new Set(files.map(f => this.parseMigrationId(f)));
+    const filenameToIdMap = new Map<string, string>();
+    for (const f of files) {
+      filenameToIdMap.set(f, this.parseMigrationId(f));
+    }
+
     this.migrations = files.map(filename => {
       const filepath = path.join(this.config.directory, filename);
       const id = this.parseMigrationId(filename);
-      const { type, dependencies, targetTables, description } = this.parseMigrationFile(filepath, filename);
+      const { type, dependencies, targetTables, description } = this.parseMigrationFile(filepath, filename, allIds, filenameToIdMap);
       const checksum = computeChecksum(filepath);
 
       return {
@@ -126,7 +133,12 @@ export class MigrationRegistry {
     return match ? match[1] : filename.replace('.sql', '');
   }
 
-  private parseMigrationFile(filepath: string, filename: string): { type: MigrationType; dependencies: string[]; targetTables: string[]; description: string } {
+  private parseMigrationFile(
+    filepath: string,
+    filename: string,
+    allIds: Set<string>,
+    filenameToIdMap: Map<string, string>
+  ): { type: MigrationType; dependencies: string[]; targetTables: string[]; description: string } {
     const content = fs.readFileSync(filepath, 'utf-8');
 
     // Parse type from comments
@@ -148,9 +160,20 @@ export class MigrationRegistry {
     // Remove any empty strings left after trimming
     rawDependencies = rawDependencies.filter(d => d !== '');
 
-    // Validate and expand dependency ranges like "001-005" into individual migration IDs
+    // Validate and expand dependency ranges like "001-005" into individual migration IDs,
+    // or resolve filename-based dependencies like "021_runtime_sessions_history.sql"
     const expandedDependencies: string[] = [];
+    const unresolvedDependencies: string[] = [];
+
     for (const dep of rawDependencies) {
+      // First, try to resolve as a filename (e.g., "021_runtime_sessions_history.sql")
+      const resolvedAsFilename = filenameToIdMap.get(`${dep}.sql`) ?? filenameToIdMap.get(dep);
+      if (resolvedAsFilename && allIds.has(resolvedAsFilename)) {
+        expandedDependencies.push(resolvedAsFilename);
+        continue;
+      }
+
+      // Try to resolve as a range (e.g., "001-005")
       const rangeMatch = dep.match(/^0*(\d+)-0*(\d+)$/);
       if (rangeMatch) {
         const start = parseInt(rangeMatch[1], 10);
@@ -165,10 +188,23 @@ export class MigrationRegistry {
         } else {
           throw new Error(`Invalid dependency range in ${filename}: ${dep} (start must be <= end, 1-999)`);
         }
-      } else {
-        const singleId = dep.replace(/^0*(\d+)$/, '$1').padStart(3, '0');
-        expandedDependencies.push(singleId);
+        continue;
       }
+
+      // Try to resolve as a single ID (e.g., "021")
+      const cleanedDep = dep.replace(/^0*(\d+)$/, '$1').padStart(3, '0');
+      if (/^\d{3}$/.test(cleanedDep)) {
+        expandedDependencies.push(cleanedDep);
+        continue;
+      }
+
+      // Could not resolve - track for error reporting
+      unresolvedDependencies.push(dep);
+    }
+
+    // Check for unresolved dependencies
+    if (unresolvedDependencies.length > 0) {
+      throw new Error(`Unresolved dependencies in ${filename}: ${unresolvedDependencies.join(', ')}`);
     }
 
     // Check for duplicate dependencies
