@@ -675,11 +675,6 @@ export function listApprovalRequests(
 ): ApprovalRequest[] {
   const identity = requireAuthenticated(ctx);
 
-  // Only Founder can list approval requests
-  if (!isFounder(identity)) {
-    throw new Error('Only Founder can list approval requests');
-  }
-
   const whereClauses: string[] = [];
   const params: any[] = [];
 
@@ -702,10 +697,17 @@ export function listApprovalRequests(
     `SELECT * FROM approval_requests ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`,
     [...params, input.limit ?? 50, input.offset ?? 0]
   ) as Record<string, any>[];
-  return requests.map((row) => ({
-    ...row,
-    action_payload: parseJson(row.action_payload, {}),
-  })) as ApprovalRequest[];
+  // P2-09: Filter results based on authorization - non-Founders only see their own requests
+  return requests
+    .filter((row) => {
+      if (identity.owner_type === 'founder') return true;
+      // Non-Founder: check if this request was made by them
+      return row.requested_by_type === identity.owner_type && row.requested_by_id === identity.owner_id;
+    })
+    .map((row) => ({
+      ...row,
+      action_payload: parseJson(row.action_payload, {}),
+    })) as ApprovalRequest[];
 }
 
 function writeExecutionHistory(

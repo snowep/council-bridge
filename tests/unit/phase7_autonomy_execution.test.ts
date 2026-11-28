@@ -499,13 +499,14 @@ describe('Phase 7: Approval Workflow', () => {
     assert.strictEqual(approvals[0].status, 'pending');
   });
 
-  test('Non-Founder cannot list approval requests', () => {
+  test('Non-Founder can list their own approval requests', () => {
+    // P2-09: Non-Founders can now list their own approval requests
     createLevel3Setup(council);
     const staffCtx = { owner_type: 'staff' as const, owner_id: 'staff-001', runtime: 'claude' as const };
 
-    assert.throws(() => {
-      council.listApprovalRequests(staffCtx, {});
-    }, /Only Founder can list approval requests/);
+    // Staff should be able to list their own requests (scoped by their identity)
+    const approvals = council.listApprovalRequests(staffCtx, { limit: 50, offset: 0 });
+    assert.ok(Array.isArray(approvals));
   });
 });
 

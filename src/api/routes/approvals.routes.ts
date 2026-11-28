@@ -33,6 +33,7 @@ router.get('/', asyncHandler(async (req: Request, res: Response) => {
   });
 
   // Calculate total count by querying without limit/offset
+  // Use effective authorization filters to scope the count correctly for non-Founders
   const whereClauses: string[] = [];
   const params: any[] = [];
 
@@ -40,11 +41,11 @@ router.get('/', asyncHandler(async (req: Request, res: Response) => {
     whereClauses.push('status = ?');
     params.push(status);
   }
-  if (requested_by_type) {
+  if (effectiveRequestedByType) {
     whereClauses.push('requested_by_type = ?');
     params.push(effectiveRequestedByType);
   }
-  if (requested_by_id) {
+  if (effectiveRequestedById) {
     whereClauses.push('requested_by_id = ?');
     params.push(effectiveRequestedById);
   }

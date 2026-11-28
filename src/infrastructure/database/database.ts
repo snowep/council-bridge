@@ -271,6 +271,14 @@ export interface DatabaseInstance {
     getIdentityCredentialByIdentity: PreparedStatement;
     updateIdentityCredentialStatus: PreparedStatement;
     updateIdentityCredentialLastUsed: PreparedStatement;
+
+    // P1-04: Archive statements for credential rotation (preserve execution history)
+    archiveExecutionRecords: PreparedStatement;
+    archiveSessionToHistory: PreparedStatement;
+    archiveAllSessionExecutionRecords: PreparedStatement;
+    archiveSession: PreparedStatement;
+    deleteArchivedExecutionRecords: PreparedStatement;
+    deleteSessionById: PreparedStatement;
   };
   query: (sql: string, params?: any[]) => QueryResult;
   runPreparedStatement: (name: string, params?: any[]) => any;
@@ -1905,6 +1913,48 @@ function createDatabase(dbPath?: string): DatabaseInstance {
 
     updateIdentityCredentialLastUsed: db.prepare(`
       UPDATE identity_credentials SET last_used_at = ? WHERE credential_id = ?
+    `) as PreparedStatement,
+
+    // P1-04: Archive execution records to history table (credential rotation)
+    archiveExecutionRecords: db.prepare(`
+      INSERT INTO execution_records_history (id, session_id, runtime_id, started_at, expires_at, completed, generation, original_session_id, archived_at)
+      SELECT id, session_id, runtime_id, started_at, expires_at, completed, generation, ?, datetime('now')
+      FROM execution_records
+      WHERE session_id = ?
+    `) as PreparedStatement,
+
+    // P1-04: Archive session to history table (credential rotation)
+    archiveSessionToHistory: db.prepare(`
+      INSERT INTO runtime_session_history (original_session_id, runtime, credential_id, connection_status, connected_at, last_heartbeat_at, lease_expires_at, client_ip, user_agent, last_error, generation, disconnected_at, created_at, updated_at)
+      SELECT session_id, runtime, credential_id, connection_status, connected_at, last_heartbeat_at, lease_expires_at, client_ip, user_agent, last_error, generation, ?, datetime('now'), datetime('now')
+      FROM runtime_sessions
+      WHERE session_id = ?
+    `) as PreparedStatement,
+
+    // P1-04: Archive all execution records for a session
+    archiveAllSessionExecutionRecords: db.prepare(`
+      INSERT INTO execution_records_history (id, session_id, runtime_id, started_at, expires_at, completed, generation, original_session_id, archived_at)
+      SELECT id, session_id, runtime_id, started_at, expires_at, completed, generation, session_id, datetime('now')
+      FROM execution_records
+      WHERE session_id = ?
+    `) as PreparedStatement,
+
+    // P1-04: Archive session (marks as disconnected and moves to history)
+    archiveSession: db.prepare(`
+      INSERT INTO runtime_session_history (original_session_id, runtime, credential_id, connection_status, connected_at, last_heartbeat_at, lease_expires_at, client_ip, user_agent, last_error, generation, disconnected_at, created_at, updated_at)
+      SELECT session_id, runtime, credential_id, 'disconnected', connected_at, last_heartbeat_at, lease_expires_at, client_ip, user_agent, 'Credential rotated', generation, ?, datetime('now'), datetime('now')
+      FROM runtime_sessions
+      WHERE session_id = ?
+    `) as PreparedStatement,
+
+    // P1-04: Delete archived execution records from active table
+    deleteArchivedExecutionRecords: db.prepare(`
+      DELETE FROM execution_records WHERE session_id = ?
+    `) as PreparedStatement,
+
+    // P1-04: Delete old session from active table
+    deleteSessionById: db.prepare(`
+      DELETE FROM runtime_sessions WHERE session_id = ?
     `) as PreparedStatement,
   };
 

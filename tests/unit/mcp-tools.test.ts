@@ -470,7 +470,7 @@ describe('MCP Tool Registration - Phase 9 Task 3', () => {
       assert.ok(parsed.result.content[0].text.includes('Only Founder can approve execution requests'));
     });
 
-    it('should enforce Founder-only for list_approval_requests', async () => {
+    it('should allow staff to list their own approval requests', async () => {
       const response = await request(server)
         .post('/mcp')
         .set('Authorization', `Bearer ${staffToken}`)
@@ -485,8 +485,9 @@ describe('MCP Tool Registration - Phase 9 Task 3', () => {
         .expect(200);
 
       const parsed = parseSSEResponse(response.text);
-      assert.strictEqual(parsed.result.isError, true);
-      assert.ok(parsed.result.content[0].text.includes('Only Founder can list approval requests'));
+      // P2-09: Non-Founders can now list their own approval requests
+      assert.ok(!parsed.result.isError, 'Should not be an error');
+      assert.ok(parsed.result.content, 'Should have content');
     });
 
     it('should allow staff to call request_execution', async () => {
