@@ -327,27 +327,6 @@ export class MigrationExecutor {
 
     this.logger.info(`Starting schema-aware migration ${migrationId}`, { migrationId });
 
-    // Check current schema state (synchronous, outside transaction)
-    const runtimeSessionsCols = this.db.prepare('PRAGMA table_info(runtime_sessions)').all() as Array<{ name: string }>;
-    const runtimeSessionHistoryCols = this.db.prepare('PRAGMA table_info(runtime_session_history)').all() as Array<{ name: string }>;
-
-    const rsColNames = runtimeSessionsCols.map(c => c.name);
-    const rshColNames = runtimeSessionHistoryCols.map(c => c.name);
-
-    const rsHasGeneration = rsColNames.includes('generation');
-    const rsHasCredentialId = rsColNames.includes('credential_id');
-    const rshHasGeneration = rshColNames.includes('generation');
-    const rshHasCredentialId = rshColNames.includes('credential_id');
-
-    // Check existing indexes
-    const rsIndexes = this.db.prepare(`SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='runtime_sessions'`).all() as Array<{ name: string }>;
-    const rshIndexes = this.db.prepare(`SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='runtime_session_history'`).all() as Array<{ name: string }>;
-    const rsIndexNames = rsIndexes.map(i => i.name);
-    const rshIndexNames = rshIndexes.map(i => i.name);
-
-    const rsHasCredIdx = rsIndexNames.includes('idx_runtime_sessions_credential_id');
-    const rshHasCredIdx = rshIndexNames.includes('idx_runtime_session_history_credential_id');
-
     // Track if any changes were made
     let changesMade = false;
     const operations: string[] = [];
@@ -360,6 +339,28 @@ export class MigrationExecutor {
     this.db.exec('BEGIN IMMEDIATE TRANSACTION');
 
     try {
+      // Check current schema state WHILE HOLDING TRANSACTION
+      // This ensures no schema changes can occur between inspection and modification
+      const runtimeSessionsCols = this.db.prepare('PRAGMA table_info(runtime_sessions)').all() as Array<{ name: string }>;
+      const runtimeSessionHistoryCols = this.db.prepare('PRAGMA table_info(runtime_session_history)').all() as Array<{ name: string }>;
+
+      const rsColNames = runtimeSessionsCols.map(c => c.name);
+      const rshColNames = runtimeSessionHistoryCols.map(c => c.name);
+
+      const rsHasGeneration = rsColNames.includes('generation');
+      const rsHasCredentialId = rsColNames.includes('credential_id');
+      const rshHasGeneration = rshColNames.includes('generation');
+      const rshHasCredentialId = rshColNames.includes('credential_id');
+
+      // Check existing indexes
+      const rsIndexes = this.db.prepare(`SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='runtime_sessions'`).all() as Array<{ name: string }>;
+      const rshIndexes = this.db.prepare(`SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='runtime_session_history'`).all() as Array<{ name: string }>;
+      const rsIndexNames = rsIndexes.map(i => i.name);
+      const rshIndexNames = rshIndexes.map(i => i.name);
+
+      const rsHasCredIdx = rsIndexNames.includes('idx_runtime_sessions_credential_id');
+      const rshHasCredIdx = rshIndexNames.includes('idx_runtime_session_history_credential_id');
+
       // Add missing columns to runtime_sessions
       if (!rsHasGeneration) {
         this.db.exec('ALTER TABLE runtime_sessions ADD COLUMN generation INTEGER DEFAULT 0');

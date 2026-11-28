@@ -166,8 +166,10 @@ export class MigrationRegistry {
     const unresolvedDependencies: string[] = [];
 
     for (const dep of rawDependencies) {
-      // First, try to resolve as a filename (e.g., "021_runtime_sessions_history.sql")
-      const resolvedAsFilename = filenameToIdMap.get(`${dep}.sql`) ?? filenameToIdMap.get(dep);
+      // First, try to resolve as a filename (e.g., "021_runtime_sessions_history.sql" or "021_runtime_sessions_history")
+      // Check both with and without .sql extension to handle various formats
+      const depWithExtension = dep.endsWith('.sql') ? dep : `${dep}.sql`;
+      const resolvedAsFilename = filenameToIdMap.get(depWithExtension) ?? filenameToIdMap.get(dep);
       if (resolvedAsFilename && allIds.has(resolvedAsFilename)) {
         expandedDependencies.push(resolvedAsFilename);
         continue;
