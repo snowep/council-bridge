@@ -4,13 +4,10 @@
 
 import { describe, it, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import express from 'express';
-import request from 'supertest';
 import { createDatabase, DatabaseInstance, closeDatabase, setDatabaseInstance, stmt } from '../../src/database.js';
-import { generateSessionToken, setDbSessionStore } from '../../src/auth/session.js';
+import { setDbSessionStore } from '../../src/auth/session.js';
 import { generateIdentityCredential, hashIdentityCredential, insertIdentityCredential, revokeIdentityCredential } from '../../src/auth/identity-credentials.js';
 import { initializeFounderKeys } from '../../src/auth/founder.js';
-import { authMiddleware, getAuthContext } from '../../src/auth/index.js';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -18,18 +15,6 @@ import * as path from 'node:path';
 let db: DatabaseInstance;
 let keysDir: string;
 
-// Create test Express app with session endpoint for testing
-function createTestApp() {
-  const testApp = express();
-  testApp.use(express.json());
-
-  // Apply auth middleware
-  testApp.use((req, res, next) => authMiddleware(req, res, next));
-
-  // Import and register routes from the server module
-  // For testing, we need to simulate the session creation endpoint behavior
-  return testApp;
-}
 
 describe('P1-01: Anonymous Identity Session Provisioning', () => {
   before(async () => {
@@ -51,8 +36,8 @@ describe('P1-01: Anonymous Identity Session Provisioning', () => {
     stmt.insertStaffAgent.run('staff-002', 'Test Staff 2', 'member', 'div-test-1', '[]', '[]', 'active');
 
     // Add council seats
-    stmt.insertSeat.run('seat-001', 'test-seat-1', 'active', '[]', '[]');
-    stmt.insertSeat.run('seat-002', 'test-seat-2', 'active', '[]', '[]');
+    stmt.insertSeat.run('seat-001', 'test-seat-1', 'vacant', 0, '');
+    stmt.insertSeat.run('seat-002', 'test-seat-2', 'vacant', 0, '');
 
     // Initialize founder keys for production mode tests
     keysDir = fs.mkdtempSync(path.join(os.tmpdir(), 'council-test-keys-'));
@@ -223,7 +208,7 @@ describe('P1-01: Anonymous Identity Session Provisioning', () => {
         expiresAt: Date.now() - 1000  // Expired 1 second ago
       });
 
-      const result = validateIdentityCredential(db, expiredCred.secret, 'staff');
+      validateIdentityCredential(db, expiredCred.secret, 'staff');
       // Note: This will fail to find the credential since we stored with a different ID
       // But the validation function properly checks expiry time
     });
