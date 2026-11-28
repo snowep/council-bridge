@@ -79,6 +79,44 @@ export class Validator {
     return { passed, checks };
   }
 
+  /**
+   * Synchronous post-migration validation for use inside transactions.
+   * Migration 022 requires all validation to be synchronous to maintain transaction atomicity.
+   */
+  postMigrationValidationSync(migration: Migration): ValidationResult {
+    const checks: ValidationCheck[] = [];
+
+    // Check 1: Integrity check passes (synchronous PRAGMA)
+    checks.push(this.checkIntegrity());
+
+    // Check 2: Foreign key check passes (synchronous PRAGMA)
+    checks.push(this.checkForeignKeys());
+
+    // Check 3: Migration-specific schema changes verified
+    checks.push(...this.verifyMigrationChanges(migration));
+
+    // Check 4: Row counts preserved (for table rebuilds)
+    if (migration.type === 'table_rebuild') {
+      checks.push(this.checkRowCountsPreserved(migration));
+    }
+
+    // Check 5: Indexes recreated (for table rebuilds)
+    if (migration.type === 'table_rebuild') {
+      checks.push(this.checkIndexesRecreated(migration));
+    }
+
+    // Check 6: FTS5 triggers still functional (skip for migrations that don't touch memory_fts)
+    if (!['017', '018', '019', '020', '021', '022'].includes(migration.id)) {
+      checks.push(this.checkFtsTriggers());
+    } else if (migration.id === '022') {
+      // Migration 022: Verify credential_id columns exist
+      checks.push(...this.verifyMigration022Changes());
+    }
+
+    const passed = checks.every(c => c.passed);
+    return { passed, checks };
+  }
+
   async fullIntegrityCheck(): Promise<boolean> {
     const integrity = this.db.prepare('PRAGMA integrity_check').get() as { integrity_check: string };
     const fkCheck = this.db.prepare('PRAGMA foreign_key_check').all();

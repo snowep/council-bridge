@@ -161,6 +161,11 @@ describe('Migration 022 - Scenario: Fresh Database', () => {
       new ConsoleLogger()
     );
 
+    // REQUIREMENT: Migration 021 must be successfully applied first
+    // Record 021 as successfully applied in ledger to satisfy prerequisite
+    ledger.recordSuccess('021', '021_runtime_sessions_history.sql', registry.getById('021')!.checksum, 1, '', 'system',
+      { targetTables: ['runtime_sessions', 'runtime_session_history'], note: 'prerequisite_for_022' });
+
     // Verify columns don't exist initially
     const rsColsBefore = getTableInfo(testDB.db, 'runtime_sessions').map(c => c.name);
     assert.ok(!rsColsBefore.includes('credential_id'), 'credential_id should not exist in runtime_sessions yet');
@@ -190,6 +195,10 @@ describe('Migration 022 - Scenario: Fresh Database', () => {
       new Validator(testDB.db),
       new ConsoleLogger()
     );
+
+    // REQUIREMENT: Migration 021 must be successfully applied first
+    ledger.recordSuccess('021', '021_runtime_sessions_history.sql', registry.getById('021')!.checksum, 1, '', 'system',
+      { targetTables: ['runtime_sessions', 'runtime_session_history'], note: 'prerequisite_for_022' });
 
     const result = await executor.executeMigration('022', { createBackup: false });
     assert.ok(result.success, 'Migration 022 should succeed');
@@ -260,6 +269,10 @@ describe('Migration 022 - Scenario: Partial Column Existence', () => {
       new Validator(testDB.db),
       new ConsoleLogger()
     );
+
+    // REQUIREMENT: Migration 021 must be successfully applied first
+    ledger.recordSuccess('021', '021_runtime_sessions_history.sql', registry.getById('021')!.checksum, 1, '', 'system',
+      { targetTables: ['runtime_sessions', 'runtime_session_history'], note: 'prerequisite_for_022' });
 
     // First add the missing column manually (simulating the migration's work)
     testDB.db.exec('ALTER TABLE runtime_sessions ADD COLUMN credential_id TEXT');
@@ -336,8 +349,10 @@ describe('Migration 022 - Scenario: Missing Indexes Only', () => {
       new ConsoleLogger()
     );
 
-    // Migration is NOT recorded - so executeMigration022 will run
-    // It should detect indexes are missing and create them
+    // REQUIREMENT: Migration 021 must be successfully applied first
+    ledger.recordSuccess('021', '021_runtime_sessions_history.sql', registry.getById('021')!.checksum, 1, '', 'system',
+      { targetTables: ['runtime_sessions', 'runtime_session_history'], note: 'prerequisite_for_022' });
+
     const result = await executor.executeMigration('022', { createBackup: false });
     assert.ok(result.success, 'Migration 022 should succeed and create missing indexes');
 
@@ -401,6 +416,10 @@ describe('Migration 022 - Scenario: Idempotent Rerun', () => {
       new ConsoleLogger()
     );
 
+    // REQUIREMENT: Migration 021 must be successfully applied first
+    ledger.recordSuccess('021', '021_runtime_sessions_history.sql', registry.getById('021')!.checksum, 1, '', 'system',
+      { targetTables: ['runtime_sessions', 'runtime_session_history'], note: 'prerequisite_for_022' });
+
     // First execution
     const result1 = await executor.executeMigration('022', { createBackup: false });
     assert.ok(result1.success, 'First execution should succeed');
@@ -412,41 +431,233 @@ describe('Migration 022 - Scenario: Idempotent Rerun', () => {
 });
 
 // ============================================================================
-// Scenario 5: Migration 021 missing blocks 022
+// Scenario 5: Prerequisite Verification Tests
 // ============================================================================
-describe('Migration 022 - Scenario: Missing Prerequisite', () => {
+describe('Migration 022 - Prerequisite Verification', () => {
   let testDB: TestDB;
+  const registry = new MigrationRegistry({ directory: MIGRATION_DIR });
 
   beforeEach(() => {
     testDB = createTestDB();
     createPhase4Schema(testDB.db);
+    // Create tables that migration 022 expects
+    testDB.db.exec(`
+      CREATE TABLE runtime_sessions (
+        runtime TEXT PRIMARY KEY,
+        session_id TEXT UNIQUE NOT NULL,
+        connection_status TEXT NOT NULL DEFAULT 'disconnected',
+        generation INTEGER DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE TABLE runtime_session_history (
+        original_session_id TEXT PRIMARY KEY,
+        runtime TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        connection_status TEXT NOT NULL,
+        generation INTEGER DEFAULT 0,
+        disconnected_at TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+    `);
   });
 
   afterEach(() => {
     testDB.close();
   });
 
-  test('filename-based dependency resolves correctly in registry', async () => {
-    const registry = new MigrationRegistry({ directory: MIGRATION_DIR });
-    const migrations = registry.getAll();
+  test('migration 021 not in ledger blocks 022', async () => {
+    const ledger = new MigrationLedger(testDB.db);
+    ledger.initialize();
+    const executor = new MigrationExecutor(
+      testDB.db, registry, ledger,
+      new BackupManager('data/backups'),
+      new Validator(testDB.db),
+      new ConsoleLogger()
+    );
 
-    // Check that migration 022 declares dependency on 021
-    const m022 = migrations.find(m => m.id === '022');
-    assert.ok(m022, 'Migration 022 should exist');
-    assert.ok(m022.dependencies.includes('021'), 'Migration 022 should depend on 021');
+    // Migration 021 exists in registry (file exists) but not in ledger
+    const m021 = registry.getById('021');
+    assert.ok(m021, 'Migration 021 should exist in registry');
 
-    // The dependency should be resolved from filename in SQL file
-    // Prerequisites: 021_runtime_sessions_history.sql -> 021
+    const result = await executor.executeMigration('022', { createBackup: false });
+    assert.ok(!result.success, 'Migration 022 should fail when 021 is not in ledger');
+    assert.ok(result.error?.message.includes('Migration 021 not recorded in ledger'),
+      `Error message should mention missing ledger entry: ${result.error?.message}`);
   });
 
-  test('dependency on 021 is tracked correctly', async () => {
-    const registry = new MigrationRegistry({ directory: MIGRATION_DIR });
+  test('migration 021 pending status blocks 022', async () => {
+    const ledger = new MigrationLedger(testDB.db);
+    ledger.initialize();
+    const executor = new MigrationExecutor(
+      testDB.db, registry, ledger,
+      new BackupManager('data/backups'),
+      new Validator(testDB.db),
+      new ConsoleLogger()
+    );
 
-    // Try to execute 022 without 021 applied
-    // This should work because 017 creates tables, and 022 is schema-aware
-    // But we verify the dependency is tracked correctly
-    const m022 = registry.getById('022');
-    assert.ok(m022?.dependencies.includes('021'), 'Migration 022 should declare dependency on 021');
+    // Record 021 as pending
+    const m021 = registry.getById('021')!;
+    ledger.recordPending('021', m021.filename, m021.checksum, { note: 'test pending state' });
+
+    const result = await executor.executeMigration('022', { createBackup: false });
+    assert.ok(!result.success, 'Migration 022 should fail when 021 is pending');
+    assert.ok(result.error?.message.includes("has status 'pending'"),
+      `Error message should mention pending status: ${result.error?.message}`);
+  });
+
+  test('migration 021 failed status blocks 022', async () => {
+    const ledger = new MigrationLedger(testDB.db);
+    ledger.initialize();
+    const executor = new MigrationExecutor(
+      testDB.db, registry, ledger,
+      new BackupManager('data/backups'),
+      new Validator(testDB.db),
+      new ConsoleLogger()
+    );
+
+    // Record 021 as failed
+    const m021 = registry.getById('021')!;
+    ledger.recordFailure('021', m021.filename, m021.checksum, new Error('Test failure'), 100, '', 'system');
+
+    const result = await executor.executeMigration('022', { createBackup: false });
+    assert.ok(!result.success, 'Migration 022 should fail when 021 is failed');
+    assert.ok(result.error?.message.includes("has status 'failed'"),
+      `Error message should mention failed status: ${result.error?.message}`);
+  });
+
+  test('migration 021 rolled back status blocks 022', async () => {
+    const ledger = new MigrationLedger(testDB.db);
+    ledger.initialize();
+    const executor = new MigrationExecutor(
+      testDB.db, registry, ledger,
+      new BackupManager('data/backups'),
+      new Validator(testDB.db),
+      new ConsoleLogger()
+    );
+
+    // Record 021 as rolled back
+    const m021 = registry.getById('021')!;
+    ledger.recordRolledBack('021', m021.filename, m021.checksum, '', 'system');
+
+    const result = await executor.executeMigration('022', { createBackup: false });
+    assert.ok(!result.success, 'Migration 022 should fail when 021 is rolled back');
+    assert.ok(result.error?.message.includes("has status 'rolled_back'"),
+      `Error message should mention rolled_back status: ${result.error?.message}`);
+  });
+
+  test('migration 021 successfully applied allows 022 to proceed', async () => {
+    const ledger = new MigrationLedger(testDB.db);
+    ledger.initialize();
+    const executor = new MigrationExecutor(
+      testDB.db, registry, ledger,
+      new BackupManager('data/backups'),
+      new Validator(testDB.db),
+      new ConsoleLogger()
+    );
+
+    // Record 021 as successfully applied in ledger
+    const m021 = registry.getById('021')!;
+    ledger.recordSuccess('021', m021.filename, m021.checksum, 100, '', 'system',
+      { targetTables: ['runtime_sessions', 'runtime_session_history'], note: 'prerequisite_for_022' });
+
+    const result = await executor.executeMigration('022', { createBackup: false });
+    assert.ok(result.success, 'Migration 022 should succeed when 021 is successfully applied');
+  });
+});
+
+// ============================================================================
+// Scenario 6: Direct vs Batch Execution Prerequisites
+// ============================================================================
+describe('Migration 022 - Direct vs Batch Execution Prerequisites', () => {
+  let testDB: TestDB;
+
+  beforeEach(() => {
+    testDB = createTestDB();
+    createPhase4Schema(testDB.db);
+    // Create tables that migration 022 expects
+    testDB.db.exec(`
+      CREATE TABLE runtime_sessions (
+        runtime TEXT PRIMARY KEY,
+        session_id TEXT UNIQUE NOT NULL,
+        connection_status TEXT NOT NULL DEFAULT 'disconnected',
+        generation INTEGER DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE TABLE runtime_session_history (
+        original_session_id TEXT PRIMARY KEY,
+        runtime TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        connection_status TEXT NOT NULL,
+        generation INTEGER DEFAULT 0,
+        disconnected_at TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+    `);
+  });
+
+  afterEach(() => {
+    testDB.close();
+  });
+
+  test('direct execution blocks 022 when 021 not applied', async () => {
+    const registry = new MigrationRegistry({ directory: MIGRATION_DIR });
+    const ledger = new MigrationLedger(testDB.db);
+    ledger.initialize();
+    const executor = new MigrationExecutor(
+      testDB.db, registry, ledger,
+      new BackupManager('data/backups'),
+      new Validator(testDB.db),
+      new ConsoleLogger()
+    );
+
+    // Don't apply 021
+    const result = await executor.executeMigration('022', { createBackup: false });
+    assert.ok(!result.success, 'Direct execution should block 022 when 021 not applied');
+    assert.ok(result.error?.message.includes('Prerequisite verification failed'),
+      `Error message should mention prerequisite failure: ${result.error?.message}`);
+  });
+
+  test('batch execution processes dependencies in order', async () => {
+    const registry = new MigrationRegistry({ directory: MIGRATION_DIR });
+    const ledger = new MigrationLedger(testDB.db);
+    ledger.initialize();
+    const executor = new MigrationExecutor(
+      testDB.db, registry, ledger,
+      new BackupManager('data/backups'),
+      new Validator(testDB.db),
+      new ConsoleLogger()
+    );
+
+    // Execute batch starting with 022 - should fail because 021 not applied
+    const results = await executor.executeAll(['022'], { createBackup: false });
+    assert.ok(results.length >= 1, 'Should return at least one result');
+    assert.ok(!results[0].success, 'First result should be failure');
+  });
+
+  test('batch execution succeeds when prerequisites satisfied', async () => {
+    const registry = new MigrationRegistry({ directory: MIGRATION_DIR });
+    const ledger = new MigrationLedger(testDB.db);
+    ledger.initialize();
+    const executor = new MigrationExecutor(
+      testDB.db, registry, ledger,
+      new BackupManager('data/backups'),
+      new Validator(testDB.db),
+      new ConsoleLogger()
+    );
+
+    // Apply 021 first
+    const m021 = registry.getById('021')!;
+    ledger.recordSuccess('021', m021.filename, m021.checksum, 100, '', 'system',
+      { targetTables: ['runtime_sessions', 'runtime_session_history'], note: 'prerequisite_for_022' });
+
+    // Now batch execute 022
+    const results = await executor.executeAll(['022'], { createBackup: false });
+    assert.ok(results.length === 1, 'Should return exactly one result');
+    assert.ok(results[0].success, 'Migration 022 should succeed with prerequisite satisfied');
   });
 });
 
@@ -562,11 +773,319 @@ describe('Migration 022 - Post-Validation', () => {
       new ConsoleLogger()
     );
 
-    // Record as already applied
+    // REQUIREMENT: Migration 021 must be successfully applied first
+    const m021 = registry.getById('021')!;
+    ledger.recordSuccess('021', m021.filename, m021.checksum, 100, '', 'system',
+      { targetTables: ['runtime_sessions', 'runtime_session_history'], note: 'prerequisite_for_022' });
+
+    // Record 022 as already applied
     ledger.recordSuccess('022', '022_add_credential_id_to_runtime_sessions.sql', 'test-checksum', 1, '', 'system',
       { targetTables: ['runtime_sessions', 'runtime_session_history'], note: 'columns_exist' });
 
     const result = await executor.executeMigration('022', { createBackup: false });
     assert.ok(result.success, 'Migration should succeed');
+  });
+});
+
+// ============================================================================
+// Scenario 8: Metadata Verification Tests
+// ============================================================================
+describe('Migration 022 - Metadata Verification', () => {
+  let testDB: TestDB;
+
+  beforeEach(() => {
+    testDB = createTestDB();
+    createPhase4Schema(testDB.db);
+    // Create tables similar to test setup
+    testDB.db.exec(`
+      CREATE TABLE runtime_sessions (
+        runtime TEXT PRIMARY KEY,
+        session_id TEXT UNIQUE NOT NULL,
+        connection_status TEXT NOT NULL DEFAULT 'disconnected',
+        generation INTEGER DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE TABLE runtime_session_history (
+        original_session_id TEXT PRIMARY KEY,
+        runtime TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        connection_status TEXT NOT NULL,
+        generation INTEGER DEFAULT 0,
+        disconnected_at TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+    `);
+  });
+
+  afterEach(() => {
+    testDB.close();
+  });
+
+  test('records correct checksum on success', async () => {
+    const registry = new MigrationRegistry({ directory: MIGRATION_DIR });
+    const ledger = new MigrationLedger(testDB.db);
+    ledger.initialize();
+    const executor = new MigrationExecutor(
+      testDB.db, registry, ledger,
+      new BackupManager('data/backups'),
+      new Validator(testDB.db),
+      new ConsoleLogger()
+    );
+
+    const m021 = registry.getById('021')!;
+    ledger.recordSuccess('021', m021.filename, m021.checksum, 100, '', 'system',
+      { targetTables: ['runtime_sessions', 'runtime_session_history'] });
+
+    const m022 = registry.getById('022')!;
+    const result = await executor.executeMigration('022', { createBackup: false });
+
+    assert.ok(result.success, 'Migration 022 should succeed');
+    const entry = ledger.getAll().find(e => e.migration_id === '022');
+    assert.ok(entry, 'Migration 022 should be in ledger');
+    assert.equal(entry?.checksum, m022.checksum, 'Checksum should match migration file');
+  });
+
+  test('records correct filename and migration ID', async () => {
+    const registry = new MigrationRegistry({ directory: MIGRATION_DIR });
+    const ledger = new MigrationLedger(testDB.db);
+    ledger.initialize();
+    const executor = new MigrationExecutor(
+      testDB.db, registry, ledger,
+      new BackupManager('data/backups'),
+      new Validator(testDB.db),
+      new ConsoleLogger()
+    );
+
+    const m021 = registry.getById('021')!;
+    ledger.recordSuccess('021', m021.filename, m021.checksum, 100, '', 'system');
+
+    const result = await executor.executeMigration('022', { createBackup: false });
+    assert.ok(result.success, 'Migration 022 should succeed');
+
+    const entry = ledger.getAll().find(e => e.migration_id === '022');
+    assert.ok(entry, 'Migration 022 should be in ledger');
+    assert.equal(entry?.migration_id, '022', 'Migration ID should be 022');
+    assert.equal(entry?.filename, '022_add_credential_id_to_runtime_sessions.sql', 'Filename should match');
+  });
+
+  test('records correct appliedBy identity', async () => {
+    const registry = new MigrationRegistry({ directory: MIGRATION_DIR });
+    const ledger = new MigrationLedger(testDB.db);
+    ledger.initialize();
+    const executor = new MigrationExecutor(
+      testDB.db, registry, ledger,
+      new BackupManager('data/backups'),
+      new Validator(testDB.db),
+      new ConsoleLogger()
+    );
+
+    const m021 = registry.getById('021')!;
+    ledger.recordSuccess('021', m021.filename, m021.checksum, 100, '', 'system');
+
+    const result = await executor.executeMigration('022', {
+      createBackup: false,
+      appliedBy: 'test-user-123'
+    });
+
+    assert.ok(result.success, 'Migration 022 should succeed');
+
+    const entry = ledger.getAll().find(e => e.migration_id === '022');
+    assert.equal(entry?.applied_by, 'test-user-123', 'appliedBy should be recorded');
+  });
+});
+
+// ============================================================================
+// Scenario 9: Atomicity - Successful Migration Commits All
+// ============================================================================
+describe('Migration 022 - Atomicity Tests', () => {
+  let testDB: TestDB;
+
+  beforeEach(() => {
+    testDB = createTestDB();
+    createPhase4Schema(testDB.db);
+    testDB.db.exec(`
+      CREATE TABLE runtime_sessions (
+        runtime TEXT PRIMARY KEY,
+        session_id TEXT UNIQUE NOT NULL,
+        connection_status TEXT NOT NULL DEFAULT 'disconnected',
+        generation INTEGER DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE TABLE runtime_session_history (
+        original_session_id TEXT PRIMARY KEY,
+        runtime TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        connection_status TEXT NOT NULL,
+        generation INTEGER DEFAULT 0,
+        disconnected_at TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+    `);
+  });
+
+  afterEach(() => {
+    testDB.close();
+  });
+
+  test('successful migration commits all schema changes and ledger success', async () => {
+    const registry = new MigrationRegistry({ directory: MIGRATION_DIR });
+    const ledger = new MigrationLedger(testDB.db);
+    ledger.initialize();
+    const executor = new MigrationExecutor(
+      testDB.db, registry, ledger,
+      new BackupManager('data/backups'),
+      new Validator(testDB.db),
+      new ConsoleLogger()
+    );
+
+    const m021 = registry.getById('021')!;
+    ledger.recordSuccess('021', m021.filename, m021.checksum, 100, '', 'system');
+
+    await executor.executeMigration('022', { createBackup: false });
+
+    // Verify schema changes committed
+    const rsCols = getTableInfo(testDB.db, 'runtime_sessions').map(c => c.name);
+    assert.ok(rsCols.includes('credential_id'), 'credential_id column should exist');
+
+    // Verify ledger entry exists
+    assert.ok(ledger.isApplied('022'), 'Migration 022 should be recorded as applied');
+
+    // Verify no false success entry
+    const entry = ledger.getAll().find(e => e.migration_id === '022');
+    assert.equal(entry?.status, 'success', 'Status should be success');
+  });
+
+  test('no false success entry after failure', async () => {
+    const registry = new MigrationRegistry({ directory: MIGRATION_DIR });
+    const ledger = new MigrationLedger(testDB.db);
+    ledger.initialize();
+    const executor = new MigrationExecutor(
+      testDB.db, registry, ledger,
+      new BackupManager('data/backups'),
+      new Validator(testDB.db),
+      new ConsoleLogger()
+    );
+
+    // Execute 022 without 021 to cause failure
+    const result = await executor.executeMigration('022', { createBackup: false });
+
+    assert.ok(!result.success, 'Migration 022 should fail');
+
+    // Verify no success entry in ledger
+    const entry = ledger.getAll().find(e => e.migration_id === '022');
+    assert.ok(entry, 'Migration 022 should have a ledger entry');
+    assert.equal(entry?.status, 'failed', 'Status should be failed, not success');
+  });
+
+  test('existing session and history rows remain intact on failure', async () => {
+    const registry = new MigrationRegistry({ directory: MIGRATION_DIR });
+    const ledger = new MigrationLedger(testDB.db);
+    ledger.initialize();
+
+    // Insert test data before migration attempt
+    testDB.db.prepare('INSERT INTO runtime_sessions (runtime, session_id, connection_status) VALUES (?, ?, ?)')
+      .run('claude', 'session-1', 'connected');
+    testDB.db.prepare('INSERT INTO runtime_session_history (original_session_id, runtime, session_id, connection_status, disconnected_at) VALUES (?, ?, ?, ?, ?)')
+      .run('hist-1', 'hermes', 'session-2', 'disconnected', '2024-01-01');
+
+    const executor = new MigrationExecutor(
+      testDB.db, registry, ledger,
+      new BackupManager('data/backups'),
+      new Validator(testDB.db),
+      new ConsoleLogger()
+    );
+
+    // Execute 022 without 021 to cause failure
+    const result = await executor.executeMigration('022', { createBackup: false });
+    assert.ok(!result.success, 'Migration 022 should fail');
+
+    // Verify data still exists after failure
+    const sessions = testDB.db.prepare('SELECT COUNT(*) as c FROM runtime_sessions').get() as { c: number };
+    const history = testDB.db.prepare('SELECT COUNT(*) as c FROM runtime_session_history').get() as { c: number };
+
+    assert.equal(sessions.c, 1, 'Session data should remain intact');
+    assert.equal(history.c, 1, 'History data should remain intact');
+  });
+});
+
+// ============================================================================
+// Scenario 10: Transaction Lifecycle Tests
+// ============================================================================
+describe('Migration 022 - Transaction Lifecycle', () => {
+  let testDB: TestDB;
+
+  beforeEach(() => {
+    testDB = createTestDB();
+    createPhase4Schema(testDB.db);
+    testDB.db.exec(`
+      CREATE TABLE runtime_sessions (
+        runtime TEXT PRIMARY KEY,
+        session_id TEXT UNIQUE NOT NULL,
+        connection_status TEXT NOT NULL DEFAULT 'disconnected',
+        generation INTEGER DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE TABLE runtime_session_history (
+        original_session_id TEXT PRIMARY KEY,
+        runtime TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        connection_status TEXT NOT NULL,
+        generation INTEGER DEFAULT 0,
+        disconnected_at TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+    `);
+  });
+
+  afterEach(() => {
+    testDB.close();
+  });
+
+  test('transaction is closed after success', async () => {
+    const registry = new MigrationRegistry({ directory: MIGRATION_DIR });
+    const ledger = new MigrationLedger(testDB.db);
+    ledger.initialize();
+    const executor = new MigrationExecutor(
+      testDB.db, registry, ledger,
+      new BackupManager('data/backups'),
+      new Validator(testDB.db),
+      new ConsoleLogger()
+    );
+
+    const m021 = registry.getById('021')!;
+    ledger.recordSuccess('021', m021.filename, m021.checksum, 100, '', 'system');
+
+    const result = await executor.executeMigration('022', { createBackup: false });
+    assert.ok(result.success, 'Migration 022 should succeed');
+
+    // Verify database is still usable (transaction should be closed)
+    const canQuery = testDB.db.prepare('SELECT 1').get();
+    assert.ok(canQuery, 'Database should be usable after migration');
+  });
+
+  test('transaction is closed after failure', async () => {
+    const registry = new MigrationRegistry({ directory: MIGRATION_DIR });
+    const ledger = new MigrationLedger(testDB.db);
+    ledger.initialize();
+    const executor = new MigrationExecutor(
+      testDB.db, registry, ledger,
+      new BackupManager('data/backups'),
+      new Validator(testDB.db),
+      new ConsoleLogger()
+    );
+
+    // Execute without 021 - should fail
+    const result = await executor.executeMigration('022', { createBackup: false });
+    assert.ok(!result.success, 'Migration 022 should fail');
+
+    // Verify database is still usable (transaction should be rolled back)
+    const canQuery = testDB.db.prepare('SELECT 1').get();
+    assert.ok(canQuery, 'Database should be usable after failure');
   });
 });

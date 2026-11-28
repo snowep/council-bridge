@@ -183,8 +183,9 @@ export class MigrationExecutor {
       // Migration 022 requires special handling - check schema before executing
       if (migration.id === '022') {
         // Verify prerequisites before executing
-        if (!this.verifyMigration022Prerequisites()) {
-          const err = new Error(`Prerequisite verification failed for migration ${migrationId}: migration 021 must be successfully applied first`);
+        const prereq = this.verifyMigration022Prerequisites();
+        if (!prereq.success) {
+          const err = new Error(`Prerequisite verification failed for migration ${migrationId}: migration 021 must be successfully applied first - ${prereq.error || 'unknown error'}`);
           this.logger.error(err.message, { migrationId });
           this.ledger.recordFailure(
             migration.id,
@@ -283,20 +284,27 @@ export class MigrationExecutor {
   /**
    * Verify that migration 021 prerequisite is satisfied.
    * Migration 022 requires 021_runtime_sessions_history.sql to be applied first.
+   * Returns an object with success flag and optional error message.
    */
-  private verifyMigration022Prerequisites(): boolean {
-    // Check if migration 021 is successfully applied in the ledger
-    if (!this.ledger.isApplied('021')) {
-      return false;
+  private verifyMigration022Prerequisites(): { success: boolean; error?: string } {
+    // Verify migration 021 exists in the registry
+    const migration021 = this.registry.getById('021');
+    if (!migration021) {
+      return { success: false, error: 'Migration 021 not found in registry' };
     }
 
-    // Verify 021 has a successful status
-    const entry = this.ledger.getAll().find(e => e.migration_id === '021');
-    if (entry && entry.status !== 'success') {
-      return false;
+    // Check if migration 021 has a ledger entry
+    const status = this.ledger.getStatus('021');
+    if (status === null) {
+      return { success: false, error: 'Migration 021 not recorded in ledger' };
     }
 
-    return true;
+    // Verify 021 has a successful status (reject pending, failed, rolled_back)
+    if (status !== 'success') {
+      return { success: false, error: `Migration 021 has status '${status}', expected 'success'` };
+    }
+
+    return { success: true };
   }
 
   /**
@@ -307,6 +315,7 @@ export class MigrationExecutor {
    * The schema-aware approach inspects the database before making changes,
    * ensuring no duplicate-column errors and proper index verification.
    * All schema changes execute atomically within a transaction.
+   * Post-migration validation is synchronous to avoid async boundaries inside transactions.
    */
   private async executeMigration022(
     migration: Migration,
@@ -318,7 +327,7 @@ export class MigrationExecutor {
 
     this.logger.info(`Starting schema-aware migration ${migrationId}`, { migrationId });
 
-    // Check current schema state
+    // Check current schema state (synchronous, outside transaction)
     const runtimeSessionsCols = this.db.prepare('PRAGMA table_info(runtime_sessions)').all() as Array<{ name: string }>;
     const runtimeSessionHistoryCols = this.db.prepare('PRAGMA table_info(runtime_session_history)').all() as Array<{ name: string }>;
 
@@ -345,11 +354,12 @@ export class MigrationExecutor {
 
     // Use a transaction to ensure atomicity of all schema changes
     let transactionError: Error | null = null;
+    let postValidation: ValidationResult = { passed: true, checks: [] };
+
+    // Start a transaction - better-sqlite3 uses synchronous transactions
+    this.db.exec('BEGIN IMMEDIATE TRANSACTION');
 
     try {
-      // Start a transaction - better-sqlite3 uses synchronous transactions
-      this.db.exec('BEGIN IMMEDIATE TRANSACTION');
-
       // Add missing columns to runtime_sessions
       if (!rsHasGeneration) {
         this.db.exec('ALTER TABLE runtime_sessions ADD COLUMN generation INTEGER DEFAULT 0');
@@ -386,17 +396,15 @@ export class MigrationExecutor {
         operations.push('idx_runtime_session_history_credential_id created');
       }
 
-      // Run post-migration validation before committing
-      const postValidation = await this.validator.postMigrationValidation(migration);
+      // Run POST-MIGRATION VALIDATION SYNCHRONOUSLY inside transaction
+      // This ensures all validation happens before COMMIT, and any failure triggers ROLLBACK
+      postValidation = this.validator.postMigrationValidationSync(migration);
 
       if (!postValidation.passed) {
         throw new Error(`Post-migration validation failed: ${postValidation.checks.filter(c => !c.passed).map(c => c.name).join(', ')}`);
       }
 
-      // Commit transaction
-      this.db.exec('COMMIT');
-
-      // Record success with actual metadata
+      // Record success in ledger (synchronous, part of same transaction)
       const durationMs = Date.now() - startTime;
       this.ledger.recordSuccess(
         migration.id,
@@ -407,6 +415,9 @@ export class MigrationExecutor {
         appliedBy,
         { targetTables: migration.targetTables, note: changesMade ? operations.join(', ') : 'no_changes_needed' }
       );
+
+      // Commit transaction
+      this.db.exec('COMMIT');
 
       this.logger.info(`Migration ${migrationId} completed`, {
         durationMs,
@@ -436,18 +447,27 @@ export class MigrationExecutor {
         durationMs: Date.now() - startTime
       });
 
-      // Record failure with actual metadata
       const durationMs = Date.now() - startTime;
-      this.ledger.recordFailure(
-        migration.id,
-        migration.filename,
-        migration.checksum,
-        transactionError,
-        durationMs,
-        backupResult?.backupPath || '',
-        appliedBy,
-        { targetTables: migration.targetTables }
-      );
+
+      // Record failure in ledger (synchronous, will be rolled back if still in transaction)
+      // After ROLLBACK, we need a new transaction for the ledger entry
+      this.db.exec('BEGIN IMMEDIATE TRANSACTION');
+      try {
+        this.ledger.recordFailure(
+          migration.id,
+          migration.filename,
+          migration.checksum,
+          transactionError,
+          durationMs,
+          backupResult?.backupPath || '',
+          appliedBy,
+          { targetTables: migration.targetTables }
+        );
+        this.db.exec('COMMIT');
+      } catch (recordError) {
+        this.logger.error(`Failed to record ledger failure after rollback`, { migrationId, error: String(recordError) });
+        try { this.db.exec('ROLLBACK'); } catch { }
+      }
 
       // Create a failed post-validation result
       const failedPostValidation: ValidationResult = {
