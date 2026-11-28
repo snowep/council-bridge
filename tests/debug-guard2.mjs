@@ -1,5 +1,5 @@
-import { resolve, relative, isAbsolute, dirname } from 'node:path';
-import { existsSync, realpathSync, lstatSync } from 'node:fs';
+import { resolve, isAbsolute, dirname } from 'node:path';
+import { existsSync, realpathSync } from 'node:fs';
 
 const dbPath = 'data/council.db';
 const baseDir = process.cwd();
@@ -12,7 +12,7 @@ if (!isAbsolute(dbPath)) {
 }
 console.log('After resolve:', normalizedPath);
 
-const parts = normalizedPath.split(/[/\]/g).filter(Boolean);
+const parts = normalizedPath.split(/[/\\]/g).filter(Boolean);
 console.log('parts:', parts);
 
 let resolvedPath = '';
