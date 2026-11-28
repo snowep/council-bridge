@@ -148,7 +148,7 @@ describe('P2-04: Staff Directory Authorization and Pagination', () => {
         return res.status(404).json({ error: 'Staff agent not found' });
       }
 
-      // Authorization check
+      // Authorization check - same policy as list endpoint
       if (ctx.owner_type !== 'founder') {
         if (ctx.owner_type === 'division') {
           const members = db.query('SELECT * FROM division_members WHERE division_id = ? AND staff_id = ?', [ctx.owner_id, id]);
@@ -156,8 +156,23 @@ describe('P2-04: Staff Directory Authorization and Pagination', () => {
             return res.status(404).json({ error: 'Staff agent not found' });
           }
         } else if (ctx.owner_type === 'staff') {
-          if (ctx.owner_id !== id) {
-            return res.status(404).json({ error: 'Staff agent not found' });
+          // Staff can access records of staff in their divisions (same policy as list)
+          // First check if accessing own record
+          if (ctx.owner_id === id) {
+            // Allow access to own record
+          } else {
+            // Check if target is in any of requesting staff's divisions
+            const myDivisions = db.query('SELECT division_id FROM division_members WHERE staff_id = ?', [ctx.owner_id]);
+            const myDivisionIds = myDivisions.map((d: any) => d.division_id);
+            if (myDivisionIds.length === 0) {
+              return res.status(404).json({ error: 'Staff agent not found' });
+            }
+            const targetDivisions = db.query('SELECT division_id FROM division_members WHERE staff_id = ?', [id]);
+            const targetDivisionIds = targetDivisions.map((d: any) => d.division_id);
+            const hasAccess = myDivisionIds.some(divId => targetDivisionIds.includes(divId));
+            if (!hasAccess) {
+              return res.status(404).json({ error: 'Staff agent not found' });
+            }
           }
         } else {
           return res.status(404).json({ error: 'Staff agent not found' });
@@ -284,11 +299,24 @@ describe('P2-04: Staff Directory Authorization and Pagination', () => {
       assert.ok(!visibleIds.includes('staff-004'), 'Should NOT see Dave from other division');
     });
 
-    it('should reject staff accessing other staff detail', async () => {
+    it('should allow staff to access colleague detail in same division', async () => {
+      // staff-001 (Alice) and staff-003 (Carol) are both in div-002
       const staffToken = createTestSession({ owner_type: 'staff', owner_id: 'staff-001', runtime: 'claude' });
 
       const response = await request(app)
         .get('/api/staff/staff-003')
+        .set('Authorization', `Bearer ${staffToken}`)
+        .expect(200);
+
+      assert.strictEqual(response.body.staff.staff_id, 'staff-003', 'Should allow access to colleague in same division');
+    });
+
+    it('should reject staff accessing colleague detail from different division', async () => {
+      // staff-001 (Alice) is NOT in div-003, staff-004 (Dave) is in div-003
+      const staffToken = createTestSession({ owner_type: 'staff', owner_id: 'staff-001', runtime: 'claude' });
+
+      const response = await request(app)
+        .get('/api/staff/staff-004')
         .set('Authorization', `Bearer ${staffToken}`)
         .expect(404);
     });

@@ -29,9 +29,18 @@ function canAccessStaffRecord(ctx: any, staffId: string): boolean {
     return members.some(m => m.staff_id === staffId);
   }
 
-  // Staff can only access their own record
+  // Staff can access records of staff in their divisions (same policy as list endpoint)
   if (ctx.owner_type === 'staff') {
-    return ctx.owner_id === staffId;
+    // First check if staff is accessing their own record
+    if (ctx.owner_id === staffId) return true;
+    // Then check if target is a member of any of staff's divisions
+    const myDivisions = db.query('SELECT division_id FROM division_members WHERE staff_id = ?', [ctx.owner_id]);
+    const myDivisionIds = myDivisions.map((d: any) => d.division_id);
+    if (myDivisionIds.length === 0) return false;
+    const targetMemberships = db.query('SELECT division_id FROM division_members WHERE staff_id = ?', [staffId]);
+    const targetDivisionIds = targetMemberships.map((d: any) => d.division_id);
+    // Return true if target is a member of any division that the requesting staff is in
+    return myDivisionIds.some(divId => targetDivisionIds.includes(divId));
   }
 
   return false;
