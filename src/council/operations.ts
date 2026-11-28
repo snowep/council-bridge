@@ -389,10 +389,12 @@ export function requireStaffAgent(ctx: { owner_type: MemoryOwnerType; owner_id: 
 export function createTaskAutonomyLevel(
   db: DatabaseInstance,
   ctx: OperationContext,
-  input: CreateTaskAutonomyLevelInput
+  input: CreateTaskAutonomyLevelInput,
+  signal?: AbortSignal
 ): TaskAutonomyLevel {
   const identity = requireAuthenticated(ctx);
   if (!isFounder(identity)) throw new Error('Only Founder can define task autonomy levels');
+  if (signal?.aborted) throw new Error('Operation cancelled');
   if (getTaskAutonomyLevel(db, input.task_type)) {
     throw new Error(`Task autonomy level for '${input.task_type}' already exists`);
   }
@@ -419,9 +421,11 @@ export function updateTaskAutonomyLevel(
   ctx: OperationContext,
   taskType: string,
   autonomyLevel: AutonomyLevel,
-  description?: string
+  description?: string,
+  signal?: AbortSignal
 ): TaskAutonomyLevel {
   requireFounderContext(ctx);
+  if (signal?.aborted) throw new Error('Operation cancelled');
   const existing = getTaskAutonomyLevel(db, taskType);
   if (!existing) throw new Error(`Task autonomy level for '${taskType}' not found`);
   db.db.prepare(
@@ -527,8 +531,10 @@ export function approveExecution(
   db: DatabaseInstance,
   ctx: OperationContext,
   input: ApproveExecutionInput,
+  signal?: AbortSignal
 ): { success: boolean; approval_request_id: string; status: string; execution_id?: string } {
   const identity = requireFounderContext(ctx, 'Only Founder can approve execution requests');
+  if (signal?.aborted) throw new Error('Operation cancelled');
   const approval = db.query(
     'SELECT * FROM approval_requests WHERE approval_request_id = ?',
     [input.approval_request_id]
@@ -548,6 +554,7 @@ export function approveExecution(
   const newStatus = input.approved ? 'approved' : 'rejected';
   db.runPreparedStatement('beginTransaction', []);
   try {
+    if (signal?.aborted) throw new Error('Operation cancelled during transaction');
     db.runPreparedStatement('updateExecutionRequest', [
       existing.task_id, existing.requested_by_type, existing.requested_by_id,
       existing.autonomy_level, existing.action_description, JSON.stringify(existing.action_payload),

@@ -871,9 +871,11 @@ function isFounder(ctx: OperationContext): boolean {
 export function createDeliverableDraft(
   db: DatabaseInstance,
   ctx: OperationContext,
-  input: CreateDeliverableDraftInput
+  input: CreateDeliverableDraftInput,
+  signal?: AbortSignal
 ): { deliverable_id: string; task_id: string; status: string; version: number; created_at: string } {
   const identity = requireAuthenticated(ctx);
+  if (signal?.aborted) throw new Error('Operation cancelled');
 
   // Verify task exists and user has access
   const task = getDelegationTaskById(db, null, input.task_id);
@@ -951,9 +953,11 @@ export function createDeliverableDraft(
 export function submitDeliverable(
   db: DatabaseInstance,
   ctx: OperationContext,
-  input: SubmitDeliverableInput
+  input: SubmitDeliverableInput,
+  signal?: AbortSignal
 ): { deliverable_id: string; task_id: string; status: string; version: number; quality_score: number | null; created_at: string } {
   const identity = requireAuthenticated(ctx);
+  if (signal?.aborted) throw new Error('Operation cancelled');
 
   // Get the draft deliverable
   const draft = db.query('SELECT * FROM deliverables WHERE deliverable_id = ?', [input.deliverable_id]);
@@ -1302,9 +1306,11 @@ export function requestRevision(
 export function resubmitDeliverable(
   db: DatabaseInstance,
   ctx: OperationContext,
-  input: ResubmitDeliverableInput
+  input: ResubmitDeliverableInput,
+  signal?: AbortSignal
 ): { deliverable_id: string; task_id: string; status: string; version: number; quality_score: number | null; created_at: string } {
   const identity = requireAuthenticated(ctx);
+  if (signal?.aborted) throw new Error('Operation cancelled');
 
   // Get deliverable
   const deliverable = db.query('SELECT * FROM deliverables WHERE deliverable_id = ?', [input.deliverable_id]);
@@ -1432,9 +1438,11 @@ export function resubmitDeliverable(
 export function approveDeliverable(
   db: DatabaseInstance,
   ctx: OperationContext,
-  input: ApproveDeliverableInput
+  input: ApproveDeliverableInput,
+  signal?: AbortSignal
 ): { deliverable_id: string; approved: boolean; requires_founder_sig: boolean } {
   const identity = requireAuthenticated(ctx);
+  if (signal?.aborted) throw new Error('Operation cancelled');
 
   // Get deliverable and task
   const deliverable = db.query('SELECT * FROM deliverables WHERE deliverable_id = ?', [input.deliverable_id]);
@@ -1621,9 +1629,11 @@ export function approveDeliverable(
 export function rejectDeliverable(
   db: DatabaseInstance,
   ctx: OperationContext,
-  input: RejectDeliverableInput
+  input: RejectDeliverableInput,
+  signal?: AbortSignal
 ): void {
   const identity = requireAuthenticated(ctx);
+  if (signal?.aborted) throw new Error('Operation cancelled');
 
   // Get deliverable and task
   const deliverable = db.query('SELECT * FROM deliverables WHERE deliverable_id = ?', [input.deliverable_id]);
@@ -1819,9 +1829,11 @@ export function getDeliverableHistory(
 export function setQualityThreshold(
   db: DatabaseInstance,
   ctx: OperationContext,
-  input: QualityThresholdInput
+  input: QualityThresholdInput,
+  signal?: AbortSignal
 ): void {
   const identity = requireFounder(ctx);
+  if (signal?.aborted) throw new Error('Operation cancelled');
 
   // Validate threshold
   if (input.min_quality_score < 0 || input.min_quality_score > 100) {
@@ -1835,8 +1847,6 @@ export function setQualityThreshold(
       : input.task_type
         ? `global-${input.task_type}`
         : 'default-global';
-
-  const now = new Date().toISOString();
 
   const existing = db.query('SELECT * FROM quality_thresholds WHERE threshold_id = ?', [thresholdId]);
   if (existing.length > 0) {

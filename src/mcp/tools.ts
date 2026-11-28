@@ -211,11 +211,12 @@ type ServiceFnWithSignal<TArgs extends Record<string, any>, TResult> = (
   signal: AbortSignal
 ) => TResult | Promise<TResult>;
 
-// Tool handler wrapper for service-layer operations (without abort signal for backward compatibility)
+// Tool handler wrapper for service-layer operations (with abort signal for TOCTOU protection)
 function createToolHandler<TArgs extends Record<string, any>, TResult>(
   db: DatabaseInstance,
   getAuthContext: (req: any) => OperationContext | null | undefined,
-  serviceFn: (db: DatabaseInstance, ctx: OperationContext, args: TArgs) => TResult
+  serviceFn: (db: DatabaseInstance, ctx: OperationContext, args: TArgs, signal?: AbortSignal) => TResult | Promise<TResult>,
+  guardSignal?: AbortSignal
 ) {
   return async (args: TArgs, extra: RequestHandlerExtra<any, any>): Promise<CallToolResult> => {
     try {
@@ -227,7 +228,16 @@ function createToolHandler<TArgs extends Record<string, any>, TResult>(
       // Validate authentication
       requireAuthenticated(ctx);
 
-      const result = await serviceFn(db, ctx, args);
+      // Combine guard signal (from execution guard) with MCP request signal
+      // Guard signal takes precedence for permit-renewal failures
+      const combinedSignal = guardSignal && extra.signal ? AbortSignal.any([guardSignal, extra.signal]) : (guardSignal ?? extra.signal);
+
+      // Check abort signal before executing protected operations
+      if (combinedSignal?.aborted) {
+        return mcpError('Execution cancelled due to session change or expiry', 'PERMIT_RENEWAL_FAILED');
+      }
+
+      const result = await serviceFn(db, ctx, args, combinedSignal);
       return {
         content: [{ type: 'text', text: JSON.stringify(result) }],
       };
@@ -304,13 +314,13 @@ export function registerMcpTools(
     'send_message',
     'Send a message to another agent',
     SendMessageSchema.shape,
-    createToolHandler(db, getAuthContext, async (db, ctx, args) => {
+    createToolHandlerWithSignal(db, getAuthContext, async (db, ctx, args, signal) => {
       // Verify sender identity matches authenticated context
       if (ctx.owner_type !== 'founder' && args.sender_id !== ctx.owner_id) {
         throw new Error('Sender ID must match authenticated identity');
       }
       return messageService.sendMessage(args);
-    })
+    }, guardSignal)
   );
 
   mcpServer.tool(
@@ -367,12 +377,12 @@ export function registerMcpTools(
     'reply_message',
     'Reply to a message',
     ReplyMessageSchema.shape,
-    createToolHandler(db, getAuthContext, async (db, ctx, args) => {
+    createToolHandlerWithSignal(db, getAuthContext, async (db, ctx, args, signal) => {
       if (ctx.owner_type !== 'founder' && args.agent_id !== ctx.owner_id) {
         throw new Error('Can only reply as authenticated agent');
       }
       return messageService.replyMessage(args);
-    })
+    }, guardSignal)
   );
 
   // list_messages - agent can only list own messages
@@ -401,19 +411,19 @@ export function registerMcpTools(
     'create_task_autonomy_level',
     'Create a task autonomy level definition (Founder only)',
     CreateTaskAutonomyLevelSchema.shape,
-    createToolHandler(db, getAuthContext, async (db, ctx, args) => {
+    createToolHandlerWithSignal(db, getAuthContext, async (db, ctx, args, signal) => {
       // Founder-only operation enforced by service layer
-      return createTaskAutonomyLevel(db, ctx, args);
-    })
+      return createTaskAutonomyLevel(db, ctx, args, signal);
+    }, guardSignal)
   );
 
   mcpServer.tool(
     'update_task_autonomy_level',
     'Update a task autonomy level definition (Founder only)',
     UpdateTaskAutonomyLevelSchema.shape,
-    createToolHandler(db, getAuthContext, async (db, ctx, args) => {
-      return updateTaskAutonomyLevel(db, ctx, args.task_type, args.autonomy_level, args.description);
-    })
+    createToolHandlerWithSignal(db, getAuthContext, async (db, ctx, args, signal) => {
+      return updateTaskAutonomyLevel(db, ctx, args.task_type, args.autonomy_level, args.description, signal);
+    }, guardSignal)
   );
 
   mcpServer.tool(
@@ -496,10 +506,10 @@ export function registerMcpTools(
     'approve_execution',
     'Approve or reject a Level 3 execution request (Founder only)',
     ApproveExecutionSchema.shape,
-    createToolHandler(db, getAuthContext, async (db, ctx, args) => {
+    createToolHandlerWithSignal(db, getAuthContext, async (db, ctx, args, signal) => {
       // Service layer enforces Founder-only
-      return approveExecution(db, ctx, args);
-    })
+      return approveExecution(db, ctx, args, signal);
+    }, guardSignal)
   );
 
   mcpServer.tool(
@@ -532,20 +542,20 @@ export function registerMcpTools(
     'create_deliverable_draft',
     'Create a deliverable draft',
     CreateDeliverableDraftSchema.shape,
-    createToolHandler(db, getAuthContext, async (db, ctx, args) => {
+    createToolHandlerWithSignal(db, getAuthContext, async (db, ctx, args, signal) => {
       const { createDeliverableDraft } = await import('../council/task-delegation.js');
-      return createDeliverableDraft(db, ctx, args);
-    })
+      return createDeliverableDraft(db, ctx, args, signal);
+    }, guardSignal)
   );
 
   mcpServer.tool(
     'submit_deliverable',
     'Submit a deliverable for review',
     SubmitDeliverableSchema.shape,
-    createToolHandler(db, getAuthContext, async (db, ctx, args) => {
+    createToolHandlerWithSignal(db, getAuthContext, async (db, ctx, args, signal) => {
       const { submitDeliverable } = await import('../council/task-delegation.js');
-      return submitDeliverable(db, ctx, args);
-    })
+      return submitDeliverable(db, ctx, args, signal);
+    }, guardSignal)
   );
 
   mcpServer.tool(
@@ -572,30 +582,30 @@ export function registerMcpTools(
     'resubmit_deliverable',
     'Resubmit a deliverable after revision',
     ResubmitDeliverableSchema.shape,
-    createToolHandler(db, getAuthContext, async (db, ctx, args) => {
+    createToolHandlerWithSignal(db, getAuthContext, async (db, ctx, args, signal) => {
       const { resubmitDeliverable } = await import('../council/task-delegation.js');
-      return resubmitDeliverable(db, ctx, args);
-    })
+      return resubmitDeliverable(db, ctx, args, signal);
+    }, guardSignal)
   );
 
   mcpServer.tool(
     'approve_deliverable',
     'Approve a deliverable with HITL enforcement',
     ApproveDeliverableSchema.shape,
-    createToolHandler(db, getAuthContext, async (db, ctx, args) => {
+    createToolHandlerWithSignal(db, getAuthContext, async (db, ctx, args, signal) => {
       const { approveDeliverable } = await import('../council/task-delegation.js');
-      return approveDeliverable(db, ctx, args);
-    })
+      return approveDeliverable(db, ctx, args, signal);
+    }, guardSignal)
   );
 
   mcpServer.tool(
     'reject_deliverable',
     'Reject a deliverable',
     RejectDeliverableSchema.shape,
-    createToolHandler(db, getAuthContext, async (db, ctx, args) => {
+    createToolHandlerWithSignal(db, getAuthContext, async (db, ctx, args, signal) => {
       const { rejectDeliverable } = await import('../council/task-delegation.js');
-      return rejectDeliverable(db, ctx, args);
-    })
+      return rejectDeliverable(db, ctx, args, signal);
+    }, guardSignal)
   );
 
   mcpServer.tool(
@@ -612,10 +622,10 @@ export function registerMcpTools(
     'set_quality_threshold',
     'Set quality threshold (Founder only)',
     SetQualityThresholdSchema.shape,
-    createToolHandler(db, getAuthContext, async (db, ctx, args) => {
+    createToolHandlerWithSignal(db, getAuthContext, async (db, ctx, args, signal) => {
       const { setQualityThreshold } = await import('../council/task-delegation.js');
-      return setQualityThreshold(db, ctx, args);
-    })
+      return setQualityThreshold(db, ctx, args, signal);
+    }, guardSignal)
   );
 
   mcpServer.tool(
