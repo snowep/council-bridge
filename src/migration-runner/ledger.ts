@@ -95,6 +95,19 @@ export class MigrationLedger {
     `).run(migrationId, filename, checksum, appliedBy, durationMs, backupPath, JSON.stringify({ ...notes, error: error.message, stack: error.stack }));
   }
 
+  recordPending(
+    migrationId: string,
+    filename: string,
+    checksum: string,
+    notes: Record<string, unknown> = {}
+  ): void {
+    this.db.prepare(`
+      INSERT OR REPLACE INTO ${this.config.table}
+      (migration_id, filename, checksum, applied_at, applied_by, duration_ms, status, backup_path, notes)
+      VALUES (?, ?, ?, datetime('now'), 'system', 0, 'pending', NULL, ?)
+    `).run(migrationId, filename, checksum, JSON.stringify(notes));
+  }
+
   recordRolledBack(
     migrationId: string,
     filename: string,

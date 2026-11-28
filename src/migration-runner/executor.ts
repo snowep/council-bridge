@@ -178,10 +178,35 @@ export class MigrationExecutor {
 
     // Execute migration - use schema-aware logic for migration 022
     let error: Error | undefined;
+    let executedMigration = migration;
     try {
       // Migration 022 requires special handling - check schema before executing
       if (migration.id === '022') {
-        const result = await this.executeMigration022();
+        // Verify prerequisites before executing
+        if (!this.verifyMigration022Prerequisites()) {
+          const err = new Error(`Prerequisite verification failed for migration ${migrationId}: migration 021 must be successfully applied first`);
+          this.logger.error(err.message, { migrationId });
+          this.ledger.recordFailure(
+            migration.id,
+            migration.filename,
+            migration.checksum,
+            err,
+            Date.now() - startTime,
+            backupResult?.backupPath || '',
+            appliedBy,
+            { targetTables: migration.targetTables, reason: 'prerequisite_not_met' }
+          );
+          return {
+            success: false,
+            durationMs: Date.now() - startTime,
+            error: err,
+            backupResult,
+            preValidation,
+            postValidation
+          };
+        }
+        const result = await this.executeMigration022(migration, backupResult, appliedBy);
+        executedMigration = migration;
         return result;
       }
 
@@ -234,14 +259,14 @@ export class MigrationExecutor {
 
       // Record failure in ledger
       this.ledger.recordFailure(
-        migration.id,
-        migration.filename,
-        migration.checksum,
+        executedMigration.id,
+        executedMigration.filename,
+        executedMigration.checksum,
         error,
         Date.now() - startTime,
         backupResult?.backupPath || '',
         appliedBy,
-        { targetTables: migration.targetTables }
+        { targetTables: executedMigration.targetTables }
       );
 
       return {
@@ -256,14 +281,38 @@ export class MigrationExecutor {
   }
 
   /**
+   * Verify that migration 021 prerequisite is satisfied.
+   * Migration 022 requires 021_runtime_sessions_history.sql to be applied first.
+   */
+  private verifyMigration022Prerequisites(): boolean {
+    // Check if migration 021 is successfully applied in the ledger
+    if (!this.ledger.isApplied('021')) {
+      return false;
+    }
+
+    // Verify 021 has a successful status
+    const entry = this.ledger.getAll().find(e => e.migration_id === '021');
+    if (entry && entry.status !== 'success') {
+      return false;
+    }
+
+    return true;
+  }
+
+  /**
    * Execute migration 022 with schema-aware column and index verification.
    * This migration adds 'generation' and 'credential_id' columns to
    * runtime_sessions and runtime_session_history tables.
    *
    * The schema-aware approach inspects the database before making changes,
    * ensuring no duplicate-column errors and proper index verification.
+   * All schema changes execute atomically within a transaction.
    */
-  private async executeMigration022(): Promise<ExecutionResult> {
+  private async executeMigration022(
+    migration: Migration,
+    backupResult: BackupResult | undefined,
+    appliedBy: string
+  ): Promise<ExecutionResult> {
     const migrationId = '022';
     const startTime = Date.now();
 
@@ -294,101 +343,130 @@ export class MigrationExecutor {
     let changesMade = false;
     const operations: string[] = [];
 
-    // Add missing columns to runtime_sessions
-    if (!rsHasGeneration) {
-      this.db.exec('ALTER TABLE runtime_sessions ADD COLUMN generation INTEGER DEFAULT 0');
-      changesMade = true;
-      operations.push('runtime_sessions.generation added');
-    }
-    if (!rsHasCredentialId) {
-      this.db.exec('ALTER TABLE runtime_sessions ADD COLUMN credential_id TEXT');
-      changesMade = true;
-      operations.push('runtime_sessions.credential_id added');
-    }
+    // Use a transaction to ensure atomicity of all schema changes
+    let transactionError: Error | null = null;
 
-    // Add missing columns to runtime_session_history
-    if (!rshHasGeneration) {
-      this.db.exec('ALTER TABLE runtime_session_history ADD COLUMN generation INTEGER DEFAULT 0');
-      changesMade = true;
-      operations.push('runtime_session_history.generation added');
-    }
-    if (!rshHasCredentialId) {
-      this.db.exec('ALTER TABLE runtime_session_history ADD COLUMN credential_id TEXT');
-      changesMade = true;
-      operations.push('runtime_session_history.credential_id added');
-    }
+    try {
+      // Start a transaction - better-sqlite3 uses synchronous transactions
+      this.db.exec('BEGIN IMMEDIATE TRANSACTION');
 
-    // Create missing indexes (always verify/create, even if columns exist)
-    if (!rsHasCredIdx) {
-      this.db.exec('CREATE INDEX IF NOT EXISTS idx_runtime_sessions_credential_id ON runtime_sessions(credential_id)');
-      changesMade = true;
-      operations.push('idx_runtime_sessions_credential_id created');
-    }
-    if (!rshHasCredIdx) {
-      this.db.exec('CREATE INDEX IF NOT EXISTS idx_runtime_session_history_credential_id ON runtime_session_history(credential_id)');
-      changesMade = true;
-      operations.push('idx_runtime_session_history_credential_id created');
-    }
+      // Add missing columns to runtime_sessions
+      if (!rsHasGeneration) {
+        this.db.exec('ALTER TABLE runtime_sessions ADD COLUMN generation INTEGER DEFAULT 0');
+        changesMade = true;
+        operations.push('runtime_sessions.generation added');
+      }
+      if (!rsHasCredentialId) {
+        this.db.exec('ALTER TABLE runtime_sessions ADD COLUMN credential_id TEXT');
+        changesMade = true;
+        operations.push('runtime_sessions.credential_id added');
+      }
 
-    // Run post-migration validation
-    const postValidation = await this.validator.postMigrationValidation({
-      id: migrationId,
-      filename: '022_add_credential_id_to_runtime_sessions.sql',
-      filepath: '',
-      type: 'alter_additive',
-      dependencies: ['021'],
-      targetTables: ['runtime_sessions', 'runtime_session_history'],
-      description: 'add_credential_id_to_runtime_sessions',
-      checksum: ''
-    });
+      // Add missing columns to runtime_session_history
+      if (!rshHasGeneration) {
+        this.db.exec('ALTER TABLE runtime_session_history ADD COLUMN generation INTEGER DEFAULT 0');
+        changesMade = true;
+        operations.push('runtime_session_history.generation added');
+      }
+      if (!rshHasCredentialId) {
+        this.db.exec('ALTER TABLE runtime_session_history ADD COLUMN credential_id TEXT');
+        changesMade = true;
+        operations.push('runtime_session_history.credential_id added');
+      }
 
-    if (!postValidation.passed) {
+      // Create missing indexes (always verify/create, even if columns exist)
+      if (!rsHasCredIdx) {
+        this.db.exec('CREATE INDEX IF NOT EXISTS idx_runtime_sessions_credential_id ON runtime_sessions(credential_id)');
+        changesMade = true;
+        operations.push('idx_runtime_sessions_credential_id created');
+      }
+      if (!rshHasCredIdx) {
+        this.db.exec('CREATE INDEX IF NOT EXISTS idx_runtime_session_history_credential_id ON runtime_session_history(credential_id)');
+        changesMade = true;
+        operations.push('idx_runtime_session_history_credential_id created');
+      }
+
+      // Run post-migration validation before committing
+      const postValidation = await this.validator.postMigrationValidation(migration);
+
+      if (!postValidation.passed) {
+        throw new Error(`Post-migration validation failed: ${postValidation.checks.filter(c => !c.passed).map(c => c.name).join(', ')}`);
+      }
+
+      // Commit transaction
+      this.db.exec('COMMIT');
+
+      // Record success with actual metadata
       const durationMs = Date.now() - startTime;
-      this.logger.error(`Migration ${migrationId} failed post-validation`, {
-        migrationId,
-        errors: postValidation.checks.filter(c => !c.passed).map(c => c.name)
-      });
-      this.ledger.recordFailure(
-        migrationId,
-        '022_add_credential_id_to_runtime_sessions.sql',
-        '',
-        new Error(`Post-migration validation failed`),
+      this.ledger.recordSuccess(
+        migration.id,
+        migration.filename,
+        migration.checksum,
         durationMs,
-        '',
-        'system',
-        { targetTables: ['runtime_sessions', 'runtime_session_history'] }
+        backupResult?.backupPath || '',
+        appliedBy,
+        { targetTables: migration.targetTables, note: changesMade ? operations.join(', ') : 'no_changes_needed' }
       );
+
+      this.logger.info(`Migration ${migrationId} completed`, {
+        durationMs,
+        changesMade,
+        operations
+      });
+
+      return {
+        success: true,
+        durationMs,
+        backupResult,
+        postValidation
+      };
+    } catch (e) {
+      transactionError = e instanceof Error ? e : new Error(String(e));
+
+      // Rollback on any error
+      try {
+        this.db.exec('ROLLBACK');
+      } catch {
+        this.logger.error(`Failed to rollback transaction`, { migrationId });
+      }
+
+      this.logger.error(`Migration ${migrationId} failed`, {
+        migrationId,
+        error: transactionError.message,
+        durationMs: Date.now() - startTime
+      });
+
+      // Record failure with actual metadata
+      const durationMs = Date.now() - startTime;
+      this.ledger.recordFailure(
+        migration.id,
+        migration.filename,
+        migration.checksum,
+        transactionError,
+        durationMs,
+        backupResult?.backupPath || '',
+        appliedBy,
+        { targetTables: migration.targetTables }
+      );
+
+      // Create a failed post-validation result
+      const failedPostValidation: ValidationResult = {
+        passed: false,
+        checks: [{
+          name: 'post_validation',
+          passed: false,
+          message: `Validation failed: ${transactionError.message}`
+        }]
+      };
+
       return {
         success: false,
         durationMs,
-        error: new Error(`Post-migration validation failed`),
-        postValidation
+        error: transactionError,
+        backupResult,
+        postValidation: failedPostValidation
       };
     }
-
-    // Record success
-    const durationMs = Date.now() - startTime;
-    this.ledger.recordSuccess(
-      migrationId,
-      '022_add_credential_id_to_runtime_sessions.sql',
-      '',
-      durationMs,
-      '',
-      'system',
-      { targetTables: ['runtime_sessions', 'runtime_session_history'], note: changesMade ? operations.join(', ') : 'no_changes_needed' }
-    );
-
-    this.logger.info(`Migration ${migrationId} completed`, {
-      durationMs,
-      changesMade,
-      operations
-    });
-
-    return {
-      success: true,
-      durationMs,
-      postValidation
-    };
   }
 
   async executeAll(
